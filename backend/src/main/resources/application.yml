@@ -17,6 +17,20 @@ server:
   shutdown: graceful
   port: ${LOREDOCK_BACKEND_PORT:8080}
 
+sa-token:
+  token-name: loredock_session
+  timeout: ${LOREDOCK_WEB_SESSION_TIMEOUT_SECONDS:1800}
+  is-read-header: false
+  is-read-body: false
+  is-read-cookie: true
+  is-write-header: false
+  is-lasting-cookie: true
+  cookie:
+    path: /
+    secure: ${LOREDOCK_WEB_COOKIE_SECURE:false}
+    http-only: true
+    same-site: Strict
+
 mybatis-plus:
   type-handlers-package: io.github.loredock.platform.persistence
   configuration:
@@ -40,6 +54,12 @@ management:
         include: health
 
 loredock:
+  demo:
+    seed-enabled: ${LOREDOCK_DEMO_SEED_ENABLED:false}
+  identity:
+    mcp:
+      # 仅接受原始高熵 Token 的小写 SHA-256 摘要；缺失时服务拒绝就绪。
+      token-sha256: ${LOREDOCK_MCP_TOKEN_SHA256:}
   storage:
     root: ${LOREDOCK_STORAGE_ROOT:./data/objects}
   jobs:

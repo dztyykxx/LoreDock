@@ -20,4 +20,20 @@ class SensitiveDataRedactorTest {
                 .doesNotContain("secret-value", "abc123", "jdbc:postgresql", "/Users/demo")
                 .contains("[REDACTED]");
     }
+
+    /**
+     * 业务目的：安全日志还必须移除 Cookie、Authorization 和裸 Token 摘要，防止认证边界的凭据副本进入诊断日志。
+     */
+    @Test
+    void redactsHttpCredentialsAndBareSha256Digest() {
+        SensitiveDataRedactor redactor = new SensitiveDataRedactor();
+        String digest = "a".repeat(64);
+
+        String redacted = redactor.redact(
+                "Cookie: loredock_session=session-secret Authorization: Bearer raw-token digest=" + digest);
+
+        assertThat(redacted)
+                .doesNotContain("session-secret", "raw-token", digest)
+                .contains("[REDACTED]");
+    }
 }

@@ -7,6 +7,14 @@ import org.springframework.http.HttpStatus;
  */
 public enum ErrorCode {
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, "请求参数不合法"),
+    AUTH_INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "账号或密码错误"),
+    AUTH_LOGIN_REQUIRED(HttpStatus.UNAUTHORIZED, "请先登录"),
+    AUTH_FORBIDDEN(HttpStatus.FORBIDDEN, "当前身份无权执行此操作"),
+    MCP_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "MCP Token 无效"),
+    PROJECT_NOT_FOUND(HttpStatus.NOT_FOUND, "项目不存在"),
+    BRANCH_NOT_FOUND(HttpStatus.NOT_FOUND, "分支不存在"),
+    PROJECT_IDENTIFIER_CONFLICT(HttpStatus.CONFLICT, "项目标识已存在"),
+    BRANCH_NAME_CONFLICT(HttpStatus.CONFLICT, "项目分支已存在"),
     OBJECT_NOT_FOUND(HttpStatus.NOT_FOUND, "对象不存在"),
     INVALID_OBJECT_KEY(HttpStatus.BAD_REQUEST, "对象键不合法"),
     STORAGE_WRITE_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "对象写入失败"),

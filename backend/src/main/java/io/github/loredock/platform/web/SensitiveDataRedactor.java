@@ -11,9 +11,13 @@ import java.util.regex.Pattern;
 public class SensitiveDataRedactor {
 
     private static final int MAX_DIAGNOSTIC_LENGTH = 32_000;
-    private static final Pattern CREDENTIAL = Pattern.compile(
-            "(?i)(password|token|authorization|api[_-]?key)\\s*[:=]\\s*[^\\s,;]+"
+    private static final Pattern HTTP_CREDENTIAL_HEADER = Pattern.compile(
+            "(?i)(authorization|cookie|set-cookie)\\s*[:=]\\s*[^\\r\\n]+"
     );
+    private static final Pattern CREDENTIAL = Pattern.compile(
+            "(?i)(password|token|authorization|api[_-]?key|digest)\\s*[:=]\\s*[^\\s,;]+"
+    );
+    private static final Pattern SHA256_DIGEST = Pattern.compile("(?i)(?<![0-9a-f])[0-9a-f]{64}(?![0-9a-f])");
     private static final Pattern JDBC_URL = Pattern.compile("(?i)jdbc:[^\\s]+", Pattern.MULTILINE);
     private static final Pattern ABSOLUTE_PATH = Pattern.compile(
             "(?:(?:[A-Za-z]:\\\\)|/)(?:[^\\s/:]+[/\\\\]){1,}[^\\s:]*"
@@ -29,7 +33,9 @@ public class SensitiveDataRedactor {
         if (value == null || value.isBlank()) {
             return "[NO_DIAGNOSTIC_MESSAGE]";
         }
-        String redacted = CREDENTIAL.matcher(value).replaceAll("$1=[REDACTED]");
+        String redacted = HTTP_CREDENTIAL_HEADER.matcher(value).replaceAll("$1=[REDACTED]");
+        redacted = CREDENTIAL.matcher(redacted).replaceAll("$1=[REDACTED]");
+        redacted = SHA256_DIGEST.matcher(redacted).replaceAll("[REDACTED_SHA256]");
         redacted = JDBC_URL.matcher(redacted).replaceAll("[REDACTED_JDBC_URL]");
         redacted = ABSOLUTE_PATH.matcher(redacted).replaceAll("[REDACTED_PATH]");
         return redacted.substring(0, Math.min(redacted.length(), MAX_DIAGNOSTIC_LENGTH));

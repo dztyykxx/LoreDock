@@ -1,18 +1,24 @@
 package io.github.loredock.platform.web;
 
+import cn.dev33.satoken.exception.NotLoginException;
+import cn.dev33.satoken.exception.NotPermissionException;
+import cn.dev33.satoken.exception.NotRoleException;
+import io.github.loredock.identity.application.ForbiddenOperationException;
+import io.github.loredock.identity.application.InvalidCredentialsException;
+import io.github.loredock.identity.application.LoginRequiredException;
 import io.github.loredock.platform.time.TimeProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -24,7 +30,7 @@ import java.util.Locale;
 public class GlobalExceptionHandler {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(GlobalExceptionHandler.class);
-    private final TimeProvider timeProvider;
+    private final SecurityErrorFactory errorFactory;
     private final SensitiveDataRedactor redactor;
 
     /**
@@ -32,7 +38,7 @@ public class GlobalExceptionHandler {
      * @param redactor 日志诊断脱敏器
      */
     public GlobalExceptionHandler(TimeProvider timeProvider, SensitiveDataRedactor redactor) {
-        this.timeProvider = timeProvider;
+        this.errorFactory = new SecurityErrorFactory(timeProvider);
         this.redactor = redactor;
     }
 
@@ -51,6 +57,39 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * 统一映射错误账号与错误密码，不记录异常对象以避免未来误携带提交凭据。
+     *
+     * @param exception 固定凭据失败
+     * @return 统一 401 错误
+     */
+    @ExceptionHandler(InvalidCredentialsException.class)
+    public ResponseEntity<ApiError> handleInvalidCredentials(InvalidCredentialsException exception) {
+        return identityError(ErrorCode.AUTH_INVALID_CREDENTIALS, "invalid_credentials");
+    }
+
+    /**
+     * 映射应用与 Sa-Token 的未登录语义；Cookie 和 Token 值不会写入日志。
+     *
+     * @param exception 无有效 Web 会话
+     * @return 统一 401 错误
+     */
+    @ExceptionHandler({LoginRequiredException.class, NotLoginException.class})
+    public ResponseEntity<ApiError> handleLoginRequired(Exception exception) {
+        return identityError(ErrorCode.AUTH_LOGIN_REQUIRED, "login_required");
+    }
+
+    /**
+     * 映射已登录但角色或权限不足，明确与未登录 401 区分。
+     *
+     * @param exception 服务端授权拒绝
+     * @return 统一 403 错误
+     */
+    @ExceptionHandler({ForbiddenOperationException.class, NotRoleException.class, NotPermissionException.class})
+    public ResponseEntity<ApiError> handleForbidden(Exception exception) {
+        return identityError(ErrorCode.AUTH_FORBIDDEN, "forbidden");
+    }
+
+    /**
      * 汇总请求字段错误，只返回字段路径和约束原因码，不回显拒绝值。
      *
      * @param exception Bean Validation 失败
@@ -63,6 +102,19 @@ public class GlobalExceptionHandler {
                 .sorted(Comparator.comparing(FieldError::field))
                 .toList();
         return ResponseEntity.badRequest().body(error(ErrorCode.INVALID_REQUEST, fields));
+    }
+
+    /**
+     * 映射 JSON/枚举/UUID 解析与领域值对象拒绝，不回显原始请求值或转换异常正文。
+     *
+     * @param exception 不可安全继续处理的输入
+     * @return 统一 400 错误
+     */
+    @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class,
+            IllegalArgumentException.class})
+    public ResponseEntity<ApiError> handleMalformedInput(Exception exception) {
+        LOGGER.warn("request_validation_failure traceId={} classification=malformed_input", traceId());
+        return ResponseEntity.badRequest().body(error(ErrorCode.INVALID_REQUEST, List.of()));
     }
 
     /**
@@ -79,13 +131,13 @@ public class GlobalExceptionHandler {
     }
 
     private ApiError error(ErrorCode code, List<FieldError> fieldErrors) {
-        return new ApiError(
-                code.name(),
-                code.publicMessage(),
-                OffsetDateTime.ofInstant(timeProvider.now(), ZoneOffset.UTC),
-                traceId(),
-                fieldErrors
-        );
+        return errorFactory.create(code, fieldErrors);
+    }
+
+    private ResponseEntity<ApiError> identityError(ErrorCode code, String classification) {
+        LOGGER.warn("identity_failure traceId={} code={} classification={}",
+                traceId(), code.name(), classification);
+        return ResponseEntity.status(code.status()).body(error(code, List.of()));
     }
 
     private String reasonCode(String validationCode) {
@@ -102,7 +154,6 @@ public class GlobalExceptionHandler {
     }
 
     private String traceId() {
-        String traceId = MDC.get(TraceIdFilter.TRACE_MDC_KEY);
-        return traceId == null ? "unavailable" : traceId;
+        return SecurityErrorFactory.traceId();
     }
 }

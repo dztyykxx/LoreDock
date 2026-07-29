@@ -2,6 +2,7 @@ package io.github.loredock.platform.web;
 
 import io.github.loredock.platform.audit.ActorProvider;
 import io.github.loredock.platform.time.TimeProvider;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -25,6 +26,7 @@ public class PlatformConfiguration {
      * @return T1 阶段明确的系统操作者
      */
     @Bean
+    @ConditionalOnMissingBean(ActorProvider.class)
     public ActorProvider actorProvider() {
         return () -> "SYSTEM";
     }

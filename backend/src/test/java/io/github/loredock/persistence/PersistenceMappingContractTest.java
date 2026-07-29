@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import io.github.loredock.job.infrastructure.persistence.BackgroundJobEntity;
+import io.github.loredock.project.infrastructure.persistence.ProjectBranchEntity;
+import io.github.loredock.project.infrastructure.persistence.ProjectSpaceEntity;
 import io.github.loredock.storage.infrastructure.persistence.StoredObjectEntity;
 import org.junit.jupiter.api.Test;
 
@@ -25,6 +27,8 @@ class PersistenceMappingContractTest {
     void persistenceEntitiesDeclareExplicitTableIdAndFieldMappings() {
         assertExplicitMapping(StoredObjectEntity.class, "stored_object");
         assertExplicitMapping(BackgroundJobEntity.class, "background_job");
+        assertExplicitMapping(ProjectSpaceEntity.class, "project_space");
+        assertExplicitMapping(ProjectBranchEntity.class, "project_branch");
     }
 
     /**
