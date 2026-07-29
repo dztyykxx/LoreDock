@@ -36,7 +36,7 @@ class FlywayMigrationIT {
      * 业务目的：空数据库必须一次迁移成后续存储和后台任务可依赖的结构，防止部署后应用就绪但基础表或向量扩展缺失。
      */
     @Test
-    void 空数据库迁移后启用向量扩展并建立基础表与约束() throws Exception {
+    void emptyDatabaseMigrationEnablesVectorAndCreatesFoundationSchema() throws Exception {
         Flyway flyway = migrationFor("foundation");
 
         flyway.migrate();
@@ -66,7 +66,7 @@ class FlywayMigrationIT {
      * 业务目的：应用重复启动不能重复执行已成功迁移，防止重建表、覆盖数据或污染迁移历史。
      */
     @Test
-    void 已迁移数据库再次执行时不重复迁移() throws Exception {
+    void migratedDatabaseDoesNotRepeatMigration() throws Exception {
         Flyway flyway = migrationFor("repeatable_start");
         flyway.migrate();
         int historyCount = migrationHistoryCount("repeatable_start");
@@ -81,7 +81,7 @@ class FlywayMigrationIT {
      * 业务目的：已执行的版本化迁移不得被静默修改，防止不同环境拥有相同版本号却形成不同数据库结构。
      */
     @Test
-    void 已执行迁移内容改变时校验失败() throws Exception {
+    void changedAppliedMigrationFailsValidation() throws Exception {
         Path migrationDirectory = Files.createDirectory(temporaryDirectory.resolve("checksum"));
         Path migration = migrationDirectory.resolve("V1__create_marker.sql");
         Files.writeString(migration, "create table checksum_marker(id integer primary key);\n");

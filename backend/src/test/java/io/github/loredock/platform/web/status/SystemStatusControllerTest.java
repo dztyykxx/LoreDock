@@ -23,7 +23,7 @@ class SystemStatusControllerTest {
      * 业务目的：公开状态接口只返回运行判断所需字段，防止后续误把数据库连接串或存储路径暴露给未认证客户端。
      */
     @Test
-    void 查询系统状态时只返回公开字段() throws Exception {
+    void systemStatusReturnsOnlyPublicFields() throws Exception {
         mockMvc.perform(get("/api/v1/system/status"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.service").value("loredock"))

@@ -20,7 +20,7 @@ class BackgroundJobTest {
      * 业务目的：成功工作只能从运行态终结并固定为 100% 进度，防止任务显示成功却仍保留错误或不完整进度。
      */
     @Test
-    void 运行任务成功后记录终态和完成时间() {
+    void runningJobSucceedsWithTerminalStateAndCompletionTime() {
         BackgroundJob job = runningJob();
 
         job.succeed(FINISHED);
@@ -35,7 +35,7 @@ class BackgroundJobTest {
      * 业务目的：失败和取消都必须形成有完成时间的终态，防止运行中任务无限悬挂。
      */
     @Test
-    void 运行任务可以失败或取消() {
+    void runningJobCanFailOrBeCancelled() {
         BackgroundJob failed = runningJob();
         BackgroundJob cancelled = runningJob();
 
@@ -52,7 +52,7 @@ class BackgroundJobTest {
      * 业务目的：终态任务不得重新运行或再次终结，防止并发完成覆盖真实结果。
      */
     @Test
-    void 终态任务拒绝任何后续状态转换() {
+    void terminalJobRejectsFurtherStateTransitions() {
         BackgroundJob job = runningJob();
         job.succeed(FINISHED);
 
@@ -67,7 +67,7 @@ class BackgroundJobTest {
      * 业务目的：任务进度必须在合法范围内单调增加，防止 UI 和恢复逻辑观察到倒退或超过 100 的状态。
      */
     @Test
-    void 运行进度拒绝倒退和越界() {
+    void runningProgressRejectsRegressionAndOutOfRange() {
         BackgroundJob job = runningJob();
         job.updateProgress(40, FINISHED);
 
@@ -82,7 +82,7 @@ class BackgroundJobTest {
      * 业务目的：原始任务异常中的密码、Token、连接串和路径不得进入持久错误摘要，防止任务表成为敏感信息存储。
      */
     @Test
-    void 失败分类器保存稳定错误码和脱敏摘要() {
+    void failureClassifierStoresStableCodeAndRedactedSummary() {
         JobFailureClassifier classifier = new JobFailureClassifier(new SensitiveDataRedactor());
 
         JobFailure failure = classifier.classify(new IllegalStateException(

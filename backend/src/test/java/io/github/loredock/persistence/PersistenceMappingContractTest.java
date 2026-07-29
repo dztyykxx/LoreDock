@@ -22,7 +22,7 @@ class PersistenceMappingContractTest {
      * 业务目的：数据库实体必须逐字段绑定 Flyway 列名，防止重命名或全局驼峰配置导致静默读写错误。
      */
     @Test
-    void 所有数据库实体均显式声明表主键和字段映射() {
+    void persistenceEntitiesDeclareExplicitTableIdAndFieldMappings() {
         assertExplicitMapping(StoredObjectEntity.class, "stored_object");
         assertExplicitMapping(BackgroundJobEntity.class, "background_job");
     }
@@ -31,7 +31,7 @@ class PersistenceMappingContractTest {
      * 业务目的：SQL 只能在 Java 代码或 Mapper 方法注解中维护，防止 XML 与接口分散后产生行为漂移。
      */
     @Test
-    void 后端资源中不存在MyBatis的XML映射() throws IOException {
+    void backendResourcesContainNoMybatisXmlMapper() throws IOException {
         Path resources = Path.of("src/main/resources");
         try (var paths = Files.walk(resources)) {
             assertThat(paths.filter(Files::isRegularFile)

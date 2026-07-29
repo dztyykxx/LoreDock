@@ -76,7 +76,7 @@ class PersistentBackgroundJobServiceIT {
      * 业务目的：任务必须先有数据库记录再执行，且成功和失败互不影响，防止异常工作丢失记录或拖垮线程池。
      */
     @Test
-    void 任务先持久化且成功失败相互隔离() {
+    void jobPersistsBeforeExecutionAndFailuresStayIsolated() {
         PersistentBackgroundJobService service = service(
                 properties(2, 4),
                 handler("SUCCESS", context -> context.updateProgress(60)),
@@ -105,7 +105,7 @@ class PersistentBackgroundJobServiceIT {
      * 业务目的：执行器满载时新任务仍必须保留可诊断失败记录，防止无界排队或提交结果凭空丢失。
      */
     @Test
-    void 有界执行器无容量时任务终结为容量失败() throws Exception {
+    void fullExecutorMarksJobAsCapacityFailure() throws Exception {
         CountDownLatch started = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         PersistentBackgroundJobService service = service(
@@ -133,7 +133,7 @@ class PersistentBackgroundJobServiceIT {
      * 业务目的：进度和心跳要在工作尚未完成时可见，取消与随后到达的成功结果竞争时必须保持取消终态。
      */
     @Test
-    void 进度可见且取消不会被迟到成功覆盖() throws Exception {
+    void progressIsVisibleAndCancellationWinsLateSuccess() throws Exception {
         CountDownLatch progressWritten = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         PersistentBackgroundJobService service = service(
@@ -164,7 +164,7 @@ class PersistentBackgroundJobServiceIT {
      * 业务目的：进程重启只能终结已失去心跳的运行任务，防止误伤仍有效任务或自动重放未知副作用。
      */
     @Test
-    void 启动恢复只终结陈旧运行任务且不重放() {
+    void recoveryFailsOnlyStaleRunningJobsWithoutReplay() {
         MybatisPlusJobRepository repository = new MybatisPlusJobRepository(backgroundJobMapper);
         var auditFactory = new AuditMetadataFactory(() -> NOW, () -> "SYSTEM");
         BackgroundJob stale = runningJob(NOW.minus(Duration.ofMinutes(6)), "old-instance");

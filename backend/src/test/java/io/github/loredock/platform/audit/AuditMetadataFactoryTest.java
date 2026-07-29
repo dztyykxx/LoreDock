@@ -13,7 +13,7 @@ class AuditMetadataFactoryTest {
      * 业务目的：认证接入前创建记录也必须留下明确 SYSTEM 身份和 UTC 时刻，防止审计字段为空或伪造用户。
      */
     @Test
-    void 创建审计信息时填充当前时间和系统身份() {
+    void createAuditMetadataUsesCurrentTimeAndSystemActor() {
         Instant now = Instant.parse("2026-07-29T12:00:00Z");
         AuditMetadataFactory factory = new AuditMetadataFactory(() -> now, () -> "SYSTEM");
 
@@ -29,7 +29,7 @@ class AuditMetadataFactoryTest {
      * 业务目的：更新记录必须保留创建证据并刷新更新证据，防止一次修改覆盖原始创建者和创建时间。
      */
     @Test
-    void 更新审计信息时保留创建字段并刷新更新字段() {
+    void updateAuditMetadataPreservesCreationAndRefreshesUpdate() {
         AtomicReference<Instant> now = new AtomicReference<>(Instant.parse("2026-07-29T12:00:00Z"));
         AuditMetadataFactory factory = new AuditMetadataFactory(now::get, () -> "SYSTEM");
         AuditMetadata original = factory.created();

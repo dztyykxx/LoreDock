@@ -74,7 +74,7 @@ class LocalFileObjectStorageIT {
      * 业务目的：对象写入后必须能按原字节读取并返回可信校验信息，防止上传内容与元数据不一致。
      */
     @Test
-    void 写入并读取对象时字节和校验元数据一致() throws Exception {
+    void putAndGetPreserveBytesAndChecksumMetadata() throws Exception {
         LocalFileObjectStorage storage = storage();
         byte[] content = "hello".getBytes(StandardCharsets.UTF_8);
 
@@ -94,7 +94,7 @@ class LocalFileObjectStorageIT {
      * 业务目的：成功发布的对象必须跨应用实例继续可读，防止重启后只剩数据库记录或只剩文件。
      */
     @Test
-    void 使用同一根目录和数据库重建适配器后仍可读取对象() throws Exception {
+    void rebuiltAdapterReadsObjectFromSameRootAndDatabase() throws Exception {
         StoredObject stored = storage().put(
                 new ByteArrayInputStream("persistent".getBytes(StandardCharsets.UTF_8)),
                 new ObjectMetadata("persistent.md", "text/markdown")
@@ -110,7 +110,7 @@ class LocalFileObjectStorageIT {
      * 业务目的：不存在对象必须返回稳定错误且删除保持幂等，防止调用方把空内容误认为真实文件。
      */
     @Test
-    void 不存在对象读取失败而重复删除成功() {
+    void missingObjectReadFailsAndRepeatedDeleteSucceeds() {
         LocalFileObjectStorage storage = storage();
         String missingKey = UUID.randomUUID().toString();
 
@@ -127,7 +127,7 @@ class LocalFileObjectStorageIT {
      * 业务目的：输入流中途失败时不得留下半成品或元数据，防止后续读取损坏对象。
      */
     @Test
-    void 写入中途失败时清理临时文件和元数据() throws Exception {
+    void interruptedWriteCleansTemporaryFileAndMetadata() throws Exception {
         LocalFileObjectStorage storage = storage();
         InputStream failing = new InputStream() {
             private int readCount;
@@ -154,7 +154,7 @@ class LocalFileObjectStorageIT {
      * 业务目的：路径穿越、绝对路径和反斜杠逃逸必须在文件访问前被拒绝，防止读取存储根目录之外的文件。
      */
     @Test
-    void 非法对象键无法逃逸存储根目录() {
+    void invalidObjectKeyCannotEscapeStorageRoot() {
         LocalFileObjectStorage storage = storage();
 
         for (String key : List.of("../secret", "/tmp/secret", "..\\secret")) {
@@ -168,7 +168,7 @@ class LocalFileObjectStorageIT {
      * 业务目的：原始文件名只能作为元数据，防止恶意文件名改变实际落盘位置。
      */
     @Test
-    void 恶意原始文件名不参与磁盘路径() throws Exception {
+    void maliciousOriginalFilenameDoesNotControlDiskPath() throws Exception {
         StoredObject stored = storage().put(
                 new ByteArrayInputStream("safe".getBytes(StandardCharsets.UTF_8)),
                 new ObjectMetadata("../../outside.txt", "text/plain")
@@ -184,7 +184,7 @@ class LocalFileObjectStorageIT {
      * 业务目的：已发布文件被替换为符号链接时必须拒绝跟随，防止攻击者借数据库中的合法对象键读取外部文件。
      */
     @Test
-    void 对象文件被替换为符号链接时拒绝读取() throws Exception {
+    void symbolicLinkObjectIsRejectedOnRead() throws Exception {
         LocalFileObjectStorage storage = storage();
         StoredObject stored = storage.put(
                 new ByteArrayInputStream("safe".getBytes(StandardCharsets.UTF_8)),

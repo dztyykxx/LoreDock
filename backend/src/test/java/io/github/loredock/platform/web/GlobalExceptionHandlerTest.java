@@ -41,7 +41,7 @@ class GlobalExceptionHandlerTest {
      * 业务目的：已分类业务失败必须保持稳定 HTTP 语义和 trace ID，防止前端依赖易变异常文本判断错误。
      */
     @Test
-    void 已知业务错误返回稳定错误体和关联标识() throws Exception {
+    void knownBusinessErrorReturnsStableBodyAndTraceId() throws Exception {
         mockMvc.perform(get("/test/errors/known").header(TraceIdFilter.TRACE_HEADER, "trace-safe-123"))
                 .andExpect(status().isNotFound())
                 .andExpect(header().string(TraceIdFilter.TRACE_HEADER, "trace-safe-123"))
@@ -55,7 +55,7 @@ class GlobalExceptionHandlerTest {
      * 业务目的：未知异常不得把数据库地址、绝对路径或密钥带回客户端，防止内部实现和凭据泄露。
      */
     @Test
-    void 未知异常只返回通用安全消息() throws Exception {
+    void unexpectedErrorReturnsOnlyGenericSafeMessage() throws Exception {
         mockMvc.perform(get("/test/errors/unexpected"))
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"))
@@ -69,7 +69,7 @@ class GlobalExceptionHandlerTest {
      * 业务目的：一次返回全部安全字段错误可减少反复提交，同时禁止回显敏感字段原值。
      */
     @Test
-    void 多字段校验失败返回字段路径和原因但不回显原值() throws Exception {
+    void multipleValidationErrorsReturnPathsAndReasonsWithoutValues() throws Exception {
         mockMvc.perform(post("/test/errors/validation")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"title\":\"\",\"token\":\"abc123\"}"))
