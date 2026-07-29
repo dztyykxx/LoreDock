@@ -29,7 +29,10 @@ tmp/
 temp/
 
 # Local runtime data
-data/
-storage/
-uploads/
+/data/
+/storage/
+/uploads/
+/.loredock-run/
 
+# Local design scratch files
+/docs/UI/untitled.pen

@@ -8,7 +8,7 @@ LoreDock 用于把散落在公司 Wiki、项目文档、需求、PR、Commit、�
 
 ## 当前状态
 
-项目目前处于 **MVP 规格设计阶段**，尚未提供可运行版本。当前仓库主要包含需求基线、技术调研、OpenSpec 配置以及面向编码 Agent 的协作规范。
+MVP 开发计划 T1“工程骨架与基础设施”已经完成，当前具备可运行的前后端骨架、真实 PostgreSQL/pgvector、可重复迁移、本地对象存储和持久化后台任务。认证、知识管理、检索、Agent 和 MCP 等业务能力将在后续任务中实现。
 
 ## 目标场景
 
@@ -77,9 +77,99 @@ MVP 计划通过 Streamable HTTP 暴露只读工具：
 | 大模型 | OpenAI-compatible 模型接口 |
 | Embedding | CPU 可运行的中文向量模型 |
 | MCP | Streamable HTTP |
-| 部署 | Docker Compose、内网单机部署 |
+| 本地开发 | 前后端运行于宿主机，Docker Compose 仅运行数据库和后续中间件 |
+| 目标部署 | Docker Compose、内网单机部署 |
 
 技术选型仍以已确认的 OpenSpec 规格为准，调研文档中的建议不自动等同于最终实现。
+
+### T1 冻结版本矩阵
+
+以下版本均为 2026-07-29 从官方发布源核验的 GA 版本。JDK 21 和 Node.js 24 安装在开发机，Maven 使用仓库 Wrapper；Docker 只承载 PostgreSQL/pgvector 等服务依赖。
+
+| 组件 | 冻结版本 | 锁定位置 |
+|---|---:|---|
+| Java | 21.0.12 | Maven Enforcer、本地运行环境 |
+| Maven | 3.9.12 | Maven Wrapper |
+| Spring Boot | 4.1.0 | `backend/pom.xml` Parent |
+| Spring AI BOM | 2.0.0 | `backend/pom.xml` |
+| Apache Lucene | 10.5.0 | `backend/pom.xml` 属性，T1 不加载运行时 |
+| Flyway | 13.0.0 | `backend/pom.xml` 属性 |
+| Testcontainers | 2.0.5 | `backend/pom.xml` BOM |
+| MyBatis-Plus | 3.5.16 | `backend/pom.xml`，使用 Spring Boot 4 Starter |
+| Lombok | 1.18.46 | `backend/pom.xml` |
+| PostgreSQL / pgvector | 17 / 0.8.1 | `pgvector/pgvector:0.8.1-pg17` |
+| Node.js | 24.18.0 | `.nvmrc`、`.node-version`、本地运行环境 |
+| npm | 11.16.0 | `frontend/package.json` |
+| Vue | 3.5.40 | `frontend/package.json` |
+| TypeScript | 6.0.3 | `frontend/package.json`，与 `vue-tsc` 3.3.8 兼容的最新 GA |
+| Vite | 8.1.5 | `frontend/package.json` |
+
+版本选择遵循 `openspec/changes/establish-project-foundation/design.md`：使用正式发布版并精确锁定，不使用动态范围、SNAPSHOT 或 Milestone。Spring AI 和 Lucene 在 T1 只冻结兼容基线，不提前接入业务流程。
+
+## 本地启动
+
+前置条件：Docker Desktop、JDK 21 和 Node.js 24。macOS Homebrew 默认路径已写入脚本，也可以分别通过 `LOREDOCK_JAVA_HOME`、`LOREDOCK_NODE_BIN` 覆盖。
+
+```bash
+cp .env.example .env
+./scripts/dev.sh
+```
+
+脚本只用 Docker 启动 PostgreSQL/pgvector；Spring Boot 和 Vite 直接在宿主机运行，代码修改可使用各自的本地开发能力。首次启动会执行 `npm ci`，Flyway 会在后端启动时自动迁移空库。
+
+- 前端：<http://localhost:5173>
+- 后端状态：<http://localhost:8080/api/v1/system/status>
+- liveness：<http://localhost:8080/actuator/health/liveness>
+- readiness：<http://localhost:8080/actuator/health/readiness>
+
+按 `Ctrl+C` 停止前后端。数据库默认继续运行，使用以下命令停止或再次启动：
+
+```bash
+docker compose stop database
+docker compose up --detach --wait database
+```
+
+如需分开运行，先启动数据库，再分别执行：
+
+```bash
+cd backend
+JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./mvnw spring-boot:run
+```
+
+```bash
+cd frontend
+PATH=/opt/homebrew/opt/node@24/bin:$PATH npm run dev
+```
+
+## 测试与验收
+
+```bash
+cd backend
+JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./mvnw test
+JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./mvnw verify -Pintegration
+```
+
+集成测试使用 Testcontainers 启动真实 PostgreSQL/pgvector，不使用 H2。
+
+```bash
+cd frontend
+PATH=/opt/homebrew/opt/node@24/bin:$PATH npm test
+PATH=/opt/homebrew/opt/node@24/bin:$PATH npm run build
+PATH=/opt/homebrew/opt/node@24/bin:$PATH npm audit --audit-level=high
+```
+
+完整本地栈验收可执行 `./scripts/smoke-test.sh`。它使用隔离数据库卷和临时对象目录，验证空库迁移、前后端访问、重启持久性以及停库后的存活/就绪语义，结束后自动清理测试资源。
+
+## 数据迁移、备份与故障排查
+
+- Flyway 是表结构变更的唯一入口。不得修改已经执行的 `V*__*.sql`；需要变更时追加新迁移。checksum 不匹配时应恢复历史迁移原文并新增迁移，不要直接执行 `repair` 掩盖差异。
+- `readiness` 失败而 `liveness` 成功，通常表示 PostgreSQL 不可用。先检查 `docker compose ps` 和 `docker compose logs database`，再核对 `.env` 的端口、库名和账号。
+- 端口冲突时调整 `.env`；若修改后端端口，还需同步 Vite 代理目标。构建工具链错误时确认 `java -version` 为 21、`node --version` 为 24。
+- 默认 profile 使用便于本地调试的文本控制台日志；生产环境以 `--spring.profiles.active=prod` 启动后启用 Logstash JSON，供日志采集系统解析。
+- 数据库备份可执行 `docker compose exec -T database pg_dump -U loredock -d loredock -Fc > loredock.dump`；对象文件位于 `LOREDOCK_STORAGE_ROOT`（默认 `data/objects`），可在停止写入后单独归档。恢复时数据库备份和对象目录必须来自同一静默写入窗口，避免元数据与文件不一致。
+- T1 后台任务是单实例、进程内有界执行器，不提供分布式调度或自动重放。重启只会把失去心跳的 `RUNNING` 任务终结为 `FAILED/PROCESS_INTERRUPTED`。
+
+更完整的包结构、数据模型和运行约定见 [T1 工程与基础设施架构](docs/architecture/T1工程与基础设施.md)。
 
 ## 开发方式
 
@@ -97,6 +187,7 @@ MVP 计划通过 Streamable HTTP 暴露只读工具：
 ## 文档
 
 - [MVP 需求基线](docs/product/项目业务上下文知识库_MVP需求文档_v1.0.md)
+- [MVP 功能开发计划](docs/product/LoreDock_MVP功能开发计划.md)
 - [MVP 选题说明](docs/product/项目业务上下文知识库_MVP_选题说明.md)
 - [Java 技术栈调研](docs/research/Java技术栈调研与MVP落地建议.md)
 - [开源代码知识库项目调研](docs/research/开源代码知识库项目调研_v0.1.md)
@@ -108,6 +199,10 @@ MVP 计划通过 Streamable HTTP 暴露只读工具：
 LoreDock/
 ├── .claude/       Claude Code 的 OpenSpec 命令与技能
 ├── .codex/        Codex 的 OpenSpec 技能
+├── backend/       Java 21 / Spring Boot 后端
+├── frontend/      Vue 3 / TypeScript / Vite 前端
+├── scripts/       本地开发与全栈冒烟脚本
+├── compose.yaml   PostgreSQL/pgvector 等本地服务依赖
 ├── docs/          产品文档、调研资料和历史归档
 ├── openspec/      当前规格、变更工件和 OpenSpec 配置
 ├── AGENTS.md      所有编码 Agent 的统一开发规范
@@ -128,4 +223,3 @@ LoreDock/
 ## License
 
 开源许可证尚未确定。在正式发布首个版本前补充许可证文件。
-
