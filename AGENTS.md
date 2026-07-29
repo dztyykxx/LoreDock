@@ -25,6 +25,7 @@ LoreDock 是面向开发团队的项目业务上下文知识平台。系统集�
 - 项目选题与演示背景：`docs/product/项目业务上下文知识库_MVP_选题说明.md`
 - Java 技术栈建议：`docs/research/Java技术栈调研与MVP落地建议.md`
 - 开源项目调研：`docs/research/开源代码知识库项目调研_v0.1.md`
+- UI 设计基线：`docs/UI/README.md`，Pencil 源稿位于 `docs/UI/LoreDock-MVP-UI.pen`，总览预览位于 `docs/UI/LoreDock-design-overview.png`
 - 历史需求：`docs/archive/requirements/`，仅用于追溯，不作为当前实现依据
 
 当信息冲突时，优先级从高到低为：
@@ -36,6 +37,8 @@ LoreDock 是面向开发团队的项目业务上下文知识平台。系统集�
 5. 历史归档文档。
 
 不要把调研建议误当作已经确认的需求。需要改变需求、接口、数据模型或关键技术决策时，先更新 OpenSpec 工件。
+
+涉及 Web 页面、交互状态或视觉实现时，Agent 必须先阅读 `docs/UI/README.md` 并在 Pencil 中查看 `docs/UI/LoreDock-MVP-UI.pen`。`.pen` 是 Pencil 加密文件，只能通过 Pencil 或 Pencil MCP 工具访问，禁止使用普通文本读取、搜索或改写工具处理。UI 设计稿用于约束页面结构、信息层级、状态表达和视觉规范，不得覆盖更高优先级的需求基线或 OpenSpec；发现冲突时应按本节事实优先级处理并同步设计说明。
 
 ## 4. SDD：规格驱动开发
 
@@ -149,4 +152,3 @@ LoreDock 是面向开发团队的项目业务上下文知识平台。系统集�
 - 没有通过降低断言质量、隐藏异常或扩大范围来完成任务；
 - OpenSpec `tasks.md` 中完成的任务已及时勾选；
 - 必要的规格、使用说明和技术文档已经同步。
-
