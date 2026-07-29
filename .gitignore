@@ -1,0 +1,35 @@
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Java
+target/
+*.class
+*.jar
+*.war
+
+# Node.js
+node_modules/
+dist/
+.vite/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# Logs and temporary files
+*.log
+tmp/
+temp/
+
+# Local runtime data
+data/
+storage/
+uploads/
+
