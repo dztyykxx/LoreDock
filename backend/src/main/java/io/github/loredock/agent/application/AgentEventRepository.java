@@ -14,4 +14,7 @@ public interface AgentEventRepository {
 
     /** @return 严格大于 afterSequence 且不超过 limit 的事件 */
     List<AgentEventSnapshot> findAfter(UUID runId, long afterSequence, int limit);
+
+    /** @return 当前运行已提交的最后事件序号；尚无事件时为零 */
+    long lastSequence(UUID runId);
 }

@@ -51,6 +51,13 @@ public class MybatisPlusAgentEventRepository implements AgentEventRepository {
                 .stream().map(this::snapshot).toList();
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public long lastSequence(UUID runId) {
+        Long sequence = events.selectLastSequence(runId);
+        return sequence == null ? 0 : sequence;
+    }
+
     private AgentEventSnapshot snapshot(AgentRunEventEntity entity) {
         try {
             String value = objectMapper.readTree(entity.getPayload()).path("value").asText("");

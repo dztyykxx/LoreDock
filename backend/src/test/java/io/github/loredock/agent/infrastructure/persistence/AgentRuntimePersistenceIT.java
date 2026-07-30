@@ -244,7 +244,9 @@ class AgentRuntimePersistenceIT {
         assertThat(firstPage).hasSize(7);
         assertThat(secondPage).hasSize(13);
         assertThat(events.findAfter(runId, 20, 5)).isEmpty();
-        System.out.printf("测试证据：场景=事件提交后续读，runId=%s，序号范围=1..20，分页=7+13%n", runId);
+        assertThat(events.lastSequence(runId)).isEqualTo(20);
+        System.out.printf("测试证据：场景=事件提交后续读，runId=%s，序号范围=1..20，分页=7+13，末序号查询=20%n",
+                runId);
     }
 
     /**

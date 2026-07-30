@@ -12,6 +12,10 @@ import java.util.UUID;
 @Mapper
 public interface AgentRunEventMapper extends BaseMapper<AgentRunEventEntity> {
 
+    /** 直接读取运行行上的单调计数器，避免为详情扫描全部事件。 */
+    @Select("select event_sequence from agent_run where id = #{runId}")
+    Long selectLastSequence(@Param("runId") UUID runId);
+
     /**
      * 运行行的计数器更新在并发等待后会基于最新行版本递增；锁不跨模型或工具等待。
      */

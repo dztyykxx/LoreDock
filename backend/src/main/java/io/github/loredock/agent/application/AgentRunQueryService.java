@@ -43,6 +43,12 @@ public class AgentRunQueryService implements AgentRunQueryUseCase, AgentEventQue
         return events.findAfter(runId, afterSequence, bounded);
     }
 
+    @Override
+    public long lastSequence(UUID runId, String operatorId) {
+        authorized(runId, operatorId);
+        return events.lastSequence(runId);
+    }
+
     private AgentRunSnapshot authorized(UUID runId, String operatorId) {
         if (runId == null || operatorId == null || operatorId.isBlank()) {
             throw new AgentRunNotFoundException();

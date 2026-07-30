@@ -14,4 +14,13 @@ public interface AgentEventQueryUseCase {
      * @return 序号严格大于 afterSequence 的有界事件
      */
     List<AgentEventSnapshot> list(UUID runId, String operatorId, long afterSequence, int limit);
+
+    /**
+     * 在复核操作者和项目访问权后读取最后提交序号，供快照与 SSE 续读收敛。
+     *
+     * @param runId 运行标识
+     * @param operatorId 当前操作者标识
+     * @return 最后事件序号；尚无事件时为零
+     */
+    long lastSequence(UUID runId, String operatorId);
 }

@@ -38,10 +38,10 @@
 
 ## 6. 提供问答 REST 契约与统一错误映射
 
-- [ ] 6.1 先定义 `POST /api/projects/{identifier}/qa/questions`、历史列表和详情的 HTTP 请求/响应 record、字段校验、分页上限、202/404/409 语义与中文 Javadoc，API DTO 不复用持久化实体。
-- [ ] 6.2 编写 MockMvc 失败测试，覆盖 ADMIN/MEMBER 成功、匿名 401、输入 400、范围 404、幂等冲突 409、猜测其他记录 404，以及响应不包含 operatorId、内部 generation、对象键或服务器路径。
-- [ ] 6.3 最小实现问答 Controller、HTTP Mapper 和稳定错误映射，使 6.2 测试通过；Controller 只提取认证身份与映射 DTO，不复制范围、幂等或可信状态规则。
-- [ ] 6.4 运行平台统一错误、认证、项目详情和问答 Web 契约测试，确认 trace ID、UTC 时间和现有普通接口兼容。
+- [x] 6.1 先定义 `POST /api/projects/{identifier}/qa/questions`、历史列表和详情的 HTTP 请求/响应 record、字段校验、分页上限、202/404/409 语义与中文 Javadoc，API DTO 不复用持久化实体。
+- [x] 6.2 编写 MockMvc 失败测试，覆盖 ADMIN/MEMBER 成功、匿名 401、输入 400、范围 404、幂等冲突 409、猜测其他记录 404，以及响应不包含 operatorId、内部 generation、对象键或服务器路径。
+- [x] 6.3 最小实现问答 Controller、HTTP Mapper 和稳定错误映射，使 6.2 测试通过；Controller 只提取认证身份与映射 DTO，不复制范围、幂等或可信状态规则。
+- [x] 6.4 运行平台统一错误、认证、项目详情和问答 Web 契约测试，确认 trace ID、UTC 时间和现有普通接口兼容。
 
 ## 7. 实现可续读且有界的 SSE
 

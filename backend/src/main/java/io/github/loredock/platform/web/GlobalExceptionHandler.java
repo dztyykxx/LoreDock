@@ -3,6 +3,7 @@ package io.github.loredock.platform.web;
 import cn.dev33.satoken.exception.NotLoginException;
 import cn.dev33.satoken.exception.NotPermissionException;
 import cn.dev33.satoken.exception.NotRoleException;
+import io.github.loredock.agent.application.AgentRequestException;
 import io.github.loredock.identity.application.ForbiddenOperationException;
 import io.github.loredock.identity.application.InvalidCredentialsException;
 import io.github.loredock.identity.application.LoginRequiredException;
@@ -55,6 +56,26 @@ public class GlobalExceptionHandler {
         ErrorCode code = exception.errorCode();
         LOGGER.warn("application_failure traceId={} code={} diagnostic={}",
                 traceId(), code.name(), redactor.redact(exception.getMessage()));
+        return ResponseEntity.status(code.status()).body(error(code, List.of()));
+    }
+
+    /**
+     * 把 Agent 启动阶段的稳定错误限制到 Web 允许公开的状态；未知运行时错误继续按通用内部失败处理。
+     *
+     * @param exception Agent 受理前失败
+     * @return 幂等冲突或运行时不可用错误
+     */
+    @ExceptionHandler(AgentRequestException.class)
+    public ResponseEntity<ApiError> handleAgentRequest(AgentRequestException exception) {
+        ErrorCode code = switch (exception.code()) {
+            case AGENT_RUN_IDEMPOTENCY_CONFLICT -> ErrorCode.AGENT_RUN_IDEMPOTENCY_CONFLICT;
+            case AGENT_SKILL_UNAVAILABLE -> ErrorCode.AGENT_SKILL_UNAVAILABLE;
+            case AGENT_RUNTIME_UNAVAILABLE, AGENT_DISABLED -> ErrorCode.AGENT_RUNTIME_UNAVAILABLE;
+            case AGENT_RUNTIME_BUSY -> ErrorCode.AGENT_RUNTIME_BUSY;
+            case AGENT_MODEL_UNAVAILABLE -> ErrorCode.AGENT_MODEL_UNAVAILABLE;
+            default -> ErrorCode.INTERNAL_ERROR;
+        };
+        LOGGER.warn("agent_request_failure traceId={} code={}", traceId(), code.name());
         return ResponseEntity.status(code.status()).body(error(code, List.of()));
     }
 

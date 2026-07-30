@@ -81,6 +81,21 @@ class AgentRunQueryServiceTest {
                 event.sequence());
     }
 
+    /**
+     * 业务目的：详情返回的最后事件序号必须经过与事件续读相同的归属和项目访问复核，防止绕过授权探测运行。
+     */
+    @Test
+    void lastSequenceUsesAuthorizedPersistedCounter() {
+        when(events.lastSequence(RUN_ID)).thenReturn(18L);
+
+        long sequence = service.lastSequence(RUN_ID, "member");
+
+        assertThat(sequence).isEqualTo(18);
+        verify(projects).getEnabledProject("atlas", "main");
+        verify(events).lastSequence(RUN_ID);
+        System.out.printf("测试证据：场景=详情事件序号，runId=%s，最后已提交序号=%d%n", RUN_ID, sequence);
+    }
+
     private AgentRunSnapshot snapshot(String operator) {
         Instant now = Instant.parse("2026-07-30T01:00:00Z");
         return new AgentRunSnapshot(RUN_ID, operator, "key", "a".repeat(64), "project_qa",
