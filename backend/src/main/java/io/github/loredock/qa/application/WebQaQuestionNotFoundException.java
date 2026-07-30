@@ -7,6 +7,6 @@ import io.github.loredock.platform.web.ErrorCode;
 public class WebQaQuestionNotFoundException extends ApplicationException {
     /** 创建不携带真实归属信息的失败。 */
     public WebQaQuestionNotFoundException() {
-        super(ErrorCode.QA_QUESTION_NOT_FOUND, "web QA question not found");
+        super(ErrorCode.QA_QUESTION_NOT_FOUND, "QA_QUESTION_NOT_FOUND");
     }
 }

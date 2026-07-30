@@ -4,6 +4,8 @@ import cn.dev33.satoken.exception.SaTokenContextException;
 import cn.dev33.satoken.stp.StpUtil;
 import io.github.loredock.identity.application.FixedAccount;
 import io.github.loredock.identity.application.FixedAccountDirectory;
+import io.github.loredock.identity.application.LoginRequiredException;
+import io.github.loredock.identity.application.WebSessionContinuityPort;
 import io.github.loredock.identity.application.WebSessionPort;
 import io.github.loredock.identity.domain.AuthenticatedActor;
 import org.springframework.stereotype.Component;
@@ -14,7 +16,7 @@ import java.util.Optional;
  * 基于 Sa-Token 单实例内存 DAO 的 Web 会话适配器。会话只保存稳定账号标识，角色与展示名每次从服务端固定目录解析。
  */
 @Component
-public class SaTokenWebSessionAdapter implements WebSessionPort {
+public class SaTokenWebSessionAdapter implements WebSessionPort, WebSessionContinuityPort {
 
     private final FixedAccountDirectory accountDirectory;
 
@@ -52,7 +54,45 @@ public class SaTokenWebSessionAdapter implements WebSessionPort {
         }
     }
 
+    @Override
+    public Lease capture() {
+        String tokenValue;
+        try {
+            tokenValue = StpUtil.getTokenValue();
+        } catch (SaTokenContextException exception) {
+            throw new LoginRequiredException();
+        }
+        if (tokenValue == null || tokenValue.isBlank() || current().isEmpty()) {
+            throw new LoginRequiredException();
+        }
+        return new SaTokenLease(tokenValue);
+    }
+
+    @Override
+    public boolean isValid(Lease lease, String expectedUsername) {
+        if (!(lease instanceof SaTokenLease tokenLease)
+                || expectedUsername == null || expectedUsername.isBlank()) {
+            return false;
+        }
+        try {
+            Object loginId = StpUtil.getStpLogic().getLoginIdByToken(tokenLease.tokenValue());
+            return loginId != null
+                    && expectedUsername.equals(loginId.toString())
+                    && accountDirectory.findByUsername(expectedUsername).isPresent();
+        } catch (RuntimeException exception) {
+            return false;
+        }
+    }
+
     private AuthenticatedActor toActor(FixedAccount account) {
         return new AuthenticatedActor(account.username(), account.displayName(), account.role());
+    }
+
+    /** 令牌只保存在私有租约中；record 的默认 toString 被覆盖，避免调试输出令牌。 */
+    private record SaTokenLease(String tokenValue) implements Lease {
+        @Override
+        public String toString() {
+            return "SaTokenLease[opaque]";
+        }
     }
 }

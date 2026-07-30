@@ -14,6 +14,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.MediaType;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -56,7 +57,7 @@ public class GlobalExceptionHandler {
         ErrorCode code = exception.errorCode();
         LOGGER.warn("application_failure traceId={} code={} diagnostic={}",
                 traceId(), code.name(), redactor.redact(exception.getMessage()));
-        return ResponseEntity.status(code.status()).body(error(code, List.of()));
+        return response(code, List.of());
     }
 
     /**
@@ -76,7 +77,7 @@ public class GlobalExceptionHandler {
             default -> ErrorCode.INTERNAL_ERROR;
         };
         LOGGER.warn("agent_request_failure traceId={} code={}", traceId(), code.name());
-        return ResponseEntity.status(code.status()).body(error(code, List.of()));
+        return response(code, List.of());
     }
 
     /**
@@ -91,7 +92,7 @@ public class GlobalExceptionHandler {
                 ? ErrorCode.DOCUMENT_REPLACEMENT_CONFLICT
                 : ErrorCode.DOCUMENT_STATE_CONFLICT;
         LOGGER.warn("knowledge_conflict traceId={} code={} classification=domain_conflict", traceId(), code.name());
-        return ResponseEntity.status(code.status()).body(error(code, List.of()));
+        return response(code, List.of());
     }
 
     /**
@@ -139,7 +140,7 @@ public class GlobalExceptionHandler {
                 .map(error -> new FieldError(error.getField(), reasonCode(error.getCode())))
                 .sorted(Comparator.comparing(FieldError::field))
                 .toList();
-        return ResponseEntity.badRequest().body(error(ErrorCode.INVALID_REQUEST, fields));
+        return response(ErrorCode.INVALID_REQUEST, fields);
     }
 
     /**
@@ -152,7 +153,7 @@ public class GlobalExceptionHandler {
             IllegalArgumentException.class})
     public ResponseEntity<ApiError> handleMalformedInput(Exception exception) {
         LOGGER.warn("request_validation_failure traceId={} classification=malformed_input", traceId());
-        return ResponseEntity.badRequest().body(error(ErrorCode.INVALID_REQUEST, List.of()));
+        return response(ErrorCode.INVALID_REQUEST, List.of());
     }
 
     /**
@@ -165,17 +166,24 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleUnexpected(Exception exception) {
         LOGGER.error("unexpected_failure traceId={} diagnostic={}", traceId(), redactedStackTrace(exception));
         ErrorCode code = ErrorCode.INTERNAL_ERROR;
-        return ResponseEntity.status(code.status()).body(error(code, List.of()));
+        return response(code, List.of());
     }
 
     private ApiError error(ErrorCode code, List<FieldError> fieldErrors) {
         return errorFactory.create(code, fieldErrors);
     }
 
+    private ResponseEntity<ApiError> response(ErrorCode code, List<FieldError> fieldErrors) {
+        // 错误发生在 SSE 建连前时浏览器只声明接受 text/event-stream；显式 JSON 可避免稳定错误退化为 406。
+        return ResponseEntity.status(code.status())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(error(code, fieldErrors));
+    }
+
     private ResponseEntity<ApiError> identityError(ErrorCode code, String classification) {
         LOGGER.warn("identity_failure traceId={} code={} classification={}",
                 traceId(), code.name(), classification);
-        return ResponseEntity.status(code.status()).body(error(code, List.of()));
+        return response(code, List.of());
     }
 
     private String reasonCode(String validationCode) {

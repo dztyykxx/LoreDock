@@ -1,6 +1,7 @@
 package io.github.loredock.qa.application;
 
 import io.github.loredock.agent.application.AgentRunQueryUseCase;
+import io.github.loredock.agent.application.AgentRunNotFoundException;
 import io.github.loredock.agent.application.AgentRunSnapshot;
 import io.github.loredock.project.application.ProjectDetailView;
 import io.github.loredock.project.application.ProjectQueryUseCase;
@@ -19,7 +20,7 @@ import java.util.List;
  */
 @Service
 @Slf4j
-public class QueryWebQaQuestionService implements QueryWebQaQuestionUseCase {
+public class QueryWebQaQuestionService implements QueryWebQaQuestionUseCase, WebQaStreamAccessUseCase {
     private static final int MAX_PAGE_SIZE = 100;
     private final ProjectQueryUseCase projects;
     private final AgentRunQueryUseCase runs;
@@ -78,6 +79,17 @@ public class QueryWebQaQuestionService implements QueryWebQaQuestionUseCase {
 
     @Override
     public WebQaQuestionSnapshot detail(QueryWebQaDetailCommand command) {
+        WebQaStreamTarget target = authorize(command);
+        WebQaQuestionRecord question = target.question();
+        AgentRunSnapshot run = target.run();
+        WebQaQuestionSnapshot result = snapshot(question, run);
+        log.info("web_qa detail queried traceId={} questionId={} runId={} project={} branch={} status={}",
+                traceId(), question.id(), run.runId(), question.projectIdentifier(), question.branch(), run.status());
+        return result;
+    }
+
+    @Override
+    public WebQaStreamTarget authorize(QueryWebQaDetailCommand command) {
         requireIdentity(command.operatorId(), command.projectIdentifier());
         if (command.questionId() == null) {
             throw new WebQaQuestionNotFoundException();
@@ -86,11 +98,13 @@ public class QueryWebQaQuestionService implements QueryWebQaQuestionUseCase {
         WebQaQuestionRecord question = questions.findVisibleById(
                         command.operatorId(), project.id(), command.questionId())
                 .orElseThrow(WebQaQuestionNotFoundException::new);
-        AgentRunSnapshot run = runs.get(question.runId(), command.operatorId());
-        WebQaQuestionSnapshot result = snapshot(question, run);
-        log.info("web_qa detail queried traceId={} questionId={} runId={} project={} branch={} status={}",
-                traceId(), question.id(), run.runId(), question.projectIdentifier(), question.branch(), run.status());
-        return result;
+        AgentRunSnapshot run;
+        try {
+            run = runs.get(question.runId(), command.operatorId());
+        } catch (AgentRunNotFoundException exception) {
+            throw new WebQaQuestionNotFoundException();
+        }
+        return new WebQaStreamTarget(question, run);
     }
 
     private WebQaQuestionSnapshot snapshot(WebQaQuestionRecord question, AgentRunSnapshot run) {

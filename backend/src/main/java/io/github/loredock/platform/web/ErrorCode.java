@@ -43,6 +43,7 @@ public enum ErrorCode {
     AGENT_RUNTIME_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "问答运行时暂时不可用"),
     AGENT_RUNTIME_BUSY(HttpStatus.SERVICE_UNAVAILABLE, "问答运行时繁忙"),
     AGENT_MODEL_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "问答模型暂时不可用"),
+    QA_SSE_CAPACITY_EXCEEDED(HttpStatus.SERVICE_UNAVAILABLE, "问答事件连接暂时繁忙"),
     OBJECT_NOT_FOUND(HttpStatus.NOT_FOUND, "对象不存在"),
     INVALID_OBJECT_KEY(HttpStatus.BAD_REQUEST, "对象键不合法"),
     STORAGE_WRITE_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "对象写入失败"),

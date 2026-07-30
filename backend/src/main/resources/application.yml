@@ -101,6 +101,16 @@ loredock:
       max-pool-size: ${LOREDOCK_AGENT_EXECUTOR_MAX_POOL_SIZE:4}
       queue-capacity: ${LOREDOCK_AGENT_EXECUTOR_QUEUE_CAPACITY:16}
       shutdown-await: ${LOREDOCK_AGENT_EXECUTOR_SHUTDOWN_AWAIT:30s}
+  qa:
+    sse:
+      poll-interval: ${LOREDOCK_QA_SSE_POLL_INTERVAL:500ms}
+      heartbeat-interval: ${LOREDOCK_QA_SSE_HEARTBEAT_INTERVAL:15s}
+      max-duration: ${LOREDOCK_QA_SSE_MAX_DURATION:6m}
+      batch-size: ${LOREDOCK_QA_SSE_BATCH_SIZE:200}
+      core-pool-size: ${LOREDOCK_QA_SSE_CORE_POOL_SIZE:2}
+      max-pool-size: ${LOREDOCK_QA_SSE_MAX_POOL_SIZE:8}
+      queue-capacity: ${LOREDOCK_QA_SSE_QUEUE_CAPACITY:32}
+      shutdown-await: ${LOREDOCK_QA_SSE_SHUTDOWN_AWAIT:10s}
   demo:
     seed-enabled: ${LOREDOCK_DEMO_SEED_ENABLED:false}
   identity:

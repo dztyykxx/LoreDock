@@ -41,6 +41,8 @@ import io.github.loredock.qa.application.WebQaQuestionNotFoundException;
 import io.github.loredock.qa.application.WebQaQuestionPage;
 import io.github.loredock.qa.application.WebQaQuestionRecord;
 import io.github.loredock.qa.application.WebQaQuestionSnapshot;
+import io.github.loredock.qa.application.WebQaStreamAccessUseCase;
+import io.github.loredock.qa.application.WebQaStreamTarget;
 import io.github.loredock.qa.domain.WebQaMessageRole;
 import io.github.loredock.qa.domain.WebQaTrustState;
 import jakarta.servlet.http.Cookie;
@@ -55,6 +57,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.Instant;
 import java.util.Collection;
@@ -70,12 +73,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(
-        controllers = {AuthController.class, WebQaController.class},
+        controllers = {AuthController.class, WebQaController.class, WebQaSseController.class},
         properties = {
                 "sa-token.token-name=loredock_session",
                 "sa-token.is-read-header=false",
@@ -112,13 +116,15 @@ class WebQaWebContractTest {
     @MockitoBean private CreateWebQaQuestionUseCase creates;
     @MockitoBean private QueryWebQaQuestionUseCase queries;
     @MockitoBean private AgentEventQueryUseCase events;
+    @MockitoBean private WebQaStreamAccessUseCase streamAccess;
+    @MockitoBean private WebQaSseService streams;
 
     @BeforeEach
     void resetSessionsAndUseCases() {
         SaTokenDaoDefaultImpl sessions = new SaTokenDaoDefaultImpl();
         sessions.init();
         SaManager.setSaTokenDao(sessions);
-        reset(creates, queries, events);
+        reset(creates, queries, events, streamAccess, streams);
     }
 
     /**
@@ -261,6 +267,74 @@ class WebQaWebContractTest {
         verify(queries).detail(new QueryWebQaDetailCommand("member", "atlas", QUESTION_ID));
         System.out.printf("测试证据：场景=问答安全响应，questionId=%s，事件末序号=7，内部字段泄露=false%n",
                 QUESTION_ID);
+    }
+
+    /**
+     * 业务目的：SSE 必须先按 URL 问答授权，再把标准续读序号固定到连接请求，不能接受任意 runId。
+     */
+    @Test
+    void sseEndpointAuthorizesQuestionAndUsesLastEventId() throws Exception {
+        WebQaQuestionSnapshot snapshot = snapshot();
+        when(streamAccess.authorize(any())).thenReturn(
+                new WebQaStreamTarget(snapshot.question(), snapshot.run()));
+        when(streams.open(any())).thenReturn(new SseEmitter(1_000L));
+
+        mockMvc.perform(get("/api/projects/atlas/qa/questions/{questionId}/events", QUESTION_ID)
+                        .header("Last-Event-ID", "8")
+                        .accept(MediaType.TEXT_EVENT_STREAM)
+                        .cookie(loginCookie("member")))
+                .andExpect(status().isOk())
+                .andExpect(request().asyncStarted());
+
+        verify(streamAccess).authorize(new QueryWebQaDetailCommand("member", "atlas", QUESTION_ID));
+        var request = org.mockito.ArgumentCaptor.forClass(WebQaSseStreamRequest.class);
+        verify(streams).open(request.capture());
+        assertThat(request.getValue().runId()).isEqualTo(RUN_ID);
+        assertThat(request.getValue().afterSequence()).isEqualTo(8);
+        assertThat(request.getValue().sessionLease()).isNotNull();
+        System.out.printf("测试证据：场景=SSE建连，questionId=%s，runId=%s，afterSequence=8，异步=true%n",
+                QUESTION_ID, RUN_ID);
+    }
+
+    /**
+     * 业务目的：SSE 两种续读输入不一致时必须在查询问答和创建后台任务前返回 400，避免事件缺失或重复。
+     */
+    @Test
+    void conflictingSseCursorReturnsBadRequestBeforeStreamCreation() throws Exception {
+        mockMvc.perform(get("/api/projects/atlas/qa/questions/{questionId}/events", QUESTION_ID)
+                        .header("Last-Event-ID", "8")
+                        .queryParam("afterSequence", "7")
+                        .accept(MediaType.TEXT_EVENT_STREAM)
+                        .cookie(loginCookie("member")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+
+        verify(streamAccess, never()).authorize(any());
+        verify(streams, never()).open(any());
+        System.out.println("测试证据：场景=SSE游标冲突，Last-Event-ID=8，afterSequence=7，HTTP=400，后台任务=0");
+    }
+
+    /**
+     * 业务目的：SSE 建连前仍必须执行统一认证和问答防枚举，EventSource 的 Accept 头不能把 401/404 退化为 406。
+     */
+    @Test
+    void ssePreflightReturnsJsonAuthenticationAndNotFoundErrors() throws Exception {
+        mockMvc.perform(get("/api/projects/atlas/qa/questions/{questionId}/events", QUESTION_ID)
+                        .accept(MediaType.TEXT_EVENT_STREAM))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.code").value("AUTH_LOGIN_REQUIRED"));
+
+        when(streamAccess.authorize(any())).thenThrow(new WebQaQuestionNotFoundException());
+        mockMvc.perform(get("/api/projects/atlas/qa/questions/{questionId}/events", QUESTION_ID)
+                        .accept(MediaType.TEXT_EVENT_STREAM)
+                        .cookie(loginCookie("member")))
+                .andExpect(status().isNotFound())
+                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
+                .andExpect(jsonPath("$.code").value("QA_QUESTION_NOT_FOUND"));
+
+        verify(streams, never()).open(any());
+        System.out.println("测试证据：场景=SSE建连前错误，匿名=401，隐藏问答=404，Content-Type=application/json");
     }
 
     private Cookie loginCookie(String username) throws Exception {
