@@ -78,8 +78,8 @@
 
 ## 10. 文档、回归与完成门禁
 
-- [ ] 10.1 更新环境变量示例、后端运行说明和 T6A 架构/故障排查文档，说明 Agent 开关、DeepSeek secret、固定版本、运行限制、Skill 引导、事件/拒答、模型不可用、重启中断和备份；示例不得包含真实凭据、内部地址、绝对路径或业务正文。
-- [ ] 10.2 运行 PoC、主应用编译、全部单元/Web 测试、真实 PostgreSQL 集成测试、V1→V6/重复迁移、应用启动/readiness、Fake Model 端到端和可执行 fat-jar smoke，保存与断言一致的实际执行证据并列出任何未执行验证。
-- [ ] 10.3 运行最终 Maven 依赖树、Enforcer 收敛/不兼容版本和敏感信息检查，确认无 Spring Boot 4.x、Spring AI 2.0.x、Boot 4 Starter、SNAPSHOT/Milestone、非目标 Agent Starter 或凭据；依赖安全审计不属于本次 MVP 范围。
-- [ ] 10.4 对照三份 delta spec 逐条复核正常、边界和失败场景，检查每个测试的中文业务注释、公共接口/实现/关键分支中文注释及生产/测试证据日志，运行 `openspec validate add-single-agent-project-qa-runtime --strict`。
-- [ ] 10.5 只有全部实现与验证门禁满足、主规格同步且 change 准备归档时，才勾选实际完成任务并把 `docs/product/LoreDock_MVP功能开发计划.md` 的 T6A 更新为 `[x]`；不得提前标记 T6B 或 T7。
+- [x] 10.1 更新环境变量示例、后端运行说明和 T6A 架构/故障排查文档，说明 Agent 开关、DeepSeek secret、固定版本、运行限制、Skill 引导、事件/拒答、模型不可用、重启中断和备份；示例不得包含真实凭据、内部地址、绝对路径或业务正文。
+- [x] 10.2 运行 PoC、主应用编译、全部单元/Web 测试、真实 PostgreSQL 集成测试、V1→V6/重复迁移、应用启动/readiness、Fake Model 端到端和可执行 fat-jar smoke，保存与断言一致的实际执行证据并列出任何未执行验证。
+- [x] 10.3 运行最终 Maven 依赖树、Enforcer 收敛/不兼容版本和敏感信息检查，确认无 Spring Boot 4.x、Spring AI 2.0.x、Boot 4 Starter、SNAPSHOT/Milestone、非目标 Agent Starter 或凭据；依赖安全审计不属于本次 MVP 范围。
+- [x] 10.4 对照三份 delta spec 逐条复核正常、边界和失败场景，检查每个测试的中文业务注释、公共接口/实现/关键分支中文注释及生产/测试证据日志，运行 `openspec validate add-single-agent-project-qa-runtime --strict`。
+- [x] 10.5 只有全部实现与验证门禁满足、主规格同步且 change 准备归档时，才勾选实际完成任务并把 `docs/product/LoreDock_MVP功能开发计划.md` 的 T6A 更新为 `[x]`；不得提前标记 T6B 或 T7。

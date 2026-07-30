@@ -8,7 +8,7 @@ LoreDock 用于把散落在公司 Wiki、项目文档、需求、PR、Commit、�
 
 ## 当前状态
 
-MVP 开发计划 T1“工程骨架与基础设施”、T2“认证、项目与分支管理”、T3“知识文档完整生命周期”、T4“代码快照与 Lucene 检索”和 T5“知识关键词、语义与混合检索”已完成。当前提供严格按通用、项目和分支隔离的知识关键词/语义/混合搜索，以及按项目、分支和 Commit 导入的受限 ZIP 代码快照、generation 原子切换、路径/内容搜索及有限代码片段读取。用户注册、用户表和账号管理后台不在 MVP 范围内。
+MVP 开发计划 T1“工程骨架与基础设施”、T2“认证、项目与分支管理”、T3“知识文档完整生命周期”、T4“代码快照与 Lucene 检索”、T5“知识关键词、语义与混合检索”和 T6A“单 Agent 问答运行时”已完成。当前提供严格按通用、项目和分支隔离的知识/代码检索，以及固定 Skill、固定活动版本、只读工具白名单、可信引用、拒答、运行事实和持久事件。T7 将把该应用能力接入 Web；用户注册、用户表和账号管理后台不在 MVP 范围内。
 
 ## 目标场景
 
@@ -82,7 +82,7 @@ MVP 计划通过 Streamable HTTP 暴露只读工具：
 
 技术选型仍以已确认的 OpenSpec 规格为准，调研文档中的建议不自动等同于最终实现。
 
-### T1–T5 冻结版本矩阵
+### T1–T6A 冻结版本矩阵
 
 以下版本均为 2026-07-29 从官方发布源核验的 GA 版本。JDK 21 和 Node.js 24 安装在开发机，Maven 使用仓库 Wrapper；Docker 只承载 PostgreSQL/pgvector 等服务依赖。
 
@@ -90,15 +90,17 @@ MVP 计划通过 Streamable HTTP 暴露只读工具：
 |---|---:|---|
 | Java | 21.0.12 | Maven Enforcer、本地运行环境 |
 | Maven | 3.9.12 | Maven Wrapper |
-| Spring Boot | 4.1.0 | `backend/pom.xml` Parent |
-| Spring AI BOM | 2.0.0 | `backend/pom.xml` |
+| Spring Boot | 3.5.16 | `backend/pom.xml` Parent |
+| Spring AI BOM | 1.1.2 | `backend/pom.xml` |
+| Spring AI Alibaba | 1.1.2.3 | `backend/pom.xml` BOM 与 Agent Framework |
 | Apache Lucene | 10.5.0 | `backend/pom.xml` 属性；T4 使用 core、analysis-common、highlighter 最小模块 |
-| Flyway | 13.0.0 | `backend/pom.xml` 属性 |
+| Flyway | 11.7.2 | `backend/pom.xml` 属性 |
 | Testcontainers | 2.0.5 | `backend/pom.xml` BOM |
-| MyBatis-Plus | 3.5.16 | `backend/pom.xml`，使用 Spring Boot 4 Starter |
+| MyBatis-Plus | 3.5.17 | `backend/pom.xml`，使用 Spring Boot 3 Starter |
 | Lombok | 1.18.46 | `backend/pom.xml` |
-| Sa-Token | 1.45.0 | `backend/pom.xml`，使用 Spring Boot 4 Starter |
-| Spring Security Crypto | 跟随 Spring Boot 4.1.0 | 仅使用 BCrypt，不启用 Spring Security 认证链 |
+| Sa-Token | 1.45.0 | `backend/pom.xml`，使用 Spring Boot 3 Starter |
+| Spring Security Crypto | 跟随 Spring Boot 3.5.16 | 仅使用 BCrypt，不启用 Spring Security 认证链 |
+| 问答模型 | `deepseek-v4-flash` | DeepSeek OpenAI 兼容 Chat Completions；部署 secret 注入 |
 | Apache Commons Compress | 1.28.0 | `backend/pom.xml`；Apache-2.0，仅用于 ZIP 中央目录与条目类型检查 |
 | ONNX Runtime | 1.28.0 | `backend/pom.xml`；MIT，T5 离线 CPU Embedding |
 | DJL Hugging Face Tokenizers | 0.36.0 | `backend/pom.xml`；Apache-2.0，只读取本地 `tokenizer.json` |
@@ -191,6 +193,33 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./mvnw 
 cd frontend
 PATH=/opt/homebrew/opt/node@24/bin:$PATH npm run dev
 ```
+
+### T6A 单 Agent 运行配置
+
+`project_qa` 默认关闭，且 T6A 只提供后端应用契约，Web 入口由 T7 接入。启用前应先完成知识索引和目标分支代码快照准备，再通过部署 secret 注入模型密钥：
+
+```bash
+export LOREDOCK_AGENT_ENABLED=true
+read -rsp "DeepSeek API key: " LOREDOCK_AGENT_MODEL_API_KEY; echo
+export LOREDOCK_AGENT_MODEL_API_KEY
+```
+
+不要把实际密钥写入 `.env.example`、YAML、数据库、测试或日志。模型名固定为 `deepseek-v4-flash`，默认入口为 DeepSeek 官方 OpenAI 兼容入口；请求不能覆盖模型、端点、项目、分支、commit、知识 generation 或运行限制。若只验证应用、Fake Model 和数据库链路，保持 Agent 关闭即可，不需要外部调用。
+
+运行开始时会固定 `project_qa` Skill、项目、实际分支、活动代码 snapshot/commit、活动知识 generation、模型与策略版本。唯一允许的工具是 `knowledge_search`、`code_search` 和 `code_snippet_read`。业务规则回答至少引用知识，当前实现回答至少引用固定快照代码，混合回答必须同时引用两类证据；证据不足、无快照、越界或引用无效时返回“当前知识库没有足够依据”及稳定原因码。
+
+运行采用专用有界执行器，默认最多 8 步、8 次模型调用、90 秒、每工具 10 条结果、24000 字上下文和 8000 字回答。应用会先聚合并校验结构与引用，再持久化 `ANSWER_DELTA`；阶段、工具、来源、拒答和终态事件可以按序号续读。后端重启会把遗留 `ACCEPTED/RUNNING` 运行终结为 `AGENT_RUN_INTERRUPTED`，T6A 不自动重放模型；检查点恢复属于 T6B。
+
+常见故障按稳定错误处理：
+
+- 未开启、缺少模型 secret 或 Skill 不可用：检查 `LOREDOCK_AGENT_ENABLED`、部署 secret 和启动日志，不要在日志中打印密钥；
+- `AGENT_RUNTIME_BUSY`：等待已有运行结束，或在确认机器容量后调整专用执行器；
+- `AGENT_EVIDENCE_VERSION_CHANGED`：运行期间知识 generation 或代码 snapshot 已切换，应提交新运行；
+- `CODE_SNAPSHOT_NOT_INDEXED`：目标分支没有活动快照，只能回答人工知识，不能声称当前实现；
+- `AGENT_CITATION_INVALID`：模型引用不属于本次保留证据，服务端会拒绝模型正文；
+- `AGENT_RUN_TIMEOUT` 或模型不可用：运行保留实际计数与脱敏错误，现有文档浏览、知识搜索和代码搜索不受影响。
+
+数据库备份包含 Skill 版本、运行、事件、工具摘要、证据和引用元数据；对象存储还包含内置 Skill 内容。两者应与既有知识/代码备份在同一静默写入窗口保存。详见 [T6A 单 Agent 兼容性与运行架构](docs/architecture/T6A单Agent兼容性验证.md)。
 
 ## 测试与验收
 

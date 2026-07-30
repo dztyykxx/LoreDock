@@ -4,7 +4,7 @@
 |---|---|
 | 计划目标 | 在不裁剪需求基线 P0/P1 功能的前提下，按功能任务逐项完成 LoreDock MVP |
 | 计划方式 | 按功能和依赖关系拆分，不按日期拆分 |
-| 当前进度 | T1、T2、T3、T4、T5 已完成；下一个任务为 T6A 单 Agent 问答运行时；T7 完成后形成首个可用闭环 |
+| 当前进度 | T1、T2、T3、T4、T5、T6A 已完成；下一个任务为 T7 Web 项目问答；T7 完成后形成首个可用闭环 |
 | 需求依据 | `项目业务上下文知识库_MVP需求文档_v1.0.md` |
 | 执行方法 | 每个功能任务分别遵循 OpenSpec、接口优先和 TDD |
 
@@ -12,7 +12,7 @@
 
 本计划用于确定 MVP 的功能开发顺序、任务边界和完成条件，不替代需求基线或有效 OpenSpec 规格。
 
-原计划中的“T0：完整 MVP OpenSpec 与集中技术验证”已根据当前开发安排跳过，不再作为独立任务。实际开发从 T1 开始，但这不表示跳过项目的 SDD 要求：每个后续功能任务在实现前仍须创建或更新对应 OpenSpec change；依赖 MiniMax、MCP、Embedding、Lucene 或索引切换的技术验证，放入首次使用该能力的功能任务中完成。
+原计划中的“T0：完整 MVP OpenSpec 与集中技术验证”已根据当前开发安排跳过，不再作为独立任务。实际开发从 T1 开始，但这不表示跳过项目的 SDD 要求：每个后续功能任务在实现前仍须创建或更新对应 OpenSpec change；依赖 DeepSeek、MCP、Embedding、Lucene 或索引切换的技术验证，放入首次使用该能力的功能任务中完成。
 
 任务状态约定：
 
@@ -148,7 +148,7 @@ flowchart TD
 
 重点验收：至少 80% 的有答案问题在 Top-5 中出现正确来源；任何入口都不发生跨项目或跨分支召回；分支无代码快照时仍可返回允许范围内的人工知识。
 
-### [ ] T6A：Spring AI Alibaba 迁移与单 Agent 问答运行时
+### [x] T6A：Spring AI Alibaba 迁移与单 Agent 问答运行时
 
 目标：先完成 AI 技术栈迁移并建立受控、可追溯的单 Agent 问答运行时，为 T7 尽快形成可试用的检索问答闭环。
 
@@ -160,7 +160,7 @@ flowchart TD
 - 通过隔离 PoC 从 Maven Central 可用正式构件中锁定 Spring Boot 3.5.x 和 Spring AI Alibaba 1.1.2.x 的具体补丁版本，并记录最终依赖树；
 - 替换 MyBatis-Plus、Sa-Token 等 Boot 4 专用 Starter，清理不兼容或重复的 Spring AI 依赖，禁止同时混入 Spring AI 1.1.x 与 2.0.x；
 - 重新运行 T1～T5 的单元测试、PostgreSQL 集成测试和应用启动检查，确认迁移没有破坏认证、项目范围、文档生命周期和检索行为；
-- 基于 Spring AI Alibaba Agent Framework 定义单 Agent 运行适配边界，提供 MiniMax `ChatModel` 实现和测试用 Fake Model；
+- 基于 Spring AI Alibaba Agent Framework 定义单 Agent 运行适配边界，提供 DeepSeek `deepseek-v4-flash` OpenAI 兼容 `ChatModel` 实现和测试用 Fake Model；
 - 加载并版本化 `project_qa` Skill，使用受控 `ReactAgent` 调用 T4 代码检索和 T5 知识混合检索能力；
 - 在服务端强制校验工具白名单、项目、分支、Commit、知识范围和工具参数，禁止提示词扩大权限；
 - 限制最大步骤数、超时、检索数量、上下文长度和模型调用次数；
@@ -284,7 +284,7 @@ flowchart TD
 - 实现 `code_search`；
 - 三个工具复用 Web 和内部 Agent 的查询服务；
 - 返回项目、分支、来源、文件路径、commit、更新时间、相关性和截断状态；
-- 使用共享 Token，保持只读，不调用 MiniMax 生成最终答案；
+- 使用共享 Token，保持只读，不调用 DeepSeek 生成最终答案；
 - 验证 Claude Code 的连接、中文参数、工具调用和错误响应兼容性。
 
 重点验收：Claude Code 能获取与 Web 同源的知识；错误 Token 被拒绝；MCP 不能执行写入、命令或任意网络访问。

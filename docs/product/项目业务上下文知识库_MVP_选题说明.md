@@ -118,7 +118,7 @@ MCP 返回原始知识、代码片段和引用，由 Claude Code 结合用户本
 | 数据库与向量 | PostgreSQL + pgvector |
 | 原始文件 | MinIO 或兼容 S3 的对象存储 |
 | 代码全文检索 | Apache Lucene |
-| 大模型 | 公司提供的 MiniMax 2.7 |
+| 大模型 | DeepSeek `deepseek-v4-flash`（OpenAI 兼容接口） |
 | Embedding | CPU 可运行的中文向量模型 |
 | MCP | Streamable HTTP |
 | 部署 | Docker Compose，公司内网单机部署 |
