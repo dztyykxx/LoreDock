@@ -1,0 +1,17 @@
+package io.github.loredock.agent.application;
+
+import java.util.List;
+import java.util.UUID;
+
+/** 按持久化序号续读 Agent 公开事件。 */
+public interface AgentEventQueryUseCase {
+
+    /**
+     * @param runId 运行标识
+     * @param operatorId 当前操作者标识
+     * @param afterSequence 已消费的最后序号，零代表从头读取
+     * @param limit 客户端期望数量；服务端仍会限制最大页大小
+     * @return 序号严格大于 afterSequence 的有界事件
+     */
+    List<AgentEventSnapshot> list(UUID runId, String operatorId, long afterSequence, int limit);
+}
