@@ -57,14 +57,14 @@
 - [ ] 7.6 为同一运行多次工具调用期间知识 generation 或代码 snapshot 切换编写失败测试；实现版本比对，在变化时以 `AGENT_EVIDENCE_VERSION_CHANGED` 终止，不访问历史索引、不混合两版证据。
 - [ ] 7.7 增加架构与回归测试，证明 Agent 正常/恶意调用只改变 V6 运行事实表，不改变知识文档、知识索引、代码快照、项目、分支、账号或系统配置。
 
-## 8. ReactAgent、Fake Model 与 MiniMax 适配
+## 8. ReactAgent、Fake Model 与 DeepSeek 适配
 
 - [ ] 8.1 在主应用先编写失败框架契约测试，用脚本化 Fake `ChatModel` 驱动真实 `ReactAgent` 依次调用三个受控工具并返回结构化结果，覆盖同步/流式、工具参数、Token 有值/未知、独立运行不共享记忆和 Spring 类型不越过 `AgentExecutionPort`。
 - [ ] 8.2 实现每运行独立的 `SpringAiAlibabaAgentExecutionAdapter`、固定 Skill 注入、ToolCallback 转换和 Fake Model 支持使 8.1 通过；不注册框架文件系统 Skill、Shell/Python、A2A、Studio、Nacos 或动态 Agent 能力。
 - [ ] 8.3 为步骤数、模型调用次数、检索/片段/上下文/输出/事件限制编写失败测试，覆盖客户端或模型试图提高上限、到界前成功、下一调用被拒绝和实际计数证据；实现外层计数器、Hook 与裁剪器使其通过。
 - [ ] 8.4 为总超时、可取消工作、不可立即取消的迟到模型/工具响应和终态 CAS 编写失败并发测试；实现截止时间控制，确保超时后没有新工具、答案或终态回退，错误为 `AGENT_RUN_TIMEOUT`。
-- [ ] 8.5 使用本地协议模拟服务先编写 MiniMax OpenAI 兼容测试，覆盖普通/流式响应、工具调用、多分块工具参数、usage 完整/缺失、429、鉴权失败、连接失败、无效 JSON、有限重试和错误脱敏，再实现生产 `ChatModel` 配置适配。
-- [ ] 8.6 在具备公司测试凭据时执行不提交请求正文、密钥、端点或响应正文的 MiniMax 2.7 smoke，记录模型名摘要、工具/流式能力、Token 可用性和耗时；若环境未提供凭据，明确记录未执行原因且不得伪造通过。
+- [ ] 8.5 使用本地协议模拟服务先编写 DeepSeek OpenAI 兼容测试，覆盖普通/流式响应、工具调用、多分块工具参数、usage 完整/缺失、429、鉴权失败、连接失败、无效 JSON、有限重试和错误脱敏，再实现 `deepseek-v4-flash` 生产 `ChatModel` 配置适配。
+- [ ] 8.6 使用用户提供且仅注入进程环境的测试凭据，对 DeepSeek `deepseek-v4-flash` 官方端点只执行一次最小非流式 JSON smoke，验证鉴权、模型响应、结构解析、Token 可用性和耗时；工具/流式/失败场景均由 Fake Model 与本地协议模拟覆盖。不得提交或输出密钥、请求/响应正文和端点细节。
 
 ## 9. project_qa 端到端可信行为
 
@@ -78,7 +78,7 @@
 
 ## 10. 文档、回归与完成门禁
 
-- [ ] 10.1 更新环境变量示例、后端运行说明和 T6A 架构/故障排查文档，说明 Agent 开关、MiniMax secret、固定版本、运行限制、Skill 引导、事件/拒答、模型不可用、重启中断和备份；示例不得包含真实凭据、内部地址、绝对路径或业务正文。
+- [ ] 10.1 更新环境变量示例、后端运行说明和 T6A 架构/故障排查文档，说明 Agent 开关、DeepSeek secret、固定版本、运行限制、Skill 引导、事件/拒答、模型不可用、重启中断和备份；示例不得包含真实凭据、内部地址、绝对路径或业务正文。
 - [ ] 10.2 运行 PoC、主应用编译、全部单元/Web 测试、真实 PostgreSQL 集成测试、V1→V6/重复迁移、应用启动/readiness、Fake Model 端到端和可执行 fat-jar smoke，保存与断言一致的实际执行证据并列出任何未执行验证。
 - [ ] 10.3 运行最终 Maven 依赖树、Enforcer 收敛/不兼容版本和敏感信息检查，确认无 Spring Boot 4.x、Spring AI 2.0.x、Boot 4 Starter、SNAPSHOT/Milestone、非目标 Agent Starter 或凭据；依赖安全审计不属于本次 MVP 范围。
 - [ ] 10.4 对照三份 delta spec 逐条复核正常、边界和失败场景，检查每个测试的中文业务注释、公共接口/实现/关键分支中文注释及生产/测试证据日志，运行 `openspec validate add-single-agent-project-qa-runtime --strict`。

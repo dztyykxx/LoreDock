@@ -85,7 +85,7 @@ PoC 必须输出并审查 `dependency:tree`、依赖收敛和正式版本。对�
 
 `SpringAiAlibabaAgentExecutionAdapter` 实现项目自有 `AgentExecutionPort`。每次运行创建独立 `ReactAgent`、独立内存状态和固定工具集合，不共享短期记忆；Graph 的持久 Saver 和恢复留给 T6B。适配器把项目自有执行请求转换为框架输入，把框架事件转换回项目事件，框架异常先分类再越过端口。
 
-生产模型使用 Spring AI OpenAI 兼容 `ChatModel` 连接 MiniMax 2.7，配置仅包含允许的 base URL、模型名、密钥引用、连接/读取超时和重试上限。模型密钥只来自环境或部署 secret，不写入 YAML、数据库、提示或日志。只对明确可重试的连接错误/限流做有界短重试，单次运行总截止时间始终优先；不得重试已经执行过工具后语义不明的整个运行。
+生产模型使用 Spring AI OpenAI 兼容 `ChatModel` 连接 DeepSeek 官方 OpenAI Chat Completions 端点，模型固定为 `deepseek-v4-flash`。配置仅包含允许的 base URL、模型名、密钥引用、连接/读取超时和重试上限。模型密钥只来自环境或部署 secret，不写入 YAML、数据库、提示或日志。只对明确可重试的连接错误/限流做有界短重试，单次运行总截止时间始终优先；不得重试已经执行过工具后语义不明的整个运行。
 
 测试使用脚本化 Fake `ChatModel` 驱动真实 `ReactAgent` 与工具适配器，覆盖工具请求、流式分块、无 Token、迟到响应和异常。另保留纯应用层 Fake `AgentExecutionPort` 供状态机/持久化测试使用，避免每个业务测试都耦合框架。
 
@@ -155,13 +155,13 @@ Skill 要求模型返回受版本控制的结构：`resultType`、`answerBasis=B
 1. 在独立 PoC 中锁定版本与排除项，证明实际 Agent 路径可用，并保存依赖树与 Java 21 证据；兼容性门禁未通过则停止。
 2. 只迁移主 POM 和 Boot 3 兼容代码，先运行 T1～T5 全部单元、Web、真实 PostgreSQL 集成、Flyway 与启动检查；此阶段不加入 Agent 业务实现。
 3. 追加 V6 与持久化映射，通过 V1→V6、V5→V6、重复迁移、约束和旧应用回滚兼容验证；不得修改既有迁移。
-4. 按接口优先与 TDD 实现状态机、幂等、Skill 引导、运行/事件仓储、工具网关、证据/引用校验，再接 `ReactAgent` 与 MiniMax 适配。
-5. 默认关闭 Agent 部署一次，确认现有浏览/检索与 readiness；配置测试环境 secret 后启用，执行 Fake Model 全场景和 MiniMax 协议/凭据 smoke。
+4. 按接口优先与 TDD 实现状态机、幂等、Skill 引导、运行/事件仓储、工具网关、证据/引用校验，再接 `ReactAgent` 与 DeepSeek 适配。
+5. 默认关闭 Agent 部署一次，确认现有浏览/检索与 readiness；配置测试环境 secret 后启用，全场景使用 Fake Model 和本地协议模拟，真实 DeepSeek 只执行一次最小付费 smoke。
 6. 上线时先迁移数据库，再发布应用并启用 Agent；监控启动恢复、模型失败、越权、限制终止、引用拒答与事件积压。T7 接入前冻结应用端口和事件版本。
 
 回滚时关闭 Agent 并回退应用包，V6 只包含新增表且不修改 T1～T5 数据，不手工删除表。发布前必须验证旧包面对含 V6 的数据库能按 Flyway 的 future migration 规则启动；若当前 Flyway 配置拒绝，准备包含 V6 迁移文件但不使用 Agent 代码的回滚构建。已产生的 Agent 记录保留，等待修复版本读取。
 
 ## Open Questions
 
-- 公司 MiniMax 网关是否返回 Spring AI 可直接解析的 prompt/completion/total token 三项，还是只返回其中一部分；该差异只影响用量字段为具体值或 `UNKNOWN`，不改变接口和任务拆分。
+- DeepSeek `deepseek-v4-flash` 官方端点实际返回的 prompt/completion/total token 字段是否能被当前 Spring AI 版本完整解析；该差异只影响用量字段为具体值或 `UNKNOWN`，不改变接口和任务拆分。
 - T7 最终采用的公开事件单次分页上限与答案分块字符数可在页面联调后在当前硬上限内调整；事件 schema、顺序和持久化优先原则不变。
