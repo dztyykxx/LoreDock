@@ -72,6 +72,35 @@ management:
         include: health
 
 loredock:
+  agent:
+    enabled: ${LOREDOCK_AGENT_ENABLED:false}
+    model:
+      provider: openai-compatible
+      name: ${LOREDOCK_AGENT_MODEL_NAME:MiniMax-M2.7}
+      base-url: ${LOREDOCK_AGENT_MODEL_BASE_URL:}
+      api-key: ${LOREDOCK_AGENT_MODEL_API_KEY:}
+      connect-timeout: ${LOREDOCK_AGENT_MODEL_CONNECT_TIMEOUT:5s}
+      read-timeout: ${LOREDOCK_AGENT_MODEL_READ_TIMEOUT:60s}
+      max-retries: ${LOREDOCK_AGENT_MODEL_MAX_RETRIES:1}
+    policy:
+      output-schema-version: project-qa-v1
+      tool-policy-version: project-qa-readonly-v1
+      limit-policy-version: project-qa-policy-v1
+    limits:
+      max-steps: ${LOREDOCK_AGENT_MAX_STEPS:8}
+      max-model-calls: ${LOREDOCK_AGENT_MAX_MODEL_CALLS:8}
+      total-timeout: ${LOREDOCK_AGENT_TOTAL_TIMEOUT:90s}
+      max-results-per-tool: ${LOREDOCK_AGENT_MAX_RESULTS_PER_TOOL:10}
+      max-snippet-characters: ${LOREDOCK_AGENT_MAX_SNIPPET_CHARACTERS:2000}
+      max-context-characters: ${LOREDOCK_AGENT_MAX_CONTEXT_CHARACTERS:24000}
+      max-answer-characters: ${LOREDOCK_AGENT_MAX_ANSWER_CHARACTERS:8000}
+      max-events: ${LOREDOCK_AGENT_MAX_EVENTS:200}
+      minimum-relevance: ${LOREDOCK_AGENT_MINIMUM_RELEVANCE:0.20}
+    executor:
+      core-pool-size: ${LOREDOCK_AGENT_EXECUTOR_CORE_POOL_SIZE:2}
+      max-pool-size: ${LOREDOCK_AGENT_EXECUTOR_MAX_POOL_SIZE:4}
+      queue-capacity: ${LOREDOCK_AGENT_EXECUTOR_QUEUE_CAPACITY:16}
+      shutdown-await: ${LOREDOCK_AGENT_EXECUTOR_SHUTDOWN_AWAIT:30s}
   demo:
     seed-enabled: ${LOREDOCK_DEMO_SEED_ENABLED:false}
   identity:
