@@ -46,6 +46,8 @@ class StartProjectQaRunServiceTest {
     private AgentEventRepository events;
     private AgentRunAcceptanceService acceptance;
     private AgentRunScheduler scheduler;
+    private AgentRunDispatchCoordinator dispatch;
+    private AgentRunDispatchFailureHandler dispatchFailures;
     private AtomicReference<AgentRunCreateData> acceptedData;
     private AtomicReference<AgentExecutionRequest> scheduledRequest;
 
@@ -66,6 +68,8 @@ class StartProjectQaRunServiceTest {
             scheduledRequest.set(request);
             return true;
         };
+        dispatchFailures = mock(AgentRunDispatchFailureHandler.class);
+        dispatch = new TransactionAwareAgentRunDispatchCoordinator(scheduler, dispatchFailures);
         when(runs.findByOperatorAndIdempotencyKey(any(), any())).thenReturn(Optional.empty());
         when(skills.findEnabled("project_qa")).thenReturn(Optional.of(skill()));
         when(projects.getEnabledProject(any(), any())).thenReturn(project("main"));
@@ -189,6 +193,8 @@ class StartProjectQaRunServiceTest {
     void rejectedSchedulingPersistsRuntimeBusyTerminalFact() {
         scheduler = request -> false;
         when(runs.finishWithError(any(), any(), any(Boolean.class), any(), any())).thenReturn(true);
+        dispatch = new TransactionAwareAgentRunDispatchCoordinator(
+                scheduler, new PersistentAgentRunDispatchFailureHandler(runs, events, () -> NOW));
 
         service().start(command("member", "MEMBER", null, "question", "busy-key"));
 
@@ -201,7 +207,7 @@ class StartProjectQaRunServiceTest {
 
     private StartProjectQaRunService service() {
         return new StartProjectQaRunService(configuration, skills, projects, code, knowledge,
-                runs, events, acceptance, scheduler, () -> NOW);
+                runs, acceptance, dispatch, () -> NOW);
     }
 
     private StartProjectQaRunCommand command(String operator, String role, String branch, String question, String key) {

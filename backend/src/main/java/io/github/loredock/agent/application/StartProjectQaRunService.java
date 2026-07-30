@@ -1,7 +1,6 @@
 package io.github.loredock.agent.application;
 
 import io.github.loredock.agent.domain.AgentErrorCode;
-import io.github.loredock.agent.domain.AgentEventType;
 import io.github.loredock.agent.domain.AgentScopeSnapshot;
 import io.github.loredock.agent.domain.AgentVersionSnapshot;
 import io.github.loredock.code.application.ActiveCodeSnapshotQueryUseCase;
@@ -40,9 +39,8 @@ public class StartProjectQaRunService implements StartProjectQaRunUseCase {
     private final ActiveCodeSnapshotQueryUseCase codeSnapshots;
     private final ActiveKnowledgeSearchGenerationReader knowledgeGenerations;
     private final AgentRunRepository runs;
-    private final AgentEventRepository events;
     private final AgentRunAcceptanceService acceptance;
-    private final AgentRunScheduler scheduler;
+    private final AgentRunDispatchCoordinator dispatch;
     private final TimeProvider timeProvider;
 
     /**
@@ -52,9 +50,8 @@ public class StartProjectQaRunService implements StartProjectQaRunUseCase {
      * @param codeSnapshots 活动代码快照查询
      * @param knowledgeGenerations 活动知识 generation 查询
      * @param runs 运行仓储
-     * @param events 公开事件仓储
      * @param acceptance 接受短事务
-     * @param scheduler 提交后调度器
+     * @param dispatch 最外层事务提交后调度器
      * @param timeProvider UTC 时间源
      */
     public StartProjectQaRunService(
@@ -64,9 +61,8 @@ public class StartProjectQaRunService implements StartProjectQaRunUseCase {
             ActiveCodeSnapshotQueryUseCase codeSnapshots,
             ActiveKnowledgeSearchGenerationReader knowledgeGenerations,
             AgentRunRepository runs,
-            AgentEventRepository events,
             AgentRunAcceptanceService acceptance,
-            AgentRunScheduler scheduler,
+            AgentRunDispatchCoordinator dispatch,
             TimeProvider timeProvider
     ) {
         this.configuration = configuration;
@@ -75,9 +71,8 @@ public class StartProjectQaRunService implements StartProjectQaRunUseCase {
         this.codeSnapshots = codeSnapshots;
         this.knowledgeGenerations = knowledgeGenerations;
         this.runs = runs;
-        this.events = events;
         this.acceptance = acceptance;
-        this.scheduler = scheduler;
+        this.dispatch = dispatch;
         this.timeProvider = timeProvider;
     }
 
@@ -134,13 +129,7 @@ public class StartProjectQaRunService implements StartProjectQaRunUseCase {
         AgentExecutionRequest request = new AgentExecutionRequest(
                 runId, input.question(), skill.markdown(), skill.outputSchema(), scope, versions,
                 configuration.runtimeLimits(), acceptedAt.plus(configuration.totalTimeout()));
-        if (!scheduler.schedule(request)) {
-            // 运行已落库后队列才可能拒绝；此时必须留下可追溯失败终态，不能丢任务。
-            Instant failedAt = timeProvider.now();
-            runs.finishWithError(runId, AgentErrorCode.AGENT_RUNTIME_BUSY, false,
-                    AgentExecutionUsage.none(), failedAt);
-            events.append(runId, AgentEventType.RUN_FAILED, AgentErrorCode.AGENT_RUNTIME_BUSY.name(), failedAt);
-        }
+        dispatch.dispatchAfterCommit(request);
         AgentRunSnapshot result = runs.findById(runId).orElse(accepted);
         log.info("agent_run start completed traceId={} runId={} project={} branch={} snapshotAvailable={} "
                         + "knowledgeGenerationAvailable={} status={}",
