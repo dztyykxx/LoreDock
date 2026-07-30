@@ -1,11 +1,14 @@
 package io.github.loredock.agent.infrastructure.persistence;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import io.github.loredock.agent.application.AgentCitationSnapshot;
 import io.github.loredock.agent.application.AgentEvidenceRepository;
 import io.github.loredock.agent.domain.AgentEvidence;
 import io.github.loredock.agent.domain.EvidenceSourceType;
+import io.github.loredock.agent.domain.EvidenceSourceMetadata;
 import io.github.loredock.platform.time.TimeProvider;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Repository;
@@ -24,16 +27,24 @@ public class MybatisPlusAgentEvidenceRepository implements AgentEvidenceReposito
     private final AgentEvidenceMapper evidence;
     private final AgentCitationMapper citations;
     private final TimeProvider timeProvider;
+    private final ObjectMapper objectMapper;
 
-    /** @param evidence 证据 Mapper @param citations 引用 Mapper @param timeProvider UTC 时间源 */
+    /**
+     * @param evidence 证据 Mapper
+     * @param citations 引用 Mapper
+     * @param timeProvider UTC 时间源
+     * @param objectMapper 版本化安全来源 JSON 编解码器
+     */
     public MybatisPlusAgentEvidenceRepository(
             AgentEvidenceMapper evidence,
             AgentCitationMapper citations,
-            TimeProvider timeProvider
+            TimeProvider timeProvider,
+            ObjectMapper objectMapper
     ) {
         this.evidence = evidence;
         this.citations = citations;
         this.timeProvider = timeProvider;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -52,7 +63,7 @@ public class MybatisPlusAgentEvidenceRepository implements AgentEvidenceReposito
                     .documentId(value.documentId()).snapshotId(value.snapshotId())
                     .projectIdentifier(value.projectIdentifier()).branchName(value.branch())
                     .commitHash(value.commit()).repositoryPath(value.repositoryPath()).title(value.title())
-                    .sourceUpdatedAt(value.sourceUpdatedAt()).metadata("{}")
+                    .sourceUpdatedAt(value.sourceUpdatedAt()).metadata(metadataJson(value.sourceMetadata()))
                     .createdAt(timeProvider.now()).build());
         }
         log.info("agent_evidence persisted runId={} evidenceCount={}", runId, values.size());
@@ -96,7 +107,7 @@ public class MybatisPlusAgentEvidenceRepository implements AgentEvidenceReposito
                 value.getId(), value.getRunId(), EvidenceSourceType.valueOf(value.getSourceType()),
                 Boolean.TRUE.equals(value.getRetained()), value.getRelevance(), value.getDocumentId(),
                 value.getSnapshotId(), value.getProjectIdentifier(), value.getBranchName(), value.getCommitHash(),
-                value.getRepositoryPath(), value.getTitle(), value.getSourceUpdatedAt());
+                value.getRepositoryPath(), value.getTitle(), value.getSourceUpdatedAt(), metadata(value.getMetadata()));
     }
 
     private AgentCitationSnapshot citation(AgentCitationEntity row, AgentEvidenceEntity source) {
@@ -106,6 +117,31 @@ public class MybatisPlusAgentEvidenceRepository implements AgentEvidenceReposito
         return new AgentCitationSnapshot(
                 source.getId(), EvidenceSourceType.valueOf(source.getSourceType()), source.getDocumentId(),
                 source.getSnapshotId(), source.getProjectIdentifier(), source.getBranchName(), source.getCommitHash(),
-                source.getRepositoryPath(), source.getTitle(), source.getSourceUpdatedAt(), row.getCitationOrder());
+                source.getRepositoryPath(), source.getTitle(), source.getSourceUpdatedAt(), row.getCitationOrder(),
+                metadata(source.getMetadata()));
+    }
+
+    private String metadataJson(EvidenceSourceMetadata metadata) {
+        if (metadata == null || metadata.schemaVersion() == null) {
+            return "{}";
+        }
+        try {
+            return objectMapper.writeValueAsString(metadata);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("agent evidence source metadata serialization failed", exception);
+        }
+    }
+
+    private EvidenceSourceMetadata metadata(String json) {
+        if (json == null || json.isBlank() || "{}".equals(json.trim())) {
+            return EvidenceSourceMetadata.historicalUnknown();
+        }
+        try {
+            return objectMapper.readValue(json, EvidenceSourceMetadata.class);
+        } catch (JsonProcessingException | IllegalArgumentException exception) {
+            // 历史附属字段损坏时不回查当前文档伪造来源；只保留主表中仍受外键保护的安全事实。
+            log.warn("agent_evidence metadata degraded reason=invalid_or_unsupported_schema");
+            return EvidenceSourceMetadata.historicalUnknown();
+        }
     }
 }

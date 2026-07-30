@@ -22,6 +22,7 @@ import io.github.loredock.agent.domain.AgentScopeSnapshot;
 import io.github.loredock.agent.domain.AgentVersionSnapshot;
 import io.github.loredock.agent.domain.AnswerBasis;
 import io.github.loredock.agent.domain.EvidenceSourceType;
+import io.github.loredock.agent.domain.EvidenceSourceMetadata;
 import io.github.loredock.agent.domain.ProjectQaModelResult;
 import io.github.loredock.agent.domain.ProjectQaResultValidator;
 import io.github.loredock.agent.domain.TrustedProjectQaResult;
@@ -257,7 +258,9 @@ class AgentRuntimePersistenceIT {
         runs.markRunning(runId, acceptedAt.plusSeconds(1));
         evidence.saveAll(runId, List.of(new AgentEvidence(
                 evidenceId, runId, EvidenceSourceType.KNOWLEDGE, true, 0.92,
-                DOCUMENT_ID, null, "atlas", "main", null, null, "业务规则", acceptedAt)));
+                DOCUMENT_ID, null, "atlas", "main", null, null, "业务规则", acceptedAt,
+                new EvidenceSourceMetadata("knowledge-source-v1", "PROJECT", "WIKI",
+                        "https://example.test/wiki/rule", null))));
 
         AgentExecutionUsage usage = new AgentExecutionUsage(3, 2, 1, 0, null, null, 800);
         boolean completed = runs.complete(runId,
@@ -268,16 +271,47 @@ class AgentRuntimePersistenceIT {
         var snapshot = runs.findById(runId).orElseThrow();
         assertThat(completed).isTrue();
         assertThat(snapshot.status()).isEqualTo(AgentRunStatus.COMPLETED);
+        assertThat(snapshot.answerBasis()).isEqualTo(AnswerBasis.BUSINESS_RULE);
         assertThat(snapshot.inputTokens()).isNull();
         assertThat(snapshot.citations()).singleElement().satisfies(citation -> {
             assertThat(citation.evidenceId()).isEqualTo(evidenceId);
             assertThat(citation.documentId()).isEqualTo(DOCUMENT_ID);
+            assertThat(citation.sourceMetadata().schemaVersion()).isEqualTo("knowledge-source-v1");
+            assertThat(citation.sourceMetadata().wikiUrl()).isEqualTo("https://example.test/wiki/rule");
             assertThat(citation.order()).isEqualTo(1);
         });
         assertThat(evidence.findByRunId(runId)).singleElement().extracting(AgentEvidence::sourceUpdatedAt)
                 .isEqualTo(acceptedAt);
         System.out.printf("测试证据：场景=证据与引用事务，runId=%s，终态=%s，引用数=%d，Token=未知%n",
                 runId, snapshot.status(), snapshot.citations().size());
+    }
+
+    /**
+     * 业务目的：迁移前没有 answer_basis 的可信回答必须只按最终引用类型稳定推导，防止历史页面显示错误依据。
+     */
+    @Test
+    void legacyAnswerBasisIsDerivedFromFinalCitationTypes() {
+        UUID runId = UUID.randomUUID();
+        AgentEvidence knowledge = knowledgeEvidence(runId, true);
+        AgentEvidence code = codeEvidence(runId, true);
+        Instant startedAt = Instant.parse("2026-07-30T02:30:00Z");
+        runs.insert(createData(runId, "legacy-basis"));
+        runs.markRunning(runId, startedAt);
+        evidence.saveAll(runId, List.of(knowledge, code));
+        runs.complete(runId, new TrustedProjectQaResult(
+                        AgentResultType.ANSWER, AnswerBasis.MIXED, "混合回答", null,
+                        List.of(knowledge.id(), code.id())),
+                AgentExecutionUsage.none(), startedAt.plusSeconds(1));
+        jdbcTemplate.update("update agent_run set answer_basis=null where id=?", runId);
+        jdbcTemplate.update("update agent_evidence set metadata='{}'::jsonb where id=?", knowledge.id());
+
+        var snapshot = runs.findById(runId).orElseThrow();
+
+        assertThat(snapshot.answerBasis()).isEqualTo(AnswerBasis.MIXED);
+        assertThat(snapshot.citations()).filteredOn(value -> value.sourceType() == EvidenceSourceType.KNOWLEDGE)
+                .singleElement().extracting(value -> value.sourceMetadata().schemaVersion()).isNull();
+        System.out.printf("测试证据：场景=历史回答依据与来源降级，runId=%s，引用类型=KNOWLEDGE+CODE，"
+                + "basis=%s，历史metadata版本=null%n", runId, snapshot.answerBasis());
     }
 
     /**
@@ -336,6 +370,7 @@ class AgentRuntimePersistenceIT {
                     ledger.stream().map(AgentEvidence::id).toList());
 
             var snapshot = executeFake(runId, "trusted-" + basis, true, modelResult, ledger);
+            assertThat(snapshot.answerBasis()).isEqualTo(basis);
             var published = events.findAfter(runId, 0, 200);
             String joined = published.stream()
                     .filter(event -> event.type() == AgentEventType.ANSWER_DELTA)
@@ -424,6 +459,7 @@ class AgentRuntimePersistenceIT {
         assertThat(noSnapshot.scope().branch()).isEqualTo("main");
         assertThat(noSnapshot.scope().snapshotId()).isNull();
         assertThat(conflict.refusalReason()).isEqualTo(AgentRefusalReason.SOURCE_CONFLICT);
+        assertThat(conflict.answerBasis()).isEqualTo(AnswerBasis.MIXED);
         assertThat(conflict.citations()).extracting(citation -> citation.sourceType())
                 .containsExactly(EvidenceSourceType.KNOWLEDGE, EvidenceSourceType.CODE);
         System.out.printf("测试证据：场景=可信拒答矩阵，原因=%s，无快照分支=%s，冲突引用=%d%n",

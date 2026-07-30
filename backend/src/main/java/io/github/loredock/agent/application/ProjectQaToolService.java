@@ -5,6 +5,7 @@ import io.github.loredock.agent.domain.AgentEvidence;
 import io.github.loredock.agent.domain.AgentRunStatus;
 import io.github.loredock.agent.domain.AgentEventType;
 import io.github.loredock.agent.domain.EvidenceSourceType;
+import io.github.loredock.agent.domain.EvidenceSourceMetadata;
 import io.github.loredock.code.application.ActiveCodeSnapshotQueryUseCase;
 import io.github.loredock.code.application.ActiveCodeSnapshotView;
 import io.github.loredock.code.application.CodeSearchQuery;
@@ -300,9 +301,15 @@ public class ProjectQaToolService implements ProjectQaToolGateway {
     }
 
     private AgentEvidence knowledgeEvidence(AgentRunSnapshot run, KnowledgeSearchResult result, boolean retained) {
+        var source = result.source();
+        EvidenceSourceMetadata metadata = source == null
+                ? EvidenceSourceMetadata.historicalUnknown()
+                : new EvidenceSourceMetadata(
+                        EvidenceSourceMetadata.CURRENT_SCHEMA_VERSION,
+                        result.scope().type().name(), source.type().name(), source.wikiUrl(), source.originalFilename());
         return new AgentEvidence(UUID.randomUUID(), run.runId(), EvidenceSourceType.KNOWLEDGE, retained,
                 result.relevance(), result.documentId(), null, run.scope().projectIdentifier(), run.scope().branch(),
-                null, null, result.title(), result.sourceUpdatedAt());
+                null, null, result.title(), result.sourceUpdatedAt(), metadata);
     }
 
     private AgentEvidence codeEvidence(AgentRunSnapshot run, String path, Instant indexedAt, double relevance) {
@@ -335,7 +342,8 @@ public class ProjectQaToolService implements ProjectQaToolGateway {
             AgentEvidence value = item.evidence();
             evidence.add(new AgentEvidence(value.id(), value.runId(), value.sourceType(), retain,
                     value.relevance(), value.documentId(), value.snapshotId(), value.projectIdentifier(),
-                    value.branch(), value.commit(), value.repositoryPath(), value.title(), value.sourceUpdatedAt()));
+                    value.branch(), value.commit(), value.repositoryPath(), value.title(), value.sourceUpdatedAt(),
+                    value.sourceMetadata()));
         }
         return new AgentToolResult(context.toString(), evidence, retainedCount, trimmed);
     }

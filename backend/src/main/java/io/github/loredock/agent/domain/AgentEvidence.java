@@ -19,6 +19,19 @@ public record AgentEvidence(
         String commit,
         String repositoryPath,
         String title,
-        Instant sourceUpdatedAt
+        Instant sourceUpdatedAt,
+        EvidenceSourceMetadata sourceMetadata
 ) {
+    public AgentEvidence(
+            UUID id, UUID runId, EvidenceSourceType sourceType, boolean retained, double relevance,
+            UUID documentId, UUID snapshotId, String projectIdentifier, String branch, String commit,
+            String repositoryPath, String title, Instant sourceUpdatedAt
+    ) {
+        this(id, runId, sourceType, retained, relevance, documentId, snapshotId, projectIdentifier, branch,
+                commit, repositoryPath, title, sourceUpdatedAt, EvidenceSourceMetadata.historicalUnknown());
+    }
+
+    public AgentEvidence {
+        sourceMetadata = sourceMetadata == null ? EvidenceSourceMetadata.historicalUnknown() : sourceMetadata;
+    }
 }

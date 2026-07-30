@@ -32,7 +32,7 @@ class AgentRuntimeMigrationIT {
      */
     @Test
     void emptyAndVersionFiveDatabasesMigrateOnceToSixAgentTables() throws Exception {
-        Flyway empty = migrationFor("agent_empty");
+        Flyway empty = migrationFor("agent_empty", "6");
         assertThat(empty.migrate().migrationsExecuted).isEqualTo(6);
         assertThat(empty.migrate().migrationsExecuted).isZero();
 
@@ -45,7 +45,7 @@ class AgentRuntimeMigrationIT {
                 .target(MigrationVersion.fromVersion("5"))
                 .load()
                 .migrate();
-        assertThat(migrationFor(upgradeSchema).migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(migrationFor(upgradeSchema, "6").migrate().migrationsExecuted).isEqualTo(1);
 
         try (Connection connection = connection()) {
             for (String table : new String[]{
@@ -175,6 +175,16 @@ class AgentRuntimeMigrationIT {
                 .schemas(schema)
                 .defaultSchema(schema)
                 .locations("classpath:db/migration")
+                .load();
+    }
+
+    private Flyway migrationFor(String schema, String targetVersion) {
+        return Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .schemas(schema)
+                .defaultSchema(schema)
+                .locations("classpath:db/migration")
+                .target(MigrationVersion.fromVersion(targetVersion))
                 .load();
     }
 

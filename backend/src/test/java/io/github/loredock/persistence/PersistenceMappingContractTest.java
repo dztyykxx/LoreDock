@@ -20,8 +20,12 @@ import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeIndexDoc
 import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeIndexGenerationEntity;
 import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeSearchChunkEntity;
 import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeSearchGenerationEntity;
+import io.github.loredock.knowledgegap.infrastructure.persistence.KnowledgeGapFeedbackCitationEntity;
+import io.github.loredock.knowledgegap.infrastructure.persistence.KnowledgeGapFeedbackEntity;
 import io.github.loredock.project.infrastructure.persistence.ProjectBranchEntity;
 import io.github.loredock.project.infrastructure.persistence.ProjectSpaceEntity;
+import io.github.loredock.qa.infrastructure.persistence.WebQaMessageEntity;
+import io.github.loredock.qa.infrastructure.persistence.WebQaQuestionEntity;
 import io.github.loredock.storage.infrastructure.persistence.StoredObjectEntity;
 import org.junit.jupiter.api.Test;
 
@@ -61,7 +65,11 @@ class PersistenceMappingContractTest {
         assertExplicitMapping(AgentToolCallEntity.class, "agent_tool_call");
         assertExplicitMapping(AgentEvidenceEntity.class, "agent_evidence");
         assertExplicitMapping(AgentCitationEntity.class, "agent_citation");
-        System.out.println("测试证据：场景=持久化显式映射，新增Agent实体数=6，全部字段均声明表列映射");
+        assertExplicitMapping(WebQaQuestionEntity.class, "web_qa_question");
+        assertExplicitMapping(WebQaMessageEntity.class, "web_qa_message");
+        assertExplicitMapping(KnowledgeGapFeedbackEntity.class, "knowledge_gap_feedback");
+        assertExplicitMapping(KnowledgeGapFeedbackCitationEntity.class, "knowledge_gap_feedback_citation");
+        System.out.println("测试证据：场景=持久化显式映射，T7新增实体数=4，全部字段均声明表列映射");
     }
 
     /**

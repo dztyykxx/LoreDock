@@ -2,6 +2,7 @@ package io.github.loredock.agent.infrastructure.persistence;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import io.github.loredock.agent.application.AgentCitationSnapshot;
+import io.github.loredock.agent.application.AgentEvidenceRepository;
 import io.github.loredock.agent.application.AgentExecutionUsage;
 import io.github.loredock.agent.application.AgentRunCreateData;
 import io.github.loredock.agent.application.AgentRunRepository;
@@ -12,6 +13,7 @@ import io.github.loredock.agent.domain.AgentResultType;
 import io.github.loredock.agent.domain.AgentRunStatus;
 import io.github.loredock.agent.domain.AgentScopeSnapshot;
 import io.github.loredock.agent.domain.AgentVersionSnapshot;
+import io.github.loredock.agent.domain.AnswerBasis;
 import io.github.loredock.agent.domain.EvidenceSourceType;
 import io.github.loredock.agent.domain.TrustedProjectQaResult;
 import lombok.extern.slf4j.Slf4j;
@@ -19,11 +21,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -36,13 +34,13 @@ import java.util.UUID;
 public class MybatisPlusAgentRunRepository implements AgentRunRepository {
 
     private final AgentRunMapper runs;
-    private final AgentEvidenceMapper evidence;
+    private final AgentEvidenceRepository evidence;
     private final AgentCitationMapper citations;
 
     /** @param runs 运行 Mapper @param evidence 证据 Mapper @param citations 引用 Mapper */
     public MybatisPlusAgentRunRepository(
             AgentRunMapper runs,
-            AgentEvidenceMapper evidence,
+            AgentEvidenceRepository evidence,
             AgentCitationMapper citations
     ) {
         this.runs = runs;
@@ -105,7 +103,7 @@ public class MybatisPlusAgentRunRepository implements AgentRunRepository {
     @Transactional
     public boolean complete(UUID runId, TrustedProjectQaResult result, AgentExecutionUsage usage, Instant finishedAt) {
         int updated = runs.complete(
-                runId, result.resultType().name(), result.text(),
+                runId, result.resultType().name(), result.basis() == null ? null : result.basis().name(), result.text(),
                 result.refusalReason() == null ? null : result.refusalReason().name(),
                 usage.stepCount(), usage.modelCallCount(), usage.retrievalCount(), usage.trimmedCharacterCount(),
                 usage.inputTokens(), usage.outputTokens(), usage.elapsedMillis(), finishedAt);
@@ -160,7 +158,8 @@ public class MybatisPlusAgentRunRepository implements AgentRunRepository {
         return new AgentRunSnapshot(
                 entity.getId(), entity.getOperatorId(), entity.getIdempotencyKey(), entity.getRequestHash(),
                 entity.getTaskType(), AgentRunStatus.valueOf(entity.getStatus()),
-                enumValue(AgentResultType.class, entity.getResultType()), entity.getResultText(),
+                enumValue(AgentResultType.class, entity.getResultType()), answerBasis(entity, citationViews),
+                entity.getResultText(),
                 enumValue(AgentRefusalReason.class, entity.getRefusalReason()),
                 enumValue(AgentErrorCode.class, entity.getErrorCode()),
                 new AgentScopeSnapshot(
@@ -176,29 +175,30 @@ public class MybatisPlusAgentRunRepository implements AgentRunRepository {
                 entity.getFinishedAt(), citationViews);
     }
 
+    private AnswerBasis answerBasis(AgentRunEntity entity, List<AgentCitationSnapshot> citationViews) {
+        if (entity.getAnswerBasis() != null) {
+            return AnswerBasis.valueOf(entity.getAnswerBasis());
+        }
+        if (!AgentResultType.ANSWER.name().equals(entity.getResultType())) {
+            return null;
+        }
+        boolean knowledge = citationViews.stream()
+                .anyMatch(value -> value.sourceType() == EvidenceSourceType.KNOWLEDGE);
+        boolean code = citationViews.stream().anyMatch(value -> value.sourceType() == EvidenceSourceType.CODE);
+        if (knowledge && code) {
+            return AnswerBasis.MIXED;
+        }
+        if (knowledge) {
+            return AnswerBasis.BUSINESS_RULE;
+        }
+        if (code) {
+            return AnswerBasis.CURRENT_IMPLEMENTATION;
+        }
+        throw new IllegalStateException("completed answer has no safe citation type for basis derivation");
+    }
+
     private List<AgentCitationSnapshot> citationViews(UUID runId) {
-        List<AgentCitationEntity> rows = citations.selectList(new LambdaQueryWrapper<AgentCitationEntity>()
-                .eq(AgentCitationEntity::getRunId, runId)
-                .orderByAsc(AgentCitationEntity::getCitationOrder));
-        if (rows.isEmpty()) {
-            return List.of();
-        }
-        List<UUID> evidenceIds = rows.stream().map(AgentCitationEntity::getEvidenceId).toList();
-        Map<UUID, AgentEvidenceEntity> byId = new HashMap<>();
-        evidence.selectBatchIds(evidenceIds).forEach(value -> byId.put(value.getId(), value));
-        List<AgentCitationSnapshot> result = new ArrayList<>();
-        for (AgentCitationEntity row : rows) {
-            AgentEvidenceEntity source = byId.get(row.getEvidenceId());
-            if (source != null) {
-                result.add(new AgentCitationSnapshot(
-                        source.getId(), EvidenceSourceType.valueOf(source.getSourceType()), source.getDocumentId(),
-                        source.getSnapshotId(), source.getProjectIdentifier(), source.getBranchName(),
-                        source.getCommitHash(), source.getRepositoryPath(), source.getTitle(),
-                        source.getSourceUpdatedAt(), row.getCitationOrder()));
-            }
-        }
-        result.sort(Comparator.comparingInt(AgentCitationSnapshot::order));
-        return List.copyOf(result);
+        return evidence.findCitations(runId);
     }
 
     private <T extends Enum<T>> T enumValue(Class<T> type, String value) {

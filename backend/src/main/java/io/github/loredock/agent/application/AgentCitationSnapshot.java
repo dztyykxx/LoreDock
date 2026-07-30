@@ -1,6 +1,7 @@
 package io.github.loredock.agent.application;
 
 import io.github.loredock.agent.domain.EvidenceSourceType;
+import io.github.loredock.agent.domain.EvidenceSourceMetadata;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -17,6 +18,7 @@ public record AgentCitationSnapshot(
         String repositoryPath,
         String title,
         Instant sourceUpdatedAt,
-        int order
+        int order,
+        EvidenceSourceMetadata sourceMetadata
 ) {
 }

@@ -80,6 +80,12 @@ class FlywayMigrationIT {
             assertThat(queryBoolean(connection,
                     "select to_regclass('foundation.agent_citation') is not null"))
                     .isTrue();
+            assertThat(queryBoolean(connection,
+                    "select to_regclass('foundation.web_qa_question') is not null"))
+                    .isTrue();
+            assertThat(queryBoolean(connection,
+                    "select to_regclass('foundation.knowledge_gap_feedback') is not null"))
+                    .isTrue();
             assertThat(queryBoolean(connection, """
                     select exists(
                         select 1 from pg_constraint
@@ -153,8 +159,8 @@ class FlywayMigrationIT {
         }
 
         Flyway upgraded = migrationFor(schema);
-        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(5);
-        assertThat(migrationHistoryCount(schema)).isEqualTo(versionOneHistoryCount + 5);
+        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(6);
+        assertThat(migrationHistoryCount(schema)).isEqualTo(versionOneHistoryCount + 6);
         try (Connection connection = connection()) {
             assertThat(queryBoolean(connection, "select to_regclass('" + schema + ".project_space') is not null"))
                     .isTrue();
@@ -168,6 +174,9 @@ class FlywayMigrationIT {
                     "select to_regclass('" + schema + ".knowledge_search_generation') is not null"))
                     .isTrue();
             assertThat(queryBoolean(connection, "select to_regclass('" + schema + ".agent_run') is not null"))
+                    .isTrue();
+            assertThat(queryBoolean(connection,
+                    "select to_regclass('" + schema + ".web_qa_question') is not null"))
                     .isTrue();
         }
     }
@@ -189,8 +198,8 @@ class FlywayMigrationIT {
         int versionTwoHistoryCount = migrationHistoryCount(schema);
 
         Flyway upgraded = migrationFor(schema);
-        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(4);
-        assertThat(migrationHistoryCount(schema)).isEqualTo(versionTwoHistoryCount + 4);
+        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(5);
+        assertThat(migrationHistoryCount(schema)).isEqualTo(versionTwoHistoryCount + 5);
         try (Connection connection = connection()) {
             for (String table : new String[]{
                     "knowledge_document", "knowledge_document_tag", "knowledge_import_batch",
@@ -198,7 +207,8 @@ class FlywayMigrationIT {
                     "code_snapshot", "code_index_generation",
                     "knowledge_search_generation", "knowledge_search_chunk",
                     "agent_skill_version", "agent_run", "agent_run_event", "agent_tool_call",
-                    "agent_evidence", "agent_citation"}) {
+                    "agent_evidence", "agent_citation", "web_qa_question", "web_qa_message",
+                    "knowledge_gap_feedback", "knowledge_gap_feedback_citation"}) {
                 assertThat(queryBoolean(connection,
                         "select to_regclass('" + schema + "." + table + "') is not null"))
                         .as(table)

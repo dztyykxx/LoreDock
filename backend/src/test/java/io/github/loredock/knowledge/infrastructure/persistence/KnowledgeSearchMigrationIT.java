@@ -38,19 +38,19 @@ class KnowledgeSearchMigrationIT {
     }
 
     /**
-     * 业务目的：空库、V1 与 V4 现有数据库都必须仅追加升级到当前 V6，重复启动不得重建检索表或改写历史数据。
+     * 业务目的：空库、V1 与 V4 现有数据库都必须仅追加升级到当前 V7，重复启动不得重建检索表或改写历史数据。
      */
     @Test
-    void emptyVersionOneAndVersionFourDatabasesUpgradeOnceToV6() throws Exception {
+    void emptyVersionOneAndVersionFourDatabasesUpgradeOnceToV7() throws Exception {
         Flyway empty = migrationFor("search_empty");
-        assertThat(empty.migrate().migrationsExecuted).isEqualTo(6);
+        assertThat(empty.migrate().migrationsExecuted).isEqualTo(7);
         assertThat(empty.migrate().migrationsExecuted).isZero();
 
         migrateTo("search_upgrade_v1", "1");
-        assertThat(migrationFor("search_upgrade_v1").migrate().migrationsExecuted).isEqualTo(5);
+        assertThat(migrationFor("search_upgrade_v1").migrate().migrationsExecuted).isEqualTo(6);
 
         migrateTo("search_upgrade_v4", "4");
-        assertThat(migrationFor("search_upgrade_v4").migrate().migrationsExecuted).isEqualTo(2);
+        assertThat(migrationFor("search_upgrade_v4").migrate().migrationsExecuted).isEqualTo(3);
 
         try (Connection connection = connection()) {
             for (String schema : new String[]{"search_empty", "search_upgrade_v1", "search_upgrade_v4"}) {
@@ -58,7 +58,7 @@ class KnowledgeSearchMigrationIT {
                 assertThat(exists(connection, schema, "knowledge_search_chunk")).as(schema).isTrue();
             }
         }
-        System.out.println("测试证据：场景=V6追加迁移，空库执行=6，V1升级=5，V4升级=2，重复迁移=0");
+        System.out.println("测试证据：场景=V7追加迁移，空库执行=7，V1升级=6，V4升级=3，重复迁移=0");
     }
 
     /**
@@ -72,7 +72,7 @@ class KnowledgeSearchMigrationIT {
             seedProjection(connection, schema, "GLOBAL", null, null);
         }
 
-        assertThat(migrationFor(schema).migrate().migrationsExecuted).isEqualTo(2);
+        assertThat(migrationFor(schema).migrate().migrationsExecuted).isEqualTo(3);
 
         try (Connection connection = connection()) {
             assertThat(queryLong(connection, "select count(*) from " + schema

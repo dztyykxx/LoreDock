@@ -27,6 +27,8 @@ import io.github.loredock.knowledge.application.search.KnowledgeSearchResult;
 import io.github.loredock.knowledge.application.search.KnowledgeSearchResultScope;
 import io.github.loredock.knowledge.application.search.KnowledgeSearchUseCase;
 import io.github.loredock.knowledge.domain.KnowledgeScopeType;
+import io.github.loredock.knowledge.domain.DocumentSource;
+import io.github.loredock.knowledge.domain.DocumentSourceType;
 import io.github.loredock.platform.time.TimeProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -127,6 +129,35 @@ class ProjectQaToolServiceTest {
         System.out.printf("测试证据：场景=知识工具固定范围，generation=%s，服务端limit=%d，返回=%d，保留证据=%d，裁剪字符=%d%n",
                 GENERATION_ID, query.getValue().limit(), result.resultCount(),
                 result.evidence().stream().filter(value -> value.retained()).count(), result.trimmedCharacterCount());
+    }
+
+    /**
+     * 业务目的：知识证据必须固定检索当时的公开范围和来源，防止文档后来编辑后引用面板发生时间穿越。
+     */
+    @Test
+    void knowledgeEvidencePinsVersionedSafeSourceMetadata() {
+        var source = new DocumentSource(
+                DocumentSourceType.WIKI, "https://example.test/wiki/review", null, "不得进入证据的整理说明");
+        var base = knowledgeResult(UUID.randomUUID(), KnowledgeScopeType.BRANCH, 0.8, "审核规则", "证据");
+        var result = new KnowledgeSearchResult(
+                base.documentId(), base.scope(), base.title(), base.snippet(), false, base.format(), base.tags(),
+                source, NOW, base.relevance(), base.matchedBy());
+        when(knowledge.search(any())).thenReturn(new KnowledgeSearchResponse(
+                new KnowledgeSearchContext(KnowledgeBrowseContextType.PROJECT, "atlas", "main"),
+                KnowledgeSearchMode.HYBRID, GENERATION_ID, List.of(), List.of(result)));
+
+        AgentToolResult response = service.knowledgeSearch(
+                RUN_ID, new KnowledgeSearchToolRequest("为什么审核", 1));
+
+        assertThat(response.evidence()).singleElement().satisfies(value -> {
+            assertThat(value.sourceMetadata().schemaVersion()).isEqualTo("knowledge-source-v1");
+            assertThat(value.sourceMetadata().scopeType()).isEqualTo("BRANCH");
+            assertThat(value.sourceMetadata().knowledgeSourceType()).isEqualTo("WIKI");
+            assertThat(value.sourceMetadata().wikiUrl()).isEqualTo("https://example.test/wiki/review");
+            assertThat(value.sourceMetadata().toString()).doesNotContain("整理说明");
+        });
+        System.out.printf("测试证据：场景=知识来源快照，范围=%s，来源=%s，时间=%s%n",
+                result.scope().type(), result.source().type(), result.sourceUpdatedAt());
     }
 
     /**

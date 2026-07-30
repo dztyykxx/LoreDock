@@ -43,6 +43,7 @@ public class AgentRunEntity {
     @TableField("limit_policy_version") private String limitPolicyVersion;
     @TableField("status") private String status;
     @TableField("result_type") private String resultType;
+    @TableField("answer_basis") private String answerBasis;
     @TableField("result_text") private String resultText;
     @TableField("refusal_reason") private String refusalReason;
     @TableField("error_code") private String errorCode;

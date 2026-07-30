@@ -7,19 +7,19 @@
 
 ## 2. 建立 V7 数据契约与显式持久化映射
 
-- [ ] 2.1 先编写真实 PostgreSQL 迁移失败测试，覆盖 V1→V7、V6→V7、重复迁移、问答/消息唯一键、反馈枚举与状态约束、游标索引、反馈引用复合外键和可空 `answer_basis` 回滚兼容，并输出实际迁移版本与约束结果。
-- [ ] 2.2 新增 `V7__create_web_qa_and_knowledge_gap_tables.sql`，创建 `web_qa_question`、`web_qa_message`、`knowledge_gap_feedback`、`knowledge_gap_feedback_citation` 并向 `agent_run` 追加可空 `answer_basis`；不得修改 V1～V6。
-- [ ] 2.3 先扩展持久化映射契约测试，再定义问答、消息、反馈、反馈引用实体和 Mapper；所有表名、主键、字段逐项显式注解，机械访问器使用 Lombok，不新增 XML Mapper。
+- [x] 2.1 先编写真实 PostgreSQL 迁移失败测试，覆盖 V1→V7、V6→V7、重复迁移、问答/消息唯一键、反馈枚举与状态约束、游标索引、反馈引用复合外键和可空 `answer_basis` 回滚兼容，并输出实际迁移版本与约束结果。
+- [x] 2.2 新增 `V7__create_web_qa_and_knowledge_gap_tables.sql`，创建 `web_qa_question`、`web_qa_message`、`knowledge_gap_feedback`、`knowledge_gap_feedback_citation` 并向 `agent_run` 追加可空 `answer_basis`；不得修改 V1～V6。
+- [x] 2.3 先扩展持久化映射契约测试，再定义问答、消息、反馈、反馈引用实体和 Mapper；所有表名、主键、字段逐项显式注解，机械访问器使用 Lombok，不新增 XML Mapper。
 - [ ] 2.4 以 MyBatis-Plus Java API 实现基础仓储；仅对并发幂等插入、复合游标或条件状态更新使用 Mapper 注解 SQL，并用中文注释说明 Java API 无法清楚表达的原因。
-- [ ] 2.5 运行迁移与映射集成测试并核对数据库实际行、外键、唯一约束、UTC 时间和回滚行为，禁止用 H2 替代 PostgreSQL。
+- [x] 2.5 运行迁移与映射集成测试并核对数据库实际行、外键、唯一约束、UTC 时间和回滚行为，禁止用 H2 替代 PostgreSQL。
 
 ## 3. 补齐回答依据与运行时来源快照
 
-- [ ] 3.1 先为新运行持久化 `AnswerBasis`、旧运行按最终引用类型推导、知识来源 metadata 版本化和历史 metadata 缺失降级编写失败测试，测试输出实际 basis、来源类型、范围和时间。
-- [ ] 3.2 接口优先扩展 `AgentRunSnapshot`、引用安全来源 DTO、证据持久化端口和仓储映射，使用中文 Javadoc 明确“运行当时来源快照”而非当前文档回查。
-- [ ] 3.3 在运行完成事务中写入 `answer_basis`，并实现旧 `ANSWER` 的知识/代码引用类型推导；无法满足既有引用不变量时返回安全错误，不猜测来源类型。
-- [ ] 3.4 把知识范围、来源类型、Wiki HTTP(S) URL或原文件名写入有 schema 版本的 `agent_evidence.metadata`，代码索引时间继续使用 `source_updated_at`；不得记录完整整理说明、正文或服务器路径。
-- [ ] 3.5 运行 Agent 领域、工具、持久化和 Fake Model 回归测试，覆盖知识、代码、混合、冲突、无快照及伪造引用，并检查生产日志与测试证据日志不含问题、URL、答案或证据正文。
+- [x] 3.1 先为新运行持久化 `AnswerBasis`、旧运行按最终引用类型推导、知识来源 metadata 版本化和历史 metadata 缺失降级编写失败测试，测试输出实际 basis、来源类型、范围和时间。
+- [x] 3.2 接口优先扩展 `AgentRunSnapshot`、引用安全来源 DTO、证据持久化端口和仓储映射，使用中文 Javadoc 明确“运行当时来源快照”而非当前文档回查。
+- [x] 3.3 在运行完成事务中写入 `answer_basis`，并实现旧 `ANSWER` 的知识/代码引用类型推导；无法满足既有引用不变量时返回安全错误，不猜测来源类型。
+- [x] 3.4 把知识范围、来源类型、Wiki HTTP(S) URL或原文件名写入有 schema 版本的 `agent_evidence.metadata`，代码索引时间继续使用 `source_updated_at`；不得记录完整整理说明、正文或服务器路径。
+- [x] 3.5 运行 Agent 领域、工具、持久化和 Fake Model 回归测试，覆盖知识、代码、混合、冲突、无快照及伪造引用，并检查生产日志与测试证据日志不含问题、URL、答案或证据正文。
 
 ## 4. 定义 Web 问答领域与应用契约
 

@@ -23,7 +23,8 @@ public interface AgentRunMapper extends BaseMapper<AgentRunEntity> {
     /** @return RUNNING 成功写入可信完成结果的行数 */
     @Update("""
             update agent_run
-            set status = 'COMPLETED', result_type = #{resultType}, result_text = #{resultText},
+            set status = 'COMPLETED', result_type = #{resultType}, answer_basis = #{answerBasis},
+                result_text = #{resultText},
                 refusal_reason = #{refusalReason}, error_code = null,
                 step_count = #{stepCount}, model_call_count = #{modelCallCount},
                 retrieval_count = #{retrievalCount}, trimmed_character_count = #{trimmedCharacterCount},
@@ -34,6 +35,7 @@ public interface AgentRunMapper extends BaseMapper<AgentRunEntity> {
     int complete(
             @Param("runId") UUID runId,
             @Param("resultType") String resultType,
+            @Param("answerBasis") String answerBasis,
             @Param("resultText") String resultText,
             @Param("refusalReason") String refusalReason,
             @Param("stepCount") int stepCount,
