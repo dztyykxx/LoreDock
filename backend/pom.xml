@@ -27,6 +27,8 @@
         <sa-token.version>1.45.0</sa-token.version>
         <lombok.version>1.18.46</lombok.version>
         <commons-compress.version>1.28.0</commons-compress.version>
+        <onnxruntime.version>1.28.0</onnxruntime.version>
+        <djl.version>0.36.0</djl.version>
         <maven-enforcer-plugin.version>3.6.2</maven-enforcer-plugin.version>
         <maven-failsafe-plugin.version>3.5.4</maven-failsafe-plugin.version>
     </properties>
@@ -106,6 +108,16 @@
             <groupId>org.apache.lucene</groupId>
             <artifactId>lucene-highlighter</artifactId>
             <version>${lucene.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.microsoft.onnxruntime</groupId>
+            <artifactId>onnxruntime</artifactId>
+            <version>${onnxruntime.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>ai.djl.huggingface</groupId>
+            <artifactId>tokenizers</artifactId>
+            <version>${djl.version}</version>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
