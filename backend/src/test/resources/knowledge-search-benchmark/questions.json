@@ -1,0 +1,395 @@
+{
+  "benchmarkVersion": "t5-benchmark-v1",
+  "questions": [
+    {
+      "id": "SP-01",
+      "category": "SCENARIO_PACK",
+      "query": "场景包导入支持哪些正文格式？",
+      "contextType": "GLOBAL",
+      "modes": [
+        "KEYWORD",
+        "SEMANTIC",
+        "HYBRID"
+      ],
+      "semanticParaphrase": false,
+      "hasAnswer": true,
+      "expectedDocumentIds": [
+        "53000000-0000-0000-0000-000000000001"
+      ],
+      "filters": {
+        "tags": [],
+        "format": null,
+        "sourceType": null
+      }
+    },
+    {
+      "id": "SP-02",
+      "category": "SCENARIO_PACK",
+      "query": "导出的场景包包含哪些证据？",
+      "contextType": "GLOBAL",
+      "modes": [
+        "KEYWORD",
+        "SEMANTIC",
+        "HYBRID"
+      ],
+      "semanticParaphrase": false,
+      "hasAnswer": true,
+      "expectedDocumentIds": [
+        "53000000-0000-0000-0000-000000000001"
+      ],
+      "filters": {
+        "tags": [],
+        "format": null,
+        "sourceType": null
+      }
+    },
+    {
+      "id": "SP-03",
+      "category": "SCENARIO_PACK",
+      "query": "导入条目失败以后如何清理遗留对象？",
+      "contextType": "GLOBAL",
+      "modes": [
+        "KEYWORD",
+        "SEMANTIC",
+        "HYBRID"
+      ],
+      "semanticParaphrase": false,
+      "hasAnswer": true,
+      "expectedDocumentIds": [
+        "53000000-0000-0000-0000-000000000002"
+      ],
+      "filters": {
+        "tags": [],
+        "format": null,
+        "sourceType": null
+      }
+    },
+    {
+      "id": "SP-04",
+      "category": "SCENARIO_PACK",
+      "query": "重复提交未完成的场景材料会怎样处理？",
+      "contextType": "GLOBAL",
+      "modes": [
+        "KEYWORD",
+        "SEMANTIC",
+        "HYBRID"
+      ],
+      "semanticParaphrase": false,
+      "hasAnswer": true,
+      "expectedDocumentIds": [
+        "53000000-0000-0000-0000-000000000002"
+      ],
+      "filters": {
+        "tags": [],
+        "format": null,
+        "sourceType": null
+      }
+    },
+    {
+      "id": "SP-05",
+      "category": "SCENARIO_PACK",
+      "query": "知识材料和日志中禁止保存什么敏感数据？",
+      "contextType": "GLOBAL",
+      "modes": [
+        "KEYWORD",
+        "SEMANTIC",
+        "HYBRID"
+      ],
+      "semanticParaphrase": false,
+      "hasAnswer": true,
+      "expectedDocumentIds": [
+        "53000000-0000-0000-0000-000000000004"
+      ],
+      "filters": {
+        "tags": [],
+        "format": null,
+        "sourceType": null
+      }
+    },
+    {
+      "id": "SP-06",
+      "category": "SCENARIO_PACK",
+      "query": "项目分支知识怎样防止跨范围泄漏？",
+      "contextType": "GLOBAL",
+      "modes": [
+        "KEYWORD",
+        "SEMANTIC",
+        "HYBRID"
+      ],
+      "semanticParaphrase": false,
+      "hasAnswer": true,
+      "expectedDocumentIds": [
+        "53000000-0000-0000-0000-000000000003"
+      ],
+      "filters": {
+        "tags": [],
+        "format": null,
+        "sourceType": null
+      }
+    },
+    {
+      "id": "SP-07",
+      "category": "SCENARIO_PACK",
+      "query": "证据不够时回答应该怎么做？",
+      "contextType": "GLOBAL",
+      "modes": [
+        "KEYWORD",
+        "SEMANTIC",
+        "HYBRID"
+      ],
+      "semanticParaphrase": false,
+      "hasAnswer": true,
+      "expectedDocumentIds": [
+        "53000000-0000-0000-0000-000000000003"
+      ],
+      "filters": {
+        "tags": [],
+        "format": null,
+        "sourceType": null
+      }
+    },
+    {
+      "id": "SP-08",
+      "category": "SCENARIO_PACK",
+      "query": "场景包是否支持自动翻译为西班牙语？",
+      "contextType": "GLOBAL",
+      "modes": [
+        "KEYWORD",
+        "SEMANTIC",
+        "HYBRID"
+      ],
+      "semanticParaphrase": false,
+      "hasAnswer": false,
+      "expectedDocumentIds": [],
+      "noAnswerReason": "公开模拟材料没有场景包自动翻译能力说明。",
+      "filters": {
+        "tags": [],
+        "format": null,
+        "sourceType": null
+      }
+    },
+    {
+      "id": "SP-09",
+      "category": "SCENARIO_PACK",
+      "query": "一包项目资料怎样搬进知识库？",
+      "contextType": "GLOBAL",
+      "modes": [
+        "KEYWORD",
+        "SEMANTIC",
+        "HYBRID"
+      ],
+      "semanticParaphrase": true,
+      "paraphraseReview": "口语表达没有复用正确文档标题中的“场景包导入与导出指南”。",
+      "hasAnswer": true,
+      "expectedDocumentIds": [
+        "53000000-0000-0000-0000-000000000001"
+      ],
+      "filters": {
+        "tags": [],
+        "format": null,
+        "sourceType": null
+      }
+    },
+    {
+      "id": "SP-10",
+      "category": "SCENARIO_PACK",
+      "query": "拿出去的交付物能否带齐核验依据？",
+      "contextType": "GLOBAL",
+      "modes": [
+        "KEYWORD",
+        "SEMANTIC",
+        "HYBRID"
+      ],
+      "semanticParaphrase": true,
+      "paraphraseReview": "口语表达没有复用正确文档标题中的“场景包”“导出”或“指南”。",
+      "hasAnswer": true,
+      "expectedDocumentIds": [
+        "53000000-0000-0000-0000-000000000001"
+      ],
+      "filters": {
+        "tags": [],
+        "format": null,
+        "sourceType": null
+      }
+    },
+    {
+      "id": "PG-01",
+      "category": "PROJECT_GENERAL",
+      "query": "Atlas 本地首次启动需要哪些依赖和步骤？",
+      "contextType": "PROJECT",
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "modes": [
+        "KEYWORD",
+        "SEMANTIC",
+        "HYBRID"
+      ],
+      "semanticParaphrase": false,
+      "hasAnswer": true,
+      "expectedDocumentIds": [
+        "53000000-0000-0000-0000-000000000101"
+      ],
+      "filters": {
+        "tags": [],
+        "format": null,
+        "sourceType": null
+      }
+    },
+    {
+      "id": "PG-02",
+      "category": "PROJECT_GENERAL",
+      "query": "Atlas 为什么按业务能力分层？",
+      "contextType": "PROJECT",
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "modes": [
+        "KEYWORD",
+        "SEMANTIC",
+        "HYBRID"
+      ],
+      "semanticParaphrase": false,
+      "hasAnswer": true,
+      "expectedDocumentIds": [
+        "53000000-0000-0000-0000-000000000102"
+      ],
+      "filters": {
+        "tags": [],
+        "format": null,
+        "sourceType": null
+      }
+    },
+    {
+      "id": "PG-03",
+      "category": "PROJECT_GENERAL",
+      "query": "Atlas main 发布前有哪些测试门禁？",
+      "contextType": "PROJECT",
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "modes": [
+        "KEYWORD",
+        "SEMANTIC",
+        "HYBRID"
+      ],
+      "semanticParaphrase": false,
+      "hasAnswer": true,
+      "expectedDocumentIds": [
+        "53000000-0000-0000-0000-000000000103"
+      ],
+      "filters": {
+        "tags": [],
+        "format": null,
+        "sourceType": null
+      }
+    },
+    {
+      "id": "PG-04",
+      "category": "PROJECT_GENERAL",
+      "query": "Nebula main 部署失败后哪个索引继续服务？",
+      "contextType": "PROJECT",
+      "projectIdentifier": "nebula",
+      "branch": "main",
+      "modes": [
+        "KEYWORD",
+        "SEMANTIC",
+        "HYBRID"
+      ],
+      "semanticParaphrase": false,
+      "hasAnswer": true,
+      "expectedDocumentIds": [
+        "53000000-0000-0000-0000-000000000203"
+      ],
+      "filters": {
+        "tags": [],
+        "format": null,
+        "sourceType": null
+      }
+    },
+    {
+      "id": "PG-05",
+      "category": "PROJECT_GENERAL",
+      "query": "怎样从日志确认后台任务和检索真实执行？",
+      "contextType": "GLOBAL",
+      "modes": [
+        "KEYWORD",
+        "SEMANTIC",
+        "HYBRID"
+      ],
+      "semanticParaphrase": false,
+      "hasAnswer": true,
+      "expectedDocumentIds": [
+        "53000000-0000-0000-0000-000000000005"
+      ],
+      "filters": {
+        "tags": [],
+        "format": null,
+        "sourceType": null
+      }
+    },
+    {
+      "id": "NA-01",
+      "category": "NO_ANSWER",
+      "query": "Atlas 面向客户的年度价格是多少？",
+      "contextType": "PROJECT",
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "modes": [
+        "KEYWORD",
+        "SEMANTIC",
+        "HYBRID"
+      ],
+      "semanticParaphrase": false,
+      "hasAnswer": false,
+      "expectedDocumentIds": [],
+      "noAnswerReason": "模拟项目材料没有商业定价信息。",
+      "filters": {
+        "tags": [],
+        "format": null,
+        "sourceType": null
+      }
+    },
+    {
+      "id": "NA-02",
+      "category": "NO_ANSWER",
+      "query": "Nebula 生产环境服务器地址是什么？",
+      "contextType": "PROJECT",
+      "projectIdentifier": "nebula",
+      "branch": "main",
+      "modes": [
+        "KEYWORD",
+        "SEMANTIC",
+        "HYBRID"
+      ],
+      "semanticParaphrase": false,
+      "hasAnswer": false,
+      "expectedDocumentIds": [],
+      "noAnswerReason": "基准禁止内部地址，模拟材料也未提供部署地址。",
+      "filters": {
+        "tags": [],
+        "format": null,
+        "sourceType": null
+      }
+    },
+    {
+      "id": "BR-01",
+      "category": "NO_ANSWER",
+      "query": "Atlas demo 分支怎样重置展台订单？",
+      "contextType": "PROJECT",
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "modes": [
+        "KEYWORD",
+        "SEMANTIC",
+        "HYBRID"
+      ],
+      "semanticParaphrase": false,
+      "hasAnswer": false,
+      "expectedDocumentIds": [],
+      "noAnswerReason": "答案只存在于同项目 demo 分支，main 上下文必须视为无可用来源。",
+      "filters": {
+        "tags": [],
+        "format": null,
+        "sourceType": null
+      }
+    }
+  ]
+}

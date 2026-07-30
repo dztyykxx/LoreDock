@@ -8,7 +8,7 @@ LoreDock 用于把散落在公司 Wiki、项目文档、需求、PR、Commit、�
 
 ## 当前状态
 
-MVP 开发计划 T1“工程骨架与基础设施”、T2“认证、项目与分支管理”、T3“知识文档完整生命周期”和 T4“代码快照与 Lucene 检索”已完成。当前还提供按项目、分支和 Commit 导入的受限 ZIP 代码快照、generation 原子切换、路径/内容搜索及有限代码片段读取。用户注册、用户表和账号管理后台不在 MVP 范围内。
+MVP 开发计划 T1“工程骨架与基础设施”、T2“认证、项目与分支管理”、T3“知识文档完整生命周期”、T4“代码快照与 Lucene 检索”和 T5“知识关键词、语义与混合检索”已完成。当前提供严格按通用、项目和分支隔离的知识关键词/语义/混合搜索，以及按项目、分支和 Commit 导入的受限 ZIP 代码快照、generation 原子切换、路径/内容搜索及有限代码片段读取。用户注册、用户表和账号管理后台不在 MVP 范围内。
 
 ## 目标场景
 
@@ -82,7 +82,7 @@ MVP 计划通过 Streamable HTTP 暴露只读工具：
 
 技术选型仍以已确认的 OpenSpec 规格为准，调研文档中的建议不自动等同于最终实现。
 
-### T1–T4 冻结版本矩阵
+### T1–T5 冻结版本矩阵
 
 以下版本均为 2026-07-29 从官方发布源核验的 GA 版本。JDK 21 和 Node.js 24 安装在开发机，Maven 使用仓库 Wrapper；Docker 只承载 PostgreSQL/pgvector 等服务依赖。
 
@@ -100,6 +100,9 @@ MVP 计划通过 Streamable HTTP 暴露只读工具：
 | Sa-Token | 1.45.0 | `backend/pom.xml`，使用 Spring Boot 4 Starter |
 | Spring Security Crypto | 跟随 Spring Boot 4.1.0 | 仅使用 BCrypt，不启用 Spring Security 认证链 |
 | Apache Commons Compress | 1.28.0 | `backend/pom.xml`；Apache-2.0，仅用于 ZIP 中央目录与条目类型检查 |
+| ONNX Runtime | 1.28.0 | `backend/pom.xml`；MIT，T5 离线 CPU Embedding |
+| DJL Hugging Face Tokenizers | 0.36.0 | `backend/pom.xml`；Apache-2.0，只读取本地 `tokenizer.json` |
+| BAAI/bge-small-zh-v1.5 | revision `7999e1d` | 运维离线准备；MIT；SHA-256 由环境变量锁定 |
 | PostgreSQL / pgvector | 17 / 0.8.1 | `pgvector/pgvector:0.8.1-pg17` |
 | Node.js | 24.18.0 | `.nvmrc`、`.node-version`、本地运行环境 |
 | npm | 11.16.0 | `frontend/package.json` |
@@ -159,6 +162,17 @@ export LOREDOCK_DEMO_SEED_ENABLED=true
 
 准备器可重复执行；默认 profile 或开关为 `false` 时不会写入演示数据。
 
+### 离线 Embedding 模型
+
+语义与混合检索使用 `BAAI/bge-small-zh-v1.5` 的锁定 ONNX 导出物。仓库不提交约 91 MiB 的模型文件，也不会在运行时下载。运维人员应在受控环境取得 revision `7999e1d3359715c523056ef9478215996d62a620` 的 `model.onnx` 与 `tokenizer.json`，确认模型许可为 MIT，并在部署目录中离线保存。至少为模型、tokenizer 和运行时原生库预留 512 MiB 内存；本次 Apple Silicon 开发机实测进程上限为 4 GiB、冷初始化约 4.44 秒，预热查询最大 16 毫秒。
+
+```bash
+shasum -a 256 models/bge-small-zh-v1.5/model.onnx
+# 期望：3a40c6eab3abdf2bd07651031a36038c2dfaf4ebb8d62ddc78f2324b2ff4389a
+```
+
+将 `.env.example` 中的两个本地 `file:` URI 与摘要复制到实际 `.env`。首次启用 T5 后，管理员必须触发一次知识索引重建；只有带完整搜索元数据的新 `ACTIVE` generation 才能响应搜索。模型缺失、不可读或摘要不符时，KEYWORD 仍可使用已有完整检索代次，SEMANTIC/HYBRID 明确返回 `KNOWLEDGE_EMBEDDING_UNAVAILABLE`（503），服务不会降级为伪语义结果。
+
 按 `Ctrl+C` 停止前后端。数据库默认继续运行，使用以下命令停止或再次启动：
 
 ```bash
@@ -187,6 +201,19 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./mvnw 
 ```
 
 集成测试使用 Testcontainers 启动真实 PostgreSQL/pgvector，不使用 H2。
+
+显式正式基准还需要本地离线模型；它会使用真实重建器、pgvector 和生产搜索应用端口，机器结果写入 `backend/target/knowledge-search-benchmark-result.json`：
+
+```bash
+cd backend
+JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./mvnw \
+  -Dloredock.benchmark=true \
+  -Dloredock.benchmark.model-dir=/path/to/bge-small-zh-v1.5 \
+  -Dit.test=KnowledgeSearchBenchmarkIT \
+  test-compile failsafe:integration-test failsafe:verify
+```
+
+缺少显式开关时正式基准按条件跳过；设置开关却缺少模型、查询失败、运行中 generation/配置变化、HYBRID Top-5 低于 80%、发生范围/生命周期泄漏或预热查询超过 3 秒时，执行会失败而不会生成伪通过结果。最新人工审查报告见 [T5 知识混合检索基准报告](docs/quality/T5知识混合检索基准报告.md)。
 
 ```bash
 cd frontend
@@ -227,6 +254,15 @@ PATH=/opt/homebrew/opt/node@24/bin:$PATH npm audit --audit-level=high
 
 Lucene 目录先写入 `<generation>.building`，关闭并重开验证后才原子发布为 UUID 目录；数据库随后在短事务中切换活动快照和 generation。失败保留旧活动入口。工作目录与索引目录由 `LOREDOCK_CODE_SNAPSHOT_WORK_ROOT`、`LOREDOCK_CODE_SNAPSHOT_INDEX_ROOT` 控制，二者不得重叠，也不得由请求指定。
 
+### T5 知识搜索入口与运行边界
+
+- 已登录知识搜索：`GET /api/knowledge-search`，明确使用 `GLOBAL` 或 `PROJECT` 上下文；项目查询的空分支固定为 `main`；
+- 模式：`KEYWORD`、`SEMANTIC`、`HYBRID`，默认 `HYBRID`；支持标签全包含、格式和来源过滤；
+- 服务固定一次请求的完整活动 generation，在候选 SQL 中强制通用/项目/分支范围，再按当前事实表复核发布和范围资格；复核删除结果后不补入越界候选；
+- 返回有限片段、来源、更新时间、相关性和匹配方式，不返回完整正文、向量、对象键或内部配置；项目分支没有代码快照时仍返回允许的人工知识，并携带 `CODE_SNAPSHOT_NOT_INDEXED`。
+
+搜索返回 `KNOWLEDGE_INDEX_UNAVAILABLE`（503）时，先确认 T5 部署后是否成功执行过一次重建，以及 `knowledge_index_generation` 的 `ACTIVE` 记录是否有匹配的完整 `knowledge_search_generation` 元数据；不得手工激活 BUILDING。新重建失败会清理未完成 generation 并保留旧 ACTIVE。若 `KNOWLEDGE_EMBEDDING_UNAVAILABLE`（503），核对本地资源可读性、模型 SHA-256、512 维 `sentence_embedding` 输出和内存，不要改成 HTTP URI或关闭校验。
+
 ## 数据迁移、备份与故障排查
 
 - Flyway 是表结构变更的唯一入口。不得修改已经执行的 `V*__*.sql`；需要变更时追加新迁移。checksum 不匹配时应恢复历史迁移原文并新增迁移，不要直接执行 `repair` 掩盖差异。
@@ -236,13 +272,14 @@ Lucene 目录先写入 `<generation>.building`，关闭并重开验证后才原�
 - 页面登录成功但刷新后失效时，先确认前后端使用同站代理，生产 HTTPS 环境已开启 Secure Cookie，且期间后端进程没有重启。
 - 上传被 413 拒绝时，同时核对反向代理、Spring multipart 和 `LOREDOCK_KNOWLEDGE_IMPORT_*` 业务配额；以最小的一层为实际上限。
 - 重新索引失败时，依据任务 ID 查看脱敏摘要；不要手工修改 generation 状态，普通浏览会继续使用上一个成功索引。
+- 知识搜索重建失败时，先按任务 ID、generation UUID、模型摘要和错误码排查资源或容量；旧 ACTIVE 仍提供查询。数据库备份已包含事实文档、搜索 generation、分块、关键词和向量；恢复后必须核对活动代次计数与模型摘要，若派生索引不完整则通过管理员入口重建，不手工拼接向量。
 - 代码搜索返回 503 时，先确认活动 generation 的 UUID 目录存在且进程可读；不要手工把 `.building` 重命名为活动目录。原始 ZIP 仍在对象存储时，应通过活动快照重建接口恢复。
 - 启动日志出现代码索引恢复清理告警时，记录 generation UUID 并检查索引根权限与磁盘空间；单个孤儿清理失败不会替换活动索引，可在解除占用后重启幂等重试。
 - 默认 profile 使用便于本地调试的文本控制台日志；生产环境以 `--spring.profiles.active=prod` 启动后启用 Logstash JSON，供日志采集系统解析。
 - 数据库备份可执行 `docker compose exec -T database pg_dump -U loredock -d loredock -Fc > loredock.dump`；原始导入文件和代码 ZIP 位于 `LOREDOCK_STORAGE_ROOT`（默认 `data/objects`），必须与数据库来自同一静默写入窗口。`LOREDOCK_CODE_SNAPSHOT_INDEX_ROOT` 是可由原始 ZIP 重建的派生数据：需要恢复后立即查询时一并备份，否则恢复数据库与对象后逐个重建活动快照。`LOREDOCK_CODE_SNAPSHOT_WORK_ROOT` 是临时目录，不应备份。
 - T1 后台任务是单实例、进程内有界执行器，不提供分布式调度或自动重放。重启只会把失去心跳的 `RUNNING` 任务终结为 `FAILED/PROCESS_INTERRUPTED`。
 
-更完整的运行约定见 [T1 工程与基础设施架构](docs/architecture/T1工程与基础设施.md) 与 [T4 代码快照与 Lucene 检索](docs/architecture/T4代码快照与Lucene检索.md)。
+更完整的运行约定见 [T1 工程与基础设施架构](docs/architecture/T1工程与基础设施.md)、[T4 代码快照与 Lucene 检索](docs/architecture/T4代码快照与Lucene检索.md) 与 [T5 知识混合检索](docs/architecture/T5知识混合检索.md)。
 
 ## 开发方式
 
