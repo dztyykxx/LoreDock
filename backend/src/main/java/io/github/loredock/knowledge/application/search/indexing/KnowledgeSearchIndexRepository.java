@@ -14,7 +14,8 @@ public interface KnowledgeSearchIndexRepository {
     void createGeneration(KnowledgeSearchGenerationMetadata metadata);
 
     /**
-     * 原子写入一个有界分块批次；任一向量维度或数值非法时，整个批次必须在执行 SQL 前失败。
+     * 幂等写入一个有界分块批次；相同复合键重试更新为同一事实，任一向量维度或数值非法时，
+     * 整个批次必须在执行 SQL 前失败。
      *
      * @param chunks 同一构建流程产生的分块批次
      * @throws IllegalArgumentException 向量不是 512 维或包含 NaN/Infinity

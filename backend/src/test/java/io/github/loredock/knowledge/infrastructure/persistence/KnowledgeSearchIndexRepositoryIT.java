@@ -154,6 +154,26 @@ class KnowledgeSearchIndexRepositoryIT {
         System.out.println("测试证据：场景=特殊字符参数绑定，分块表存在，落库分块数=1，输入仅作为数据处理");
     }
 
+    /**
+     * 业务目的：进程在批次提交后中断并重试同一批时必须得到同一分块事实，不能因复合键冲突失败或重复计数。
+     */
+    @Test
+    void repeatedChunkBatchIsIdempotentForTheSameGenerationAndChunkKey() {
+        repository.createGeneration(metadata());
+        KnowledgeSearchChunkWrite chunk = chunk(vector(0.03f),
+                List.of("标题"), List.of("标签"), List.of("正文"), List.of("恢复"));
+
+        repository.writeChunks(List.of(chunk));
+        repository.writeChunks(List.of(chunk));
+
+        assertThat(jdbcTemplate.queryForObject("select count(*) from knowledge_search_chunk", Long.class))
+                .isEqualTo(1);
+        assertThat(jdbcTemplate.queryForObject(
+                "select embedding::text from knowledge_search_chunk where generation_id=?",
+                String.class, GENERATION_ID)).startsWith("[0.03");
+        System.out.println("测试证据：场景=分块批次幂等重试，提交次数=2，最终分块数=1，向量值保持一致");
+    }
+
     private KnowledgeSearchGenerationMetadata metadata() {
         return new KnowledgeSearchGenerationMetadata(
                 GENERATION_ID,

@@ -7,13 +7,13 @@ import io.github.loredock.knowledge.application.KnowledgeIndexRebuildProgress;
 import io.github.loredock.knowledge.application.KnowledgeIndexRebuilder;
 import org.springframework.stereotype.Component;
 
-/** KNOWLEDGE_REINDEX 后台处理器；只协调本地 PostgreSQL 投影构建和任务进度，不吞掉重建异常。 */
+/** KNOWLEDGE_REINDEX 后台处理器；协调分阶段投影、离线 Embedding、检索构建和任务进度，不吞掉重建异常。 */
 @Component
 public class KnowledgeReindexJobHandler implements JobHandler {
 
     private final KnowledgeIndexRebuilder rebuilder;
 
-    /** @param rebuilder REPEATABLE READ generation 重建端口 */
+    /** @param rebuilder 短快照与短激活事务的分阶段 generation 重建端口 */
     public KnowledgeReindexJobHandler(KnowledgeIndexRebuilder rebuilder) {
         this.rebuilder = rebuilder;
     }

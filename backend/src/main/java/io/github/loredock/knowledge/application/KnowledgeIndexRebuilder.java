@@ -2,12 +2,12 @@ package io.github.loredock.knowledge.application;
 
 import java.util.UUID;
 
-/** 在单个 PostgreSQL REPEATABLE READ 快照中构建并原子切换 generation 的应用端口。 */
+/** 以短事实快照、事务外搜索构建和短激活事务分阶段重建 generation 的应用端口。 */
 public interface KnowledgeIndexRebuilder {
 
     /**
-     * 只快照当时的 PUBLISHED 文档。任一步失败必须回滚 BUILDING 数据与切换并保留原 ACTIVE generation；
-     * 不得吞异常，也不得写入 Lucene、Embedding 或 pgvector。
+     * 只冻结任务开始时的 PUBLISHED 文档。任一步失败必须清理 BUILDING 数据并保留原 ACTIVE generation；
+     * CPU Embedding 不得持有事实表快照事务，完整性校验通过后才能原子切换。
      *
      * @param jobId 当前 KNOWLEDGE_REINDEX 后台任务 ID，用作 generation 可追溯外键
      * @param progress 后台任务进度与心跳
