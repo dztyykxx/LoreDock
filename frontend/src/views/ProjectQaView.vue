@@ -86,7 +86,7 @@
       v-if="citationsOpen && current"
       :snapshot="current"
       :return-focus-to="citationTrigger"
-      @close="citationsOpen = false"
+      @close="closeCitations"
     />
     <div v-if="feedbackOpen && current" class="qa-modal-backdrop" @click.self="feedbackOpen = false">
       <KnowledgeGapDialog :api="api" :snapshot="current" @close="feedbackOpen = false" />
@@ -95,7 +95,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import type { ProjectDetail } from '../api/types'
 import { useProjectApi, useQaApi, useSession } from '../appContext'
@@ -199,6 +199,13 @@ async function changeBranch(branch: string): Promise<void> {
 function openCitations(trigger: HTMLElement): void {
   citationTrigger.value = trigger
   citationsOpen.value = true
+}
+
+async function closeCitations(): Promise<void> {
+  const target = document.querySelector<HTMLElement>('[data-testid="open-citations"]')
+  citationsOpen.value = false
+  await nextTick()
+  target?.focus()
 }
 
 async function logout(): Promise<void> {

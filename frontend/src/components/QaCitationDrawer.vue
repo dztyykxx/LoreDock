@@ -47,8 +47,10 @@ const props = defineProps<{ snapshot: QaQuestion; returnFocusTo?: HTMLElement | 
 const emit = defineEmits<{ close: [] }>()
 
 function close(): void {
+  const target = props.returnFocusTo
   emit('close')
-  props.returnFocusTo?.focus()
+  // 点击按钮的默认聚焦发生在事件派发末尾，延后一拍才能稳定把焦点还给已存在的来源入口。
+  setTimeout(() => target?.focus(), 0)
 }
 
 function safeWikiUrl(value: string | null): string | null {

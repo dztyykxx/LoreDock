@@ -51,7 +51,7 @@ describe('project QA components', () => {
   /**
    * 业务目的：来源抽屉只能把已校验 HTTP(S) Wiki 地址变成外链，代码路径和恶意协议必须保持纯文本。
    */
-  it('renders safe source metadata without interpreting untrusted fields', () => {
+  it('renders safe source metadata without interpreting untrusted fields', async () => {
     const snapshot = question({
       citations: [
         { order: 1, sourceType: 'KNOWLEDGE', projectIdentifier: 'network-designer', branch: 'main', commit: null, repositoryPath: null, title: '<img onerror=alert(1)>', sourceUpdatedAt: '2026-07-30T08:00:00Z', scopeType: 'PROJECT', knowledgeSourceType: 'WIKI', wikiUrl: 'https://wiki.example/rule', originalFilename: null },
@@ -71,7 +71,8 @@ describe('project QA components', () => {
     expect(links[0].attributes()).toMatchObject({ href: 'https://wiki.example/rule', target: '_blank', rel: 'noopener noreferrer' })
     expect(wrapper.text()).toContain('javascript:alert(1)')
 
-    wrapper.get('[data-testid="close-citations"]').trigger('click')
+    await wrapper.get('[data-testid="close-citations"]').trigger('click')
+    await new Promise(resolve => setTimeout(resolve, 0))
     expect(document.activeElement).toBe(trigger)
     trigger.remove()
   })
