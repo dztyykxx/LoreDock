@@ -81,7 +81,7 @@ class StartProjectQaRunServiceTest {
         when(acceptance.accept(any())).thenAnswer(invocation -> {
             AgentRunCreateData data = invocation.getArgument(0);
             acceptedData.set(data);
-            return snapshot(data, AgentRunStatus.ACCEPTED, null);
+            return new AgentRunAcceptanceResult(snapshot(data, AgentRunStatus.ACCEPTED, null), true);
         });
         when(runs.findById(any())).thenAnswer(invocation -> {
             AgentRunCreateData data = acceptedData.get();

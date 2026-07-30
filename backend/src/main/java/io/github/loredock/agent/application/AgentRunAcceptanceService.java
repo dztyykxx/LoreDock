@@ -21,9 +21,15 @@ public class AgentRunAcceptanceService {
      * @return 事务内已写入的运行快照；方法返回后调度器才能开始执行
      */
     @Transactional
-    public AgentRunSnapshot accept(AgentRunCreateData data) {
-        runs.insert(data);
+    public AgentRunAcceptanceResult accept(AgentRunCreateData data) {
+        if (!runs.insertIfAbsent(data)) {
+            AgentRunSnapshot existing = runs.findByOperatorAndIdempotencyKey(
+                            data.operatorId(), data.idempotencyKey())
+                    .orElseThrow(AgentRunNotFoundException::new);
+            return new AgentRunAcceptanceResult(existing, false);
+        }
         events.append(data.runId(), AgentEventType.RUN_ACCEPTED, "accepted", data.acceptedAt());
-        return runs.findById(data.runId()).orElseThrow(AgentRunNotFoundException::new);
+        AgentRunSnapshot created = runs.findById(data.runId()).orElseThrow(AgentRunNotFoundException::new);
+        return new AgentRunAcceptanceResult(created, true);
     }
 }

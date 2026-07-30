@@ -66,9 +66,24 @@ public class MybatisPlusAgentRunRepository implements AgentRunRepository {
     @Override
     @Transactional
     public void insert(AgentRunCreateData data) {
+        runs.insert(toEntity(data));
+        logPersisted(data);
+    }
+
+    @Override
+    @Transactional
+    public boolean insertIfAbsent(AgentRunCreateData data) {
+        boolean inserted = runs.insertIfAbsent(toEntity(data)) == 1;
+        if (inserted) {
+            logPersisted(data);
+        }
+        return inserted;
+    }
+
+    private AgentRunEntity toEntity(AgentRunCreateData data) {
         AgentScopeSnapshot scope = data.scope();
         AgentVersionSnapshot versions = data.versions();
-        AgentRunEntity entity = AgentRunEntity.builder()
+        return AgentRunEntity.builder()
                 .id(data.runId()).operatorId(data.operatorId()).idempotencyKey(data.idempotencyKey())
                 .requestHash(data.requestHash()).taskType(data.taskType())
                 .questionHash(data.questionHash()).questionLength(data.questionLength())
@@ -86,7 +101,10 @@ public class MybatisPlusAgentRunRepository implements AgentRunRepository {
                 .stepCount(0).modelCallCount(0).retrievalCount(0).trimmedCharacterCount(0)
                 .acceptedAt(data.acceptedAt()).updatedAt(data.acceptedAt())
                 .build();
-        runs.insert(entity);
+    }
+
+    private void logPersisted(AgentRunCreateData data) {
+        AgentScopeSnapshot scope = data.scope();
         log.info("agent_run persisted runId={} project={} branch={} status={}",
                 data.runId(), scope.projectIdentifier(), scope.branch(), AgentRunStatus.ACCEPTED);
     }

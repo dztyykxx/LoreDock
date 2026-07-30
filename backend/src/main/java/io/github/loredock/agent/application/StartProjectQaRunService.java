@@ -12,7 +12,6 @@ import io.github.loredock.project.application.ProjectDetailView;
 import io.github.loredock.project.application.ProjectQueryUseCase;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
-import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
@@ -115,16 +114,13 @@ public class StartProjectQaRunService implements StartProjectQaRunUseCase {
                 runId, input.operatorId(), input.idempotencyKey(), requestHash, TASK_TYPE,
                 hash(input.question()), input.question().codePointCount(0, input.question().length()),
                 scope, versions, acceptedAt);
-        AgentRunSnapshot accepted;
-        try {
-            accepted = acceptance.accept(data);
-        } catch (DataIntegrityViolationException exception) {
-            AgentRunSnapshot raced = runs.findByOperatorAndIdempotencyKey(input.operatorId(), input.idempotencyKey())
-                    .orElseThrow(() -> exception);
-            if (!requestHash.equals(raced.requestHash())) {
+        AgentRunAcceptanceResult acceptanceResult = acceptance.accept(data);
+        AgentRunSnapshot accepted = acceptanceResult.snapshot();
+        if (!acceptanceResult.newlyAccepted()) {
+            if (!requestHash.equals(accepted.requestHash())) {
                 throw new AgentRequestException(AgentErrorCode.AGENT_RUN_IDEMPOTENCY_CONFLICT);
             }
-            return raced;
+            return accepted;
         }
         AgentExecutionRequest request = new AgentExecutionRequest(
                 runId, input.question(), skill.markdown(), skill.outputSchema(), scope, versions,

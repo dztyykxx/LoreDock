@@ -20,6 +20,12 @@ public interface AgentRunRepository {
     /** 插入 ACCEPTED 运行；唯一约束负责兜底并发幂等。 */
     void insert(AgentRunCreateData data);
 
+    /**
+     * 以 PostgreSQL 冲突忽略原子受理运行，避免外层 Web 事务因并发唯一键竞争进入失败状态。
+     * @return 本事务实际插入运行时为 true
+     */
+    boolean insertIfAbsent(AgentRunCreateData data);
+
     /** @return 仅从 ACCEPTED 比较更新到 RUNNING 成功时为 true */
     boolean markRunning(UUID runId, Instant startedAt);
 

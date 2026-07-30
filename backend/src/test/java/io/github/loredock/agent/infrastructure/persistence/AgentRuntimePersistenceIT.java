@@ -144,14 +144,15 @@ class AgentRuntimePersistenceIT {
 
         var accepted = acceptance.accept(createData(runId, "acceptance-key"));
 
-        assertThat(accepted.status()).isEqualTo(AgentRunStatus.ACCEPTED);
+        assertThat(accepted.snapshot().status()).isEqualTo(AgentRunStatus.ACCEPTED);
+        assertThat(accepted.newlyAccepted()).isTrue();
         assertThat(runs.findById(runId)).isPresent();
         assertThat(events.findAfter(runId, 0, 10)).singleElement().satisfies(event -> {
             assertThat(event.sequence()).isEqualTo(1);
             assertThat(event.type()).isEqualTo(AgentEventType.RUN_ACCEPTED);
         });
         System.out.printf("测试证据：场景=受理短事务，runId=%s，状态=%s，首事件=RUN_ACCEPTED#1%n",
-                runId, accepted.status());
+                runId, accepted.snapshot().status());
     }
 
     /**
