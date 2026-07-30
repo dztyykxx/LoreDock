@@ -1,5 +1,7 @@
 package io.github.loredock.platform.web;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
+
 import java.time.OffsetDateTime;
 import java.util.List;
 
@@ -15,7 +17,7 @@ import java.util.List;
 public record ApiError(
         String code,
         String message,
-        OffsetDateTime timestamp,
+        @JsonFormat(shape = JsonFormat.Shape.STRING) OffsetDateTime timestamp,
         String traceId,
         List<FieldError> fieldErrors
 ) {

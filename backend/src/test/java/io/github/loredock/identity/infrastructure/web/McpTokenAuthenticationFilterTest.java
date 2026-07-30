@@ -12,7 +12,9 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
-import tools.jackson.databind.json.JsonMapper;
+import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 
 import jakarta.servlet.http.Cookie;
 import java.time.Instant;
@@ -131,7 +133,10 @@ class McpTokenAuthenticationFilterTest {
     private McpTokenAuthenticationFilter filter(McpTokenValidator validator) {
         return new McpTokenAuthenticationFilter(
                 validator,
-                new SecurityErrorWriter(JsonMapper.builder().build(), timeProvider)
+                new SecurityErrorWriter(JsonMapper.builder()
+                        .addModule(new JavaTimeModule())
+                        .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+                        .build(), timeProvider)
         );
     }
 

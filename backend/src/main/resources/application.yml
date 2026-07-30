@@ -1,6 +1,16 @@
 spring:
   application:
     name: loredock
+  ai:
+    # MVP 默认不创建任何外部模型 Bean；启用 Agent 时仅显式打开 chat=openai。
+    model:
+      chat: ${LOREDOCK_AGENT_CHAT_PROVIDER:none}
+      embedding: none
+      image: none
+      moderation: none
+      audio:
+        speech: none
+        transcription: none
   servlet:
     multipart:
       max-file-size: ${LOREDOCK_MULTIPART_MAX_FILE_SIZE:100MB}
@@ -15,6 +25,9 @@ spring:
     validate-on-migrate: true
   jackson:
     time-zone: UTC
+    serialization:
+      # HTTP 契约使用 ISO-8601 字符串，避免 Boot/Jackson 版本差异把时间改为数值时间戳。
+      write-dates-as-timestamps: false
   lifecycle:
     timeout-per-shutdown-phase: 30s
 

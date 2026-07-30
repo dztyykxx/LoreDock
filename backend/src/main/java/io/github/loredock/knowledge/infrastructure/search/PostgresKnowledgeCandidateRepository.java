@@ -20,8 +20,8 @@ import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeSearchCa
 import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeSearchCandidateRow;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
-import tools.jackson.core.type.TypeReference;
-import tools.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.List;
 

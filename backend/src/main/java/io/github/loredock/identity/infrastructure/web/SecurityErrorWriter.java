@@ -6,7 +6,7 @@ import io.github.loredock.platform.web.ErrorCode;
 import io.github.loredock.platform.web.SecurityErrorFactory;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.MediaType;
-import tools.jackson.databind.json.JsonMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -17,14 +17,14 @@ import java.util.List;
  */
 public final class SecurityErrorWriter {
 
-    private final JsonMapper jsonMapper;
+    private final ObjectMapper jsonMapper;
     private final SecurityErrorFactory errorFactory;
 
     /**
      * @param jsonMapper JSON 序列化器
      * @param timeProvider UTC 时间端口
      */
-    public SecurityErrorWriter(JsonMapper jsonMapper, TimeProvider timeProvider) {
+    public SecurityErrorWriter(ObjectMapper jsonMapper, TimeProvider timeProvider) {
         this.jsonMapper = jsonMapper;
         this.errorFactory = new SecurityErrorFactory(timeProvider);
     }

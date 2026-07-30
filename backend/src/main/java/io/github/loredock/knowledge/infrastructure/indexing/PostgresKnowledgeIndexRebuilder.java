@@ -40,8 +40,8 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.DefaultTransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
-import tools.jackson.core.type.TypeReference;
-import tools.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -350,7 +350,7 @@ public class PostgresKnowledgeIndexRebuilder implements KnowledgeIndexRebuilder 
                 .title(document.getTitle())
                 .body(document.getBody())
                 .directoryPath(document.getDirectoryPath())
-                .tags(objectMapper.writeValueAsString(tags))
+                .tags(serializeTags(tags))
                 .scopeType(document.getScopeType())
                 .projectId(document.getProjectId())
                 .branchId(document.getBranchId())
@@ -360,6 +360,15 @@ public class PostgresKnowledgeIndexRebuilder implements KnowledgeIndexRebuilder 
                 .curationNote(document.getCurationNote())
                 .sourceUpdatedAt(document.getUpdatedAt())
                 .build();
+    }
+
+    private String serializeTags(List<String> tags) {
+        try {
+            return objectMapper.writeValueAsString(tags);
+        } catch (Exception exception) {
+            // 标签属于冻结投影的一部分，序列化失败必须终止本次 generation，不能写入不完整快照。
+            throw new IllegalStateException("knowledge projection tags serialization failed", exception);
+        }
     }
 
     private List<String> normalizedTags(String json) {

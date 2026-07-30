@@ -7,7 +7,7 @@ import io.github.loredock.knowledge.domain.DocumentSourceType;
 import io.github.loredock.knowledge.domain.DocumentStatus;
 import io.github.loredock.knowledge.domain.KnowledgeScopeType;
 import org.springframework.core.io.ClassPathResource;
-import tools.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.io.InputStream;

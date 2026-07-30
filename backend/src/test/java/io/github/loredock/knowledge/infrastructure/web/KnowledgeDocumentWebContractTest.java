@@ -62,7 +62,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
@@ -531,7 +531,7 @@ class KnowledgeDocumentWebContractTest {
                 .andExpect(jsonPath("$.code").value("DOCUMENT_INDEX_JOB_NOT_FOUND"));
     }
 
-    private org.springframework.test.web.servlet.request.MockMultipartHttpServletRequestBuilder importRequest(
+    private org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder importRequest(
             Cookie cookie,
             String filename,
             byte[] content

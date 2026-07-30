@@ -2,8 +2,8 @@ package io.github.loredock.knowledge.infrastructure.persistence;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import tools.jackson.core.type.TypeReference;
-import tools.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.loredock.knowledge.application.ActiveKnowledgeIndexRevisions;
 import io.github.loredock.knowledge.application.KnowledgeBrowseContext;
 import io.github.loredock.knowledge.application.KnowledgeBrowseContextType;
