@@ -4,6 +4,7 @@ import io.github.loredock.agent.application.AgentEventRepository;
 import io.github.loredock.agent.application.AgentExecutionUsage;
 import io.github.loredock.agent.application.AgentEvidenceRepository;
 import io.github.loredock.agent.application.AgentRunCreateData;
+import io.github.loredock.agent.application.AgentRunAcceptanceService;
 import io.github.loredock.agent.application.AgentRunRepository;
 import io.github.loredock.agent.domain.AgentErrorCode;
 import io.github.loredock.agent.domain.AgentEventType;
@@ -15,6 +16,8 @@ import io.github.loredock.agent.domain.AgentVersionSnapshot;
 import io.github.loredock.agent.domain.AnswerBasis;
 import io.github.loredock.agent.domain.EvidenceSourceType;
 import io.github.loredock.agent.domain.TrustedProjectQaResult;
+import io.github.loredock.agent.infrastructure.runtime.AgentRunRecovery;
+import org.springframework.boot.DefaultApplicationArguments;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -57,8 +60,10 @@ class AgentRuntimePersistenceIT {
             .withPassword("loredock_test");
 
     @Autowired private AgentRunRepository runs;
+    @Autowired private AgentRunAcceptanceService acceptance;
     @Autowired private AgentEventRepository events;
     @Autowired private AgentEvidenceRepository evidence;
+    @Autowired private AgentRunRecovery recovery;
     @Autowired private JdbcTemplate jdbcTemplate;
 
     @DynamicPropertySource
@@ -111,6 +116,25 @@ class AgentRuntimePersistenceIT {
         assertThat(results.stream().filter(value -> value instanceof DataIntegrityViolationException)).hasSize(1);
         assertThat(jdbcTemplate.queryForObject("select count(*) from agent_run", Integer.class)).isEqualTo(1);
         System.out.println("测试证据：场景=并发幂等插入，成功运行数=1，唯一约束冲突数=1");
+    }
+
+    /**
+     * 业务目的：运行受理与首条公开事件必须在同一短事务提交，调度开始前两项事实都可查询。
+     */
+    @Test
+    void acceptanceCommitsRunAndFirstEventTogether() {
+        UUID runId = UUID.randomUUID();
+
+        var accepted = acceptance.accept(createData(runId, "acceptance-key"));
+
+        assertThat(accepted.status()).isEqualTo(AgentRunStatus.ACCEPTED);
+        assertThat(runs.findById(runId)).isPresent();
+        assertThat(events.findAfter(runId, 0, 10)).singleElement().satisfies(event -> {
+            assertThat(event.sequence()).isEqualTo(1);
+            assertThat(event.type()).isEqualTo(AgentEventType.RUN_ACCEPTED);
+        });
+        System.out.printf("测试证据：场景=受理短事务，runId=%s，状态=%s，首事件=RUN_ACCEPTED#1%n",
+                runId, accepted.status());
     }
 
     /**
@@ -209,6 +233,41 @@ class AgentRuntimePersistenceIT {
                 runId, snapshot.status(), snapshot.citations().size());
     }
 
+    /**
+     * 业务目的：进程重启必须把遗留的 ACCEPTED/RUNNING 单调终结为中断，重复恢复不得再追加事件。
+     */
+    @Test
+    void recoveryTerminatesLegacyNonTerminalRunsExactlyOnce() throws Exception {
+        UUID acceptedRunId = UUID.randomUUID();
+        UUID runningRunId = UUID.randomUUID();
+        UUID completedRunId = UUID.randomUUID();
+        runs.insert(createData(acceptedRunId, "recover-accepted"));
+        runs.insert(createData(runningRunId, "recover-running"));
+        runs.markRunning(runningRunId, Instant.parse("2026-07-30T00:00:01Z"));
+        runs.insert(createData(completedRunId, "recover-completed"));
+        runs.markRunning(completedRunId, Instant.parse("2026-07-30T00:00:01Z"));
+        runs.finishWithError(completedRunId, AgentErrorCode.AGENT_MODEL_UNAVAILABLE, false,
+                AgentExecutionUsage.none(), Instant.parse("2026-07-30T00:00:02Z"));
+
+        recovery.run(new DefaultApplicationArguments());
+        recovery.run(new DefaultApplicationArguments());
+
+        assertThat(runs.findById(acceptedRunId).orElseThrow()).satisfies(run -> {
+            assertThat(run.status()).isEqualTo(AgentRunStatus.TERMINATED);
+            assertThat(run.errorCode()).isEqualTo(AgentErrorCode.AGENT_RUN_INTERRUPTED);
+        });
+        assertThat(runs.findById(runningRunId).orElseThrow().status()).isEqualTo(AgentRunStatus.TERMINATED);
+        assertThat(runs.findById(completedRunId).orElseThrow().status()).isEqualTo(AgentRunStatus.FAILED);
+        assertThat(events.findAfter(acceptedRunId, 0, 20)).singleElement()
+                .extracting(event -> event.type()).isEqualTo(AgentEventType.RUN_TERMINATED);
+        assertThat(events.findAfter(runningRunId, 0, 20)).singleElement()
+                .extracting(event -> event.type()).isEqualTo(AgentEventType.RUN_TERMINATED);
+        System.out.printf("测试证据：场景=重启恢复，accepted=%s，running=%s，terminal保持=%s，重复执行事件数=1%n",
+                runs.findById(acceptedRunId).orElseThrow().status(),
+                runs.findById(runningRunId).orElseThrow().status(),
+                runs.findById(completedRunId).orElseThrow().status());
+    }
+
     private Object insertAfter(CountDownLatch start, AgentRunCreateData data) throws InterruptedException {
         start.await();
         try {
@@ -228,7 +287,7 @@ class AgentRuntimePersistenceIT {
                 new AgentScopeSnapshot(PROJECT_ID, "atlas", BRANCH_ID, "main", null, null, null,
                         List.of("GLOBAL", "PROJECT", "BRANCH")),
                 new AgentVersionSnapshot(SKILL_ID, "project_qa", "1.0.0", "a".repeat(64),
-                        "openai-compatible", "MiniMax-M2.7", "project-qa-v1", "readonly-v1", "limits-v1"),
+                        "openai-compatible", "deepseek-v4-flash", "project-qa-v1", "readonly-v1", "limits-v1"),
                 acceptedAt);
     }
 

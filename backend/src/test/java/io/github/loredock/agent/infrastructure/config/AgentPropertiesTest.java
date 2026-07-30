@@ -17,7 +17,7 @@ class AgentPropertiesTest {
             .withPropertyValues(
                     "loredock.agent.enabled=false",
                     "loredock.agent.model.provider=openai-compatible",
-                    "loredock.agent.model.name=MiniMax-M2.7",
+                    "loredock.agent.model.name=deepseek-v4-flash",
                     "loredock.agent.model.base-url=",
                     "loredock.agent.model.api-key=",
                     "loredock.agent.model.connect-timeout=5s",
@@ -63,7 +63,7 @@ class AgentPropertiesTest {
         contextRunner.withPropertyValues("loredock.agent.limits.max-steps=21")
                 .run(context -> assertThat(context).hasFailed());
         assertThatThrownBy(() -> new AgentProperties.Model(
-                "openai-compatible", "MiniMax-M2.7", "https://example.invalid", "secret",
+                "openai-compatible", "deepseek-v4-flash", "https://example.invalid", "secret",
                 Duration.ofSeconds(5), Duration.ofSeconds(60), 3))
                 .isInstanceOf(RuntimeException.class);
         assertThatThrownBy(() -> new AgentProperties.Executor(4, 2, 16, Duration.ofSeconds(30)))

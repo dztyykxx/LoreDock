@@ -32,7 +32,7 @@ class AgentSkillBootstrapTest {
 
     private AgentProperties enabledProperties() {
         return new AgentProperties(true,
-                new AgentProperties.Model("openai-compatible", "MiniMax-M2.7", "", "",
+                new AgentProperties.Model("openai-compatible", "deepseek-v4-flash", "", "",
                         Duration.ofSeconds(5), Duration.ofSeconds(60), 1),
                 new AgentProperties.Policy("project-qa-v1", "project-qa-readonly-v1", "project-qa-policy-v1"),
                 new AgentProperties.Limits(8, 8, Duration.ofSeconds(90), 10,

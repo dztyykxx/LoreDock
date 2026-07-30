@@ -117,7 +117,7 @@ class AgentRunTest {
                         UUID.randomUUID(), java.util.List.of("GLOBAL", "PROJECT", "BRANCH")),
                 new AgentVersionSnapshot(
                         UUID.randomUUID(), "project_qa", "1.0.0", "c".repeat(64),
-                        "openai-compatible", "MiniMax-M2.7", "project-qa-v1", "readonly-v1", "limits-v1"),
+                        "openai-compatible", "deepseek-v4-flash", "project-qa-v1", "readonly-v1", "limits-v1"),
                 ACCEPTED_AT
         );
     }

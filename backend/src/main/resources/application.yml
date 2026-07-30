@@ -76,8 +76,8 @@ loredock:
     enabled: ${LOREDOCK_AGENT_ENABLED:false}
     model:
       provider: openai-compatible
-      name: ${LOREDOCK_AGENT_MODEL_NAME:MiniMax-M2.7}
-      base-url: ${LOREDOCK_AGENT_MODEL_BASE_URL:}
+      name: ${LOREDOCK_AGENT_MODEL_NAME:deepseek-v4-flash}
+      base-url: ${LOREDOCK_AGENT_MODEL_BASE_URL:https://api.deepseek.com}
       api-key: ${LOREDOCK_AGENT_MODEL_API_KEY:}
       connect-timeout: ${LOREDOCK_AGENT_MODEL_CONNECT_TIMEOUT:5s}
       read-timeout: ${LOREDOCK_AGENT_MODEL_READ_TIMEOUT:60s}

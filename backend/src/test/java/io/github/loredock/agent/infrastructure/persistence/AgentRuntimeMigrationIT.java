@@ -259,7 +259,7 @@ class AgentRuntimeMigrationIT {
                     '11111111-1111-1111-1111-111111111111', 'atlas',
                     'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'main',
                     '10000000-0000-0000-0000-000000000001', 'project_qa', '1.0.0', '%s',
-                    'openai-compatible', 'MiniMax-M2.7', 'project-qa-v1', 'readonly-v1', 'limits-v1',
+                    'openai-compatible', 'deepseek-v4-flash', 'project-qa-v1', 'readonly-v1', 'limits-v1',
                     'ACCEPTED', null, null, 0, 0, now(), now())
                 """.formatted(schema, id, idempotencyKey, "c".repeat(64), "d".repeat(64), "a".repeat(64));
     }

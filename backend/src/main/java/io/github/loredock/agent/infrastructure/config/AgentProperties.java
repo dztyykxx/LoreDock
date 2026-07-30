@@ -1,6 +1,7 @@
 package io.github.loredock.agent.infrastructure.config;
 
 import io.github.loredock.agent.application.AgentRuntimeLimits;
+import io.github.loredock.agent.application.AgentRuntimeConfiguration;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
@@ -30,7 +31,47 @@ public record AgentProperties(
         @Valid @NotNull Policy policy,
         @Valid @NotNull Limits limits,
         @Valid @NotNull Executor executor
-) {
+) implements AgentRuntimeConfiguration {
+    @Override
+    public boolean modelConfigured() {
+        return model.configured();
+    }
+
+    @Override
+    public String modelProvider() {
+        return model.provider();
+    }
+
+    @Override
+    public String modelName() {
+        return model.name();
+    }
+
+    @Override
+    public String outputSchemaVersion() {
+        return policy.outputSchemaVersion();
+    }
+
+    @Override
+    public String toolPolicyVersion() {
+        return policy.toolPolicyVersion();
+    }
+
+    @Override
+    public String limitPolicyVersion() {
+        return policy.limitPolicyVersion();
+    }
+
+    @Override
+    public AgentRuntimeLimits runtimeLimits() {
+        return limits.runtimeLimits();
+    }
+
+    @Override
+    public Duration totalTimeout() {
+        return limits.totalTimeout();
+    }
+
     /** T6A 不允许部署环境换用未经规格验收的策略版本。 */
     public record Policy(
             @NotBlank String outputSchemaVersion,
