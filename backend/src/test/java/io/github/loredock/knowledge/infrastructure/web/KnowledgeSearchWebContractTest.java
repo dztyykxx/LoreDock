@@ -49,6 +49,7 @@ import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -58,7 +59,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(
-        controllers = AuthController.class,
+        controllers = {AuthController.class, KnowledgeSearchController.class},
         properties = {
                 "sa-token.token-name=loredock_session",
                 "sa-token.is-read-header=false",
@@ -163,14 +164,14 @@ class KnowledgeSearchWebContractTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
 
-        when(searches.search(any())).thenThrow(new ProjectNotFoundException());
+        doThrow(new ProjectNotFoundException()).when(searches).search(any());
         search(member).andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("PROJECT_NOT_FOUND"));
-        when(searches.search(any())).thenThrow(new BranchNotFoundException());
+        doThrow(new BranchNotFoundException()).when(searches).search(any());
         search(member).andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("BRANCH_NOT_FOUND"));
-        when(searches.search(any())).thenThrow(new KnowledgeIndexUnavailableException());
+        doThrow(new KnowledgeIndexUnavailableException()).when(searches).search(any());
         search(member).andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("KNOWLEDGE_INDEX_UNAVAILABLE"));
-        when(searches.search(any())).thenThrow(new KnowledgeEmbeddingUnavailableException());
+        doThrow(new KnowledgeEmbeddingUnavailableException()).when(searches).search(any());
         search(member).andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("KNOWLEDGE_EMBEDDING_UNAVAILABLE"));
     }

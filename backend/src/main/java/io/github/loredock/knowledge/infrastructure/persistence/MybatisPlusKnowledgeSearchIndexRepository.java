@@ -3,6 +3,8 @@ package io.github.loredock.knowledge.infrastructure.persistence;
 import io.github.loredock.knowledge.application.search.indexing.KnowledgeSearchChunkWrite;
 import io.github.loredock.knowledge.application.search.indexing.KnowledgeSearchGenerationMetadata;
 import io.github.loredock.knowledge.application.search.indexing.KnowledgeSearchIndexRepository;
+import io.github.loredock.knowledge.application.search.ActiveKnowledgeSearchGeneration;
+import io.github.loredock.knowledge.application.search.ActiveKnowledgeSearchGenerationReader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Repository;
@@ -20,7 +22,8 @@ import java.util.UUID;
  * <p>每个分块批次先完整校验，再在单个事务中写入，避免非法向量造成部分批次落库。</p>
  */
 @Repository
-public class MybatisPlusKnowledgeSearchIndexRepository implements KnowledgeSearchIndexRepository {
+public class MybatisPlusKnowledgeSearchIndexRepository
+        implements KnowledgeSearchIndexRepository, ActiveKnowledgeSearchGenerationReader {
 
     private static final Logger LOG = LoggerFactory.getLogger(MybatisPlusKnowledgeSearchIndexRepository.class);
     private static final int VECTOR_DIMENSION = 512;
@@ -89,6 +92,17 @@ public class MybatisPlusKnowledgeSearchIndexRepository implements KnowledgeSearc
     @Override
     public Optional<KnowledgeSearchGenerationMetadata> findGeneration(UUID generationId) {
         return Optional.ofNullable(generations.selectById(generationId)).map(this::toMetadata);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Optional<ActiveKnowledgeSearchGeneration> findActive() {
+        return Optional.ofNullable(generations.selectActiveComplete()).map(entity ->
+                new ActiveKnowledgeSearchGeneration(
+                        entity.getGenerationId(), entity.getModelId(), entity.getModelChecksum(),
+                        entity.getVectorDimension(), entity.getChunkStrategyVersion(),
+                        entity.getFusionConfigVersion(), entity.getDocumentCount(), entity.getChunkCount(),
+                        entity.getCreatedAt()));
     }
 
     private KnowledgeSearchChunkEntity toEntity(KnowledgeSearchChunkWrite chunk) {

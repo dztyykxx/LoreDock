@@ -26,7 +26,7 @@ import java.util.List;
  * @param limit 可选结果上限，省略时使用 10
  */
 public record KnowledgeSearchRequest(
-        @NotBlank @Size(max = KnowledgeSearchHttpContract.MAX_QUERY_CODE_POINTS) String query,
+        @NotBlank String query,
         @NotNull KnowledgeBrowseContextType context,
         String project,
         String branch,
