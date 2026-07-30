@@ -6,7 +6,9 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -63,6 +65,27 @@ class AgentPackageDependencyTest {
             assertThat(text).containsPattern("[\\u4e00-\\u9fff]");
         }
         System.out.printf("测试证据：场景=Agent公共类型中文说明，sourceCount=%d%n", sources.size());
+    }
+
+    /**
+     * 业务目的：Agent 工具只能依赖知识/代码读取能力，防止正常或恶意模型调用触达发布、索引或业务写入入口。
+     */
+    @Test
+    void projectQaToolsDependOnlyOnReadCapabilitiesOutsideAgentFacts() {
+        Set<String> externalTypes = Arrays.stream(
+                        io.github.loredock.agent.application.ProjectQaToolService.class.getDeclaredFields())
+                .map(field -> field.getType().getName())
+                .filter(name -> name.startsWith("io.github.loredock.knowledge")
+                        || name.startsWith("io.github.loredock.code"))
+                .collect(java.util.stream.Collectors.toSet());
+
+        assertThat(externalTypes).containsExactlyInAnyOrder(
+                "io.github.loredock.knowledge.application.search.KnowledgeSearchUseCase",
+                "io.github.loredock.knowledge.application.search.ActiveKnowledgeSearchGenerationReader",
+                "io.github.loredock.code.application.CodeSearchUseCase",
+                "io.github.loredock.code.application.CodeSnippetReadUseCase",
+                "io.github.loredock.code.application.ActiveCodeSnapshotQueryUseCase");
+        System.out.printf("测试证据：场景=工具只读依赖，外部能力数=%d，发布/索引/写入能力数=0%n", externalTypes.size());
     }
 
     private List<Path> classFiles(String layer) throws IOException {

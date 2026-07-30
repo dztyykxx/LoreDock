@@ -6,6 +6,7 @@ import io.github.loredock.agent.application.AgentEvidenceRepository;
 import io.github.loredock.agent.application.AgentRunCreateData;
 import io.github.loredock.agent.application.AgentRunAcceptanceService;
 import io.github.loredock.agent.application.AgentRunRepository;
+import io.github.loredock.agent.application.AgentToolCallRepository;
 import io.github.loredock.agent.domain.AgentErrorCode;
 import io.github.loredock.agent.domain.AgentEventType;
 import io.github.loredock.agent.domain.AgentEvidence;
@@ -63,6 +64,7 @@ class AgentRuntimePersistenceIT {
     @Autowired private AgentRunAcceptanceService acceptance;
     @Autowired private AgentEventRepository events;
     @Autowired private AgentEvidenceRepository evidence;
+    @Autowired private AgentToolCallRepository toolCalls;
     @Autowired private AgentRunRecovery recovery;
     @Autowired private JdbcTemplate jdbcTemplate;
 
@@ -135,6 +137,37 @@ class AgentRuntimePersistenceIT {
         });
         System.out.printf("测试证据：场景=受理短事务，runId=%s，状态=%s，首事件=RUN_ACCEPTED#1%n",
                 runId, accepted.status());
+    }
+
+    /**
+     * 业务目的：工具调用只保存单调序号、有限计数和脱敏参数摘要，失败终态不得残留 RUNNING 行。
+     */
+    @Test
+    void toolCallFactsPersistSafeSummaryAndMonotonicTerminalStates() {
+        UUID runId = UUID.randomUUID();
+        runs.insert(createData(runId, "tool-call-key"));
+        var first = toolCalls.start(runId, "knowledge_search",
+                "{\"queryLength\":6,\"requestedLimit\":2}", Instant.parse("2026-07-30T01:00:00Z"));
+        toolCalls.succeed(first.callId(), 2, 3, Instant.parse("2026-07-30T01:00:01Z"));
+        var second = toolCalls.start(runId, "code_search",
+                "{\"queryLength\":7,\"pathPrefixLength\":3}", Instant.parse("2026-07-30T01:00:02Z"));
+        toolCalls.fail(second.callId(), AgentErrorCode.AGENT_EVIDENCE_VERSION_CHANGED,
+                Instant.parse("2026-07-30T01:00:03Z"));
+
+        var rows = jdbcTemplate.queryForList("""
+                select call_sequence, tool_name, status, argument_summary::text as summary,
+                       result_count, evidence_count, error_code
+                from agent_tool_call where run_id=? order by call_sequence
+                """, runId);
+        assertThat(rows).hasSize(2);
+        assertThat(rows.get(0)).containsEntry("call_sequence", 1).containsEntry("status", "SUCCEEDED")
+                .containsEntry("result_count", 2).containsEntry("evidence_count", 3);
+        assertThat(rows.get(1)).containsEntry("call_sequence", 2).containsEntry("status", "FAILED")
+                .containsEntry("error_code", AgentErrorCode.AGENT_EVIDENCE_VERSION_CHANGED.name());
+        assertThat(rows).allSatisfy(row -> assertThat(row.get("summary").toString())
+                .doesNotContain("为什么", "ReviewService", "/Users/"));
+        System.out.printf("测试证据：场景=工具调用台账，runId=%s，序号=1..2，终态=%s/%s，正文持久化=false%n",
+                runId, rows.get(0).get("status"), rows.get(1).get("status"));
     }
 
     /**

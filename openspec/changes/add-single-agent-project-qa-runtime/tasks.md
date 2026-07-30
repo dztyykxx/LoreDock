@@ -49,13 +49,13 @@
 
 ## 7. 服务端工具白名单、固定范围与证据台账
 
-- [ ] 7.1 先定义三个项目自有工具请求/响应契约和 `ProjectQaToolGateway`，明确模型不得控制项目、分支、snapshot、commit、generation、服务器路径或上限；工具 Callback 的 Spring AI 类型只能出现在基础设施层。
-- [ ] 7.2 为工具注册表编写失败测试，证明 `project_qa` 只注册 `knowledge_search`、`code_search`、`code_snippet_read`，未知工具、Shell、Python、任意 HTTP、数据库管理、知识写入/发布在执行前返回 `AGENT_TOOL_NOT_ALLOWED`。
-- [ ] 7.3 为知识工具编写带中文业务目的注释的失败应用测试，覆盖复用 HYBRID 项目搜索、GLOBAL/PROJECT/BRANCH 已发布范围、默认/指定分支、Agent 结果与上下文上限、低相关阈值、generation 固定、无结果不扩大和提示注入文本只作证据。
-- [ ] 7.4 为代码搜索/片段工具编写失败应用测试，覆盖活动 snapshot/commit、路径与行数上限、同名跨项目/分支零泄漏、敏感/未索引文件、无快照、模型提交历史版本/绝对路径和提示注入不扩大权限。
-- [ ] 7.5 实现三个工具网关适配器使 7.3～7.4 通过，为每条有限结果分配运行内证据 ID，只持久化来源元数据与摘要，正文只在本次有界模型上下文中存在。
-- [ ] 7.6 为同一运行多次工具调用期间知识 generation 或代码 snapshot 切换编写失败测试；实现版本比对，在变化时以 `AGENT_EVIDENCE_VERSION_CHANGED` 终止，不访问历史索引、不混合两版证据。
-- [ ] 7.7 增加架构与回归测试，证明 Agent 正常/恶意调用只改变 V6 运行事实表，不改变知识文档、知识索引、代码快照、项目、分支、账号或系统配置。
+- [x] 7.1 先定义三个项目自有工具请求/响应契约和 `ProjectQaToolGateway`，明确模型不得控制项目、分支、snapshot、commit、generation、服务器路径或上限；工具 Callback 的 Spring AI 类型只能出现在基础设施层。
+- [x] 7.2 为工具注册表编写失败测试，证明 `project_qa` 只注册 `knowledge_search`、`code_search`、`code_snippet_read`，未知工具、Shell、Python、任意 HTTP、数据库管理、知识写入/发布在执行前返回 `AGENT_TOOL_NOT_ALLOWED`。
+- [x] 7.3 为知识工具编写带中文业务目的注释的失败应用测试，覆盖复用 HYBRID 项目搜索、GLOBAL/PROJECT/BRANCH 已发布范围、默认/指定分支、Agent 结果与上下文上限、低相关阈值、generation 固定、无结果不扩大和提示注入文本只作证据。
+- [x] 7.4 为代码搜索/片段工具编写失败应用测试，覆盖活动 snapshot/commit、路径与行数上限、同名跨项目/分支零泄漏、敏感/未索引文件、无快照、模型提交历史版本/绝对路径和提示注入不扩大权限。
+- [x] 7.5 实现三个工具网关适配器使 7.3～7.4 通过，为每条有限结果分配运行内证据 ID，只持久化来源元数据与摘要，正文只在本次有界模型上下文中存在。
+- [x] 7.6 为同一运行多次工具调用期间知识 generation 或代码 snapshot 切换编写失败测试；实现版本比对，在变化时以 `AGENT_EVIDENCE_VERSION_CHANGED` 终止，不访问历史索引、不混合两版证据。
+- [x] 7.7 增加架构与回归测试，证明 Agent 正常/恶意调用只改变 V6 运行事实表，不改变知识文档、知识索引、代码快照、项目、分支、账号或系统配置。
 
 ## 8. ReactAgent、Fake Model 与 DeepSeek 适配
 

@@ -72,6 +72,11 @@ public record AgentProperties(
         return limits.totalTimeout();
     }
 
+    @Override
+    public double minimumRelevance() {
+        return limits.minimumRelevance();
+    }
+
     /** T6A 不允许部署环境换用未经规格验收的策略版本。 */
     public record Policy(
             @NotBlank String outputSchemaVersion,

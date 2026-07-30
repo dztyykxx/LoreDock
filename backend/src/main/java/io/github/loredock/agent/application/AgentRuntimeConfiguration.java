@@ -31,4 +31,7 @@ public interface AgentRuntimeConfiguration {
 
     /** @return 单次运行总超时 */
     Duration totalTimeout();
+
+    /** @return 证据进入模型上下文所需的最低归一化相关度 */
+    double minimumRelevance();
 }

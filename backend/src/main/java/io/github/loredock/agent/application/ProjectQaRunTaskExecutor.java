@@ -23,7 +23,6 @@ public class ProjectQaRunTaskExecutor implements AgentRunTaskExecutor {
     private final Optional<AgentExecutionPort> execution;
     private final AgentRunRepository runs;
     private final AgentEventRepository events;
-    private final AgentEvidenceRepository evidence;
     private final ProjectQaResultValidator validator;
     private final TimeProvider timeProvider;
 
@@ -31,7 +30,6 @@ public class ProjectQaRunTaskExecutor implements AgentRunTaskExecutor {
      * @param execution 可选模型适配端口；未配置时运行稳定失败
      * @param runs 运行仓储
      * @param events 事件仓储
-     * @param evidence 证据仓储
      * @param validator 不可信模型结果校验器
      * @param timeProvider UTC 时间源
      */
@@ -39,14 +37,12 @@ public class ProjectQaRunTaskExecutor implements AgentRunTaskExecutor {
             Optional<AgentExecutionPort> execution,
             AgentRunRepository runs,
             AgentEventRepository events,
-            AgentEvidenceRepository evidence,
             ProjectQaResultValidator validator,
             TimeProvider timeProvider
     ) {
         this.execution = execution;
         this.runs = runs;
         this.events = events;
-        this.evidence = evidence;
         this.validator = validator;
         this.timeProvider = timeProvider;
     }
@@ -73,7 +69,6 @@ public class ProjectQaRunTaskExecutor implements AgentRunTaskExecutor {
                 fail(request, AgentErrorCode.AGENT_RUN_TIMEOUT, finishedAt, result.usage());
                 return;
             }
-            evidence.saveAll(request.runId(), result.evidence());
             TrustedProjectQaResult trusted = validator.validate(
                     request.runId(), request.scope().hasCodeSnapshot(), result.modelResult(), result.evidence());
             if (!runs.complete(request.runId(), trusted, result.usage(), finishedAt)) {
@@ -85,6 +80,8 @@ public class ProjectQaRunTaskExecutor implements AgentRunTaskExecutor {
                     request.runId(), request.scope().projectIdentifier(), request.scope().branch(), trusted.resultType(),
                     result.evidence().size(), trusted.citations().size(), result.usage().stepCount(),
                     result.usage().modelCallCount(), result.usage().elapsedMillis());
+        } catch (AgentToolException exception) {
+            fail(request, exception.code(), timeProvider.now(), AgentExecutionUsage.none());
         } catch (RuntimeException exception) {
             fail(request, AgentErrorCode.AGENT_MODEL_RESPONSE_INVALID, timeProvider.now(), AgentExecutionUsage.none());
         }
@@ -107,7 +104,8 @@ public class ProjectQaRunTaskExecutor implements AgentRunTaskExecutor {
             Instant finishedAt,
             AgentExecutionUsage usage
     ) {
-        boolean terminated = code == AgentErrorCode.AGENT_RUN_TIMEOUT;
+        boolean terminated = code == AgentErrorCode.AGENT_RUN_TIMEOUT
+                || code == AgentErrorCode.AGENT_EVIDENCE_VERSION_CHANGED;
         if (runs.finishWithError(request.runId(), code, terminated, usage, finishedAt)) {
             events.append(request.runId(), terminated ? AgentEventType.RUN_TERMINATED : AgentEventType.RUN_FAILED,
                     code.name(), finishedAt);

@@ -227,6 +227,7 @@ class StartProjectQaRunServiceTest {
                 return new AgentRuntimeLimits(8, 8, Duration.ofSeconds(90), 10, 2000, 24000, 8000, 200);
             }
             public Duration totalTimeout() { return Duration.ofSeconds(90); }
+            public double minimumRelevance() { return 0.1; }
         };
     }
 
