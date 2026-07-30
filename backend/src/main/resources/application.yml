@@ -57,6 +57,16 @@ loredock:
   demo:
     seed-enabled: ${LOREDOCK_DEMO_SEED_ENABLED:false}
   identity:
+    web:
+      accounts:
+        - username: ${LOREDOCK_ADMIN_USERNAME:}
+          display-name: ${LOREDOCK_ADMIN_DISPLAY_NAME:}
+          role: ADMIN
+          password-hash: ${LOREDOCK_ADMIN_PASSWORD_HASH:}
+        - username: ${LOREDOCK_MEMBER_USERNAME:}
+          display-name: ${LOREDOCK_MEMBER_DISPLAY_NAME:}
+          role: MEMBER
+          password-hash: ${LOREDOCK_MEMBER_PASSWORD_HASH:}
     mcp:
       # 仅接受原始高熵 Token 的小写 SHA-256 摘要；缺失时服务拒绝就绪。
       token-sha256: ${LOREDOCK_MCP_TOKEN_SHA256:}

@@ -8,7 +8,7 @@ LoreDock 用于把散落在公司 Wiki、项目文档、需求、PR、Commit、�
 
 ## 当前状态
 
-MVP 开发计划 T1“工程骨架与基础设施”已经完成，当前具备可运行的前后端骨架、真实 PostgreSQL/pgvector、可重复迁移、本地对象存储和持久化后台任务。认证、知识管理、检索、Agent 和 MCP 等业务能力将在后续任务中实现。
+MVP 开发计划 T1“工程骨架与基础设施”和 T2“认证、项目与分支管理”已完成。当前提供固定管理员/组内只读账号、独立 MCP Token 边界、项目启停与分支管理、PostgreSQL 持久化，以及面向电脑浏览器的登录、项目列表和项目设置页。用户注册、用户表和账号管理后台不在 MVP 范围内。
 
 ## 目标场景
 
@@ -82,7 +82,7 @@ MVP 计划通过 Streamable HTTP 暴露只读工具：
 
 技术选型仍以已确认的 OpenSpec 规格为准，调研文档中的建议不自动等同于最终实现。
 
-### T1 冻结版本矩阵
+### T1/T2 冻结版本矩阵
 
 以下版本均为 2026-07-29 从官方发布源核验的 GA 版本。JDK 21 和 Node.js 24 安装在开发机，Maven 使用仓库 Wrapper；Docker 只承载 PostgreSQL/pgvector 等服务依赖。
 
@@ -97,12 +97,16 @@ MVP 计划通过 Streamable HTTP 暴露只读工具：
 | Testcontainers | 2.0.5 | `backend/pom.xml` BOM |
 | MyBatis-Plus | 3.5.16 | `backend/pom.xml`，使用 Spring Boot 4 Starter |
 | Lombok | 1.18.46 | `backend/pom.xml` |
+| Sa-Token | 1.45.0 | `backend/pom.xml`，使用 Spring Boot 4 Starter |
+| Spring Security Crypto | 跟随 Spring Boot 4.1.0 | 仅使用 BCrypt，不启用 Spring Security 认证链 |
 | PostgreSQL / pgvector | 17 / 0.8.1 | `pgvector/pgvector:0.8.1-pg17` |
 | Node.js | 24.18.0 | `.nvmrc`、`.node-version`、本地运行环境 |
 | npm | 11.16.0 | `frontend/package.json` |
 | Vue | 3.5.40 | `frontend/package.json` |
+| Vue Router | 5.2.0 | `frontend/package.json` |
 | TypeScript | 6.0.3 | `frontend/package.json`，与 `vue-tsc` 3.3.8 兼容的最新 GA |
 | Vite | 8.1.5 | `frontend/package.json` |
+| Geist / Geist Mono | 1.7.2 | `frontend/src/assets/fonts`，自托管 WOFF2 与 OFL 许可证 |
 
 版本选择遵循 `openspec/changes/establish-project-foundation/design.md`：使用正式发布版并精确锁定，不使用动态范围、SNAPSHOT 或 Milestone。Spring AI 和 Lucene 在 T1 只冻结兼容基线，不提前接入业务流程。
 
@@ -112,6 +116,7 @@ MVP 计划通过 Streamable HTTP 暴露只读工具：
 
 ```bash
 cp .env.example .env
+# 先按下文说明替换 .env 中的账号 BCrypt 哈希和 MCP Token 摘要
 ./scripts/dev.sh
 ```
 
@@ -121,6 +126,37 @@ cp .env.example .env
 - 后端状态：<http://localhost:8080/api/v1/system/status>
 - liveness：<http://localhost:8080/actuator/health/liveness>
 - readiness：<http://localhost:8080/actuator/health/readiness>
+
+### 认证配置
+
+后端必须恰好配置一个 `ADMIN` 和一个 `MEMBER`。用户名由 `LOREDOCK_ADMIN_USERNAME` / `LOREDOCK_MEMBER_USERNAME` 指定，密码只允许以带盐 BCrypt 哈希形式保存。可在本机使用 Apache `htpasswd` 交互生成（输出中仅有哈希）：
+
+```bash
+read -rsp "Password: " LOREDOCK_HASH_INPUT; echo
+htpasswd -bnBC 12 "" "$LOREDOCK_HASH_INPUT" | tr -d ':\n'; echo
+unset LOREDOCK_HASH_INPUT
+```
+
+为 MCP 客户端生成至少 256 bit 的高熵原始 Token，只把其小写 SHA-256 摘要填入 `LOREDOCK_MCP_TOKEN_SHA256`。原始 Token 应保存在客户端密钥库，不得写入仓库或服务端配置。
+
+```bash
+openssl rand -hex 32
+read -rsp "MCP token: " LOREDOCK_MCP_INPUT; echo
+printf '%s' "$LOREDOCK_MCP_INPUT" | shasum -a 256 | awk '{print $1}'
+unset LOREDOCK_MCP_INPUT
+```
+
+Web 会话 Cookie 名为 `loredock_session`，使用 `HttpOnly`、`SameSite=Strict` 和全站 `/` 路径。本地 HTTP 保持 `LOREDOCK_WEB_COOKIE_SECURE=false`；生产 HTTPS 必须设为 `true`。会话当前仅保存在单实例内存中，应用重启后旧 Cookie 会失效并要求重新登录。
+
+如需准备无敏感内容的验收项目，同时启用 `demo` profile 与显式开关：
+
+```bash
+export SPRING_PROFILES_ACTIVE=demo
+export LOREDOCK_DEMO_SEED_ENABLED=true
+./scripts/dev.sh
+```
+
+准备器可重复执行；默认 profile 或开关为 `false` 时不会写入演示数据。
 
 按 `Ctrl+C` 停止前后端。数据库默认继续运行，使用以下命令停止或再次启动：
 
@@ -160,11 +196,22 @@ PATH=/opt/homebrew/opt/node@24/bin:$PATH npm audit --audit-level=high
 
 完整本地栈验收可执行 `./scripts/smoke-test.sh`。它使用隔离数据库卷和临时对象目录，验证空库迁移、前后端访问、重启持久性以及停库后的存活/就绪语义，结束后自动清理测试资源。
 
+### T2 HTTP 入口
+
+- Web 认证：`POST /api/auth/login`、`GET /api/auth/session`、`POST /api/auth/logout`；
+- 已登录只读查询：`GET /api/projects`、`GET /api/projects/{identifier}?branch=...`；
+- 管理员项目管理：`/api/admin/projects/**`；
+- MCP 认证边界：`/mcp/**`，使用 `Authorization: Bearer <token>`。T2 仅实现前置校验，尚未提供 MCP 工具。
+
+前端是电脑浏览器页面，通过 Vite 同站代理访问 `/api`。项目、分支、状态和身份始终使用真实 API；知识数、快照与 Commit 等 T3/T4 字段尚无接口，当前仅使用集中定义的设计稿样例，不参与权限或写操作。
+
 ## 数据迁移、备份与故障排查
 
 - Flyway 是表结构变更的唯一入口。不得修改已经执行的 `V*__*.sql`；需要变更时追加新迁移。checksum 不匹配时应恢复历史迁移原文并新增迁移，不要直接执行 `repair` 掩盖差异。
 - `readiness` 失败而 `liveness` 成功，通常表示 PostgreSQL 不可用。先检查 `docker compose ps` 和 `docker compose logs database`，再核对 `.env` 的端口、库名和账号。
 - 端口冲突时调整 `.env`；若修改后端端口，还需同步 Vite 代理目标。构建工具链错误时确认 `java -version` 为 21、`node --version` 为 24。
+- 后端以 `Identity configuration is invalid` 拒绝启动时，检查是否恰好配置两个不同用户名、一个 ADMIN/一个 MEMBER、有效 BCrypt 哈希和 64 位小写十六进制 MCP Token 摘要。错误日志不会回显具体凭据。
+- 页面登录成功但刷新后失效时，先确认前后端使用同站代理，生产 HTTPS 环境已开启 Secure Cookie，且期间后端进程没有重启。
 - 默认 profile 使用便于本地调试的文本控制台日志；生产环境以 `--spring.profiles.active=prod` 启动后启用 Logstash JSON，供日志采集系统解析。
 - 数据库备份可执行 `docker compose exec -T database pg_dump -U loredock -d loredock -Fc > loredock.dump`；对象文件位于 `LOREDOCK_STORAGE_ROOT`（默认 `data/objects`），可在停止写入后单独归档。恢复时数据库备份和对象目录必须来自同一静默写入窗口，避免元数据与文件不一致。
 - T1 后台任务是单实例、进程内有界执行器，不提供分布式调度或自动重放。重启只会把失去心跳的 `RUNNING` 任务终结为 `FAILED/PROCESS_INTERRUPTED`。

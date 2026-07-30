@@ -1,36 +1,22 @@
-import { flushPromises, mount } from '@vue/test-utils'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { mount } from '@vue/test-utils'
+import { createMemoryHistory, createRouter } from 'vue-router'
+import { describe, expect, it } from 'vitest'
 import App from './App.vue'
 
 describe('App', () => {
-  afterEach(() => {
-    vi.restoreAllMocks()
-  })
-
   /**
-   * 业务目的：运行状态页必须明确展示后端已经可用，防止完整栈启动后只能凭空白页面猜测服务状态。
+   * 业务目的：应用根组件必须交由路由渲染业务页面，防止旧状态页继续遮挡登录和项目入口。
    */
-  it('后端状态正常时展示可用状态', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ service: 'loredock', status: 'UP' }),
-    }))
+  it('renders the active business route', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/', component: { template: '<h1>项目空间</h1>' } }],
+    })
+    await router.push('/')
+    await router.isReady()
 
-    const wrapper = mount(App)
-    await flushPromises()
+    const wrapper = mount(App, { global: { plugins: [router] } })
 
-    expect(wrapper.text()).toContain('后端服务可用')
-  })
-
-  /**
-   * 业务目的：后端不可连接时页面必须给出可诊断提示，防止把基础设施故障误认为前端空白或构建失败。
-   */
-  it('后端不可连接时展示不可用状态', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('connection refused')))
-
-    const wrapper = mount(App)
-    await flushPromises()
-
-    expect(wrapper.text()).toContain('后端服务暂不可用')
+    expect(wrapper.text()).toContain('项目空间')
   })
 })
