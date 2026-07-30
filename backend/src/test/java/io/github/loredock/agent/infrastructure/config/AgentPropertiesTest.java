@@ -62,6 +62,8 @@ class AgentPropertiesTest {
     void configurationBeyondServerCapsFailsStartup() {
         contextRunner.withPropertyValues("loredock.agent.limits.max-steps=21")
                 .run(context -> assertThat(context).hasFailed());
+        contextRunner.withPropertyValues("loredock.agent.limits.max-events=99")
+                .run(context -> assertThat(context).hasFailed());
         assertThatThrownBy(() -> new AgentProperties.Model(
                 "openai-compatible", "deepseek-v4-flash", "https://example.invalid", "secret",
                 Duration.ofSeconds(5), Duration.ofSeconds(60), 3))

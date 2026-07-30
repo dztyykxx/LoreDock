@@ -82,6 +82,8 @@ public class ProjectQaRunTaskExecutor implements AgentRunTaskExecutor {
                     result.usage().modelCallCount(), result.usage().elapsedMillis());
         } catch (AgentToolException exception) {
             fail(request, exception.code(), timeProvider.now(), AgentExecutionUsage.none());
+        } catch (AgentExecutionException exception) {
+            fail(request, exception.code(), timeProvider.now(), exception.usage());
         } catch (RuntimeException exception) {
             fail(request, AgentErrorCode.AGENT_MODEL_RESPONSE_INVALID, timeProvider.now(), AgentExecutionUsage.none());
         }
@@ -105,7 +107,9 @@ public class ProjectQaRunTaskExecutor implements AgentRunTaskExecutor {
             AgentExecutionUsage usage
     ) {
         boolean terminated = code == AgentErrorCode.AGENT_RUN_TIMEOUT
-                || code == AgentErrorCode.AGENT_EVIDENCE_VERSION_CHANGED;
+                || code == AgentErrorCode.AGENT_EVIDENCE_VERSION_CHANGED
+                || code == AgentErrorCode.AGENT_STEP_LIMIT_EXCEEDED
+                || code == AgentErrorCode.AGENT_MODEL_CALL_LIMIT_EXCEEDED;
         if (runs.finishWithError(request.runId(), code, terminated, usage, finishedAt)) {
             events.append(request.runId(), terminated ? AgentEventType.RUN_TERMINATED : AgentEventType.RUN_FAILED,
                     code.name(), finishedAt);

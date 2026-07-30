@@ -128,7 +128,8 @@ public record AgentProperties(
             @Min(100) @Max(4_000) int maxSnippetCharacters,
             @Min(1_000) @Max(50_000) int maxContextCharacters,
             @Min(100) @Max(12_000) int maxAnswerCharacters,
-            @Min(10) @Max(500) int maxEvents,
+            // 最大 20 步、每工具三类事件和 12000 字回答的结构上界低于 100，禁止配置得更小而截断可信结果事件。
+            @Min(100) @Max(500) int maxEvents,
             @DecimalMin("0.0") @DecimalMax("1.0") double minimumRelevance
     ) {
         public Limits {

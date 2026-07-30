@@ -59,12 +59,12 @@
 
 ## 8. ReactAgent、Fake Model 与 DeepSeek 适配
 
-- [ ] 8.1 在主应用先编写失败框架契约测试，用脚本化 Fake `ChatModel` 驱动真实 `ReactAgent` 依次调用三个受控工具并返回结构化结果，覆盖同步/流式、工具参数、Token 有值/未知、独立运行不共享记忆和 Spring 类型不越过 `AgentExecutionPort`。
-- [ ] 8.2 实现每运行独立的 `SpringAiAlibabaAgentExecutionAdapter`、固定 Skill 注入、ToolCallback 转换和 Fake Model 支持使 8.1 通过；不注册框架文件系统 Skill、Shell/Python、A2A、Studio、Nacos 或动态 Agent 能力。
-- [ ] 8.3 为步骤数、模型调用次数、检索/片段/上下文/输出/事件限制编写失败测试，覆盖客户端或模型试图提高上限、到界前成功、下一调用被拒绝和实际计数证据；实现外层计数器、Hook 与裁剪器使其通过。
-- [ ] 8.4 为总超时、可取消工作、不可立即取消的迟到模型/工具响应和终态 CAS 编写失败并发测试；实现截止时间控制，确保超时后没有新工具、答案或终态回退，错误为 `AGENT_RUN_TIMEOUT`。
-- [ ] 8.5 使用本地协议模拟服务先编写 DeepSeek OpenAI 兼容测试，覆盖普通/流式响应、工具调用、多分块工具参数、usage 完整/缺失、429、鉴权失败、连接失败、无效 JSON、有限重试和错误脱敏，再实现 `deepseek-v4-flash` 生产 `ChatModel` 配置适配。
-- [ ] 8.6 使用用户提供且仅注入进程环境的测试凭据，对 DeepSeek `deepseek-v4-flash` 官方端点只执行一次最小非流式 JSON smoke，验证鉴权、模型响应、结构解析、Token 可用性和耗时；工具/流式/失败场景均由 Fake Model 与本地协议模拟覆盖。不得提交或输出密钥、请求/响应正文和端点细节。
+- [x] 8.1 在主应用先编写失败框架契约测试，用脚本化 Fake `ChatModel` 驱动真实 `ReactAgent` 依次调用三个受控工具并返回结构化结果，覆盖同步/流式、工具参数、Token 有值/未知、独立运行不共享记忆和 Spring 类型不越过 `AgentExecutionPort`。
+- [x] 8.2 实现每运行独立的 `SpringAiAlibabaAgentExecutionAdapter`、固定 Skill 注入、ToolCallback 转换和 Fake Model 支持使 8.1 通过；不注册框架文件系统 Skill、Shell/Python、A2A、Studio、Nacos 或动态 Agent 能力。
+- [x] 8.3 为步骤数、模型调用次数、检索/片段/上下文/输出/事件限制编写失败测试，覆盖客户端或模型试图提高上限、到界前成功、下一调用被拒绝和实际计数证据；实现外层计数器、Hook 与裁剪器使其通过。
+- [x] 8.4 为总超时、可取消工作、不可立即取消的迟到模型/工具响应和终态 CAS 编写失败并发测试；实现截止时间控制，确保超时后没有新工具、答案或终态回退，错误为 `AGENT_RUN_TIMEOUT`。
+- [x] 8.5 使用本地协议模拟服务先编写 DeepSeek OpenAI 兼容测试，覆盖普通/流式响应、工具调用、多分块工具参数、usage 完整/缺失、429、鉴权失败、连接失败、无效 JSON、有限重试和错误脱敏，再实现 `deepseek-v4-flash` 生产 `ChatModel` 配置适配。
+- [x] 8.6 使用用户提供且仅注入进程环境的测试凭据，对 DeepSeek `deepseek-v4-flash` 官方端点只执行一次最小非流式 JSON smoke，验证鉴权、模型响应、结构解析、Token 可用性和耗时；工具/流式/失败场景均由 Fake Model 与本地协议模拟覆盖。不得提交或输出密钥、请求/响应正文和端点细节。
 
 ## 9. project_qa 端到端可信行为
 
