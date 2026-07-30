@@ -8,6 +8,13 @@
     >
       知识文档 <span>{{ knowledgeCount }}</span>
     </RouterLink>
+    <RouterLink
+      v-if="projectIdentifier"
+      data-tab="qa"
+      :to="qaTarget"
+      :class="{ 'project-tabs__item--active': active === 'qa' }"
+      :aria-current="active === 'qa' ? 'page' : undefined"
+    >项目问答</RouterLink>
     <button
       v-for="tab in futureTabs"
       :key="tab.id"
@@ -53,5 +60,8 @@ const knowledgeTarget = computed(() => {
   const path = props.projectIdentifier ? `/projects/${props.projectIdentifier}` : '/knowledge'
   return props.branch && props.branch !== 'main' ? { path, query: { branch: props.branch } } : path
 })
+const qaTarget = computed(() => props.branch && props.branch !== 'main'
+  ? { path: `/projects/${props.projectIdentifier}/qa`, query: { branch: props.branch } }
+  : `/projects/${props.projectIdentifier}/qa`)
 const futureTabs = DESIGN_SAMPLES.tabs.filter(tab => tab.id !== 'knowledge' && tab.id !== 'settings')
 </script>

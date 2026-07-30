@@ -2033,3 +2033,800 @@ a {
 .knowledge-import-results > .knowledge-detail-state {
   min-height: 380px;
 }
+
+/* 项目问答：遵循 Pencil「04 · 项目问答 / 引用展开」的桌面三栏结构。 */
+.qa-workspace {
+  min-height: 100vh;
+  background: var(--surface);
+}
+
+.qa-sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 12;
+  width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border-right: 1px solid var(--border);
+  padding: 20px 14px 16px;
+  background: var(--sidebar);
+}
+
+.qa-new-question {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--ink);
+  background: var(--surface);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.qa-project-back {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 9px;
+  padding: 9px 10px;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.qa-project-back > .icon-glyph {
+  width: 18px;
+  height: 18px;
+}
+
+.qa-project-back > span {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.qa-project-back strong,
+.qa-project-back small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qa-project-back strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.qa-project-back small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.qa-recent {
+  min-height: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 5px;
+  overflow: auto;
+}
+
+.qa-recent__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 8px;
+}
+
+.qa-recent__heading h2 {
+  margin: 0;
+  color: var(--quiet);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.qa-recent__heading span {
+  color: var(--quiet);
+  font-size: 10px;
+}
+
+.qa-recent > button {
+  width: 100%;
+  min-height: 52px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 9px;
+  padding: 9px 10px;
+  color: var(--ink);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.qa-recent > button:hover,
+.qa-recent > .qa-recent__item--active {
+  background: #e8e8e6;
+}
+
+.qa-recent > button span,
+.qa-recent > button small {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qa-recent > button span {
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.qa-recent > button small,
+.qa-recent__empty {
+  color: var(--quiet);
+  font-size: 10px;
+}
+
+.qa-recent__empty {
+  margin: 8px;
+  line-height: 17px;
+}
+
+.qa-load-more {
+  border: 0;
+  padding: 7px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.qa-main {
+  min-width: 0;
+  min-height: 100vh;
+  margin-left: 260px;
+  background: var(--surface);
+  transition: margin-right 160ms ease;
+}
+
+.qa-workspace:has(.qa-citation-drawer) .qa-main {
+  margin-right: 340px;
+}
+
+.qa-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border-bottom: 1px solid var(--border);
+  padding: 0 28px;
+  background: rgb(255 255 255 / 96%);
+}
+
+.qa-topbar__project,
+.qa-topbar__controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.qa-topbar__project > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.qa-topbar__project strong {
+  font-size: 13px;
+}
+
+.qa-topbar__project small {
+  color: var(--quiet);
+  font-size: 10px;
+}
+
+.qa-scope-status,
+.qa-source-count {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 10px;
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 11px;
+}
+
+.qa-scope-status .icon-glyph {
+  color: var(--accent);
+}
+
+.qa-source-count {
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.qa-range-lock {
+  width: min(760px, calc(100% - 48px));
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 18px auto 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  color: var(--muted);
+  background: var(--neutral-soft);
+  font-size: 11px;
+}
+
+.qa-range-lock > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+}
+
+.qa-range-lock code,
+.qa-citation-drawer code,
+.qa-citation-card code {
+  font-family: "Geist Mono", monospace;
+}
+
+.qa-conversation {
+  width: min(760px, calc(100% - 48px));
+  min-height: calc(100vh - 270px);
+  margin: 0 auto;
+  padding: 44px 0 180px;
+}
+
+.qa-empty-state,
+.qa-page-state {
+  min-height: 360px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  text-align: center;
+}
+
+.qa-empty-state > span {
+  width: 52px;
+  height: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.qa-empty-state h1 {
+  margin: 18px 0 8px;
+  color: var(--ink);
+  font-size: 22px;
+}
+
+.qa-empty-state p,
+.qa-page-state p {
+  max-width: 520px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.qa-page-state--error {
+  color: var(--danger);
+}
+
+.qa-page-state button {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: var(--surface);
+}
+
+.qa-user-message {
+  width: min(620px, 88%);
+  margin-left: auto;
+  border-radius: 16px 16px 4px 16px;
+  padding: 14px 16px;
+  background: #f1f1ef;
+}
+
+.qa-user-message > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.qa-user-message strong {
+  font-size: 12px;
+}
+
+.qa-user-message small {
+  color: var(--quiet);
+  font: 10px "Geist Mono", monospace;
+}
+
+.qa-user-message p {
+  margin: 7px 0 0;
+  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.qa-answer {
+  margin-top: 36px;
+}
+
+.qa-answer > header {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.qa-answer__avatar {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  color: #fff;
+  background: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.qa-answer > header > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.qa-answer > header strong {
+  font-size: 13px;
+}
+
+.qa-answer > header small {
+  color: var(--quiet);
+  font-size: 10px;
+}
+
+.qa-trust-badge {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 99px;
+  padding: 5px 10px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.qa-trust-badge--source_conflict,
+.qa-trust-badge--insufficient_evidence {
+  color: var(--warning);
+  background: var(--warning-soft);
+}
+
+.qa-trust-badge--failed {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.qa-trust-badge--in_progress {
+  color: #5c6470;
+  background: #eef1f5;
+}
+
+.qa-answer h3 {
+  margin: 0 0 10px 44px;
+  font-size: 16px;
+}
+
+.qa-answer > p,
+.qa-answer__body,
+.qa-answer__progress {
+  margin: 0 0 0 44px;
+  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 1.8;
+}
+
+.qa-answer__basis {
+  display: flex;
+  gap: 8px;
+  margin: 18px 0 0 44px;
+}
+
+.qa-answer__basis span {
+  border-radius: 7px;
+  padding: 6px 9px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.qa-stream-warning,
+.qa-snapshot-warning {
+  display: flex;
+  gap: 9px;
+  margin: 0 0 16px 44px;
+  border-radius: 9px;
+  padding: 11px 12px;
+  color: var(--warning);
+  background: var(--warning-soft);
+  font-size: 12px;
+}
+
+.qa-snapshot-warning {
+  flex-direction: column;
+}
+
+.qa-answer__actions,
+.qa-answer footer {
+  display: flex;
+  gap: 9px;
+  margin: 18px 0 0 44px;
+}
+
+.qa-answer__actions button,
+.qa-answer__actions a,
+.qa-answer footer button {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 11px;
+  color: var(--ink);
+  background: var(--surface);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.qa-answer footer button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.qa-composer-wrap {
+  position: fixed;
+  z-index: 7;
+  bottom: 0;
+  left: 260px;
+  right: 0;
+  border-top: 1px solid rgb(229 229 229 / 70%);
+  padding: 16px 24px 20px;
+  background: rgb(255 255 255 / 96%);
+  transition: right 160ms ease;
+}
+
+.qa-workspace:has(.qa-citation-drawer) .qa-composer-wrap {
+  right: 340px;
+}
+
+.qa-composer {
+  width: min(760px, 100%);
+  margin: 0 auto;
+}
+
+.qa-composer > label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+
+.qa-composer__control {
+  min-height: 82px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  gap: 10px;
+  align-items: end;
+  border: 1px solid #d7d7d7;
+  border-radius: 16px;
+  padding: 13px;
+  background: var(--surface);
+  box-shadow: 0 12px 30px rgb(32 33 35 / 8%);
+}
+
+.qa-composer__control:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgb(21 131 109 / 10%), 0 12px 30px rgb(32 33 35 / 8%);
+}
+
+.qa-composer textarea {
+  min-height: 48px;
+  max-height: 140px;
+  border: 0;
+  padding: 2px;
+  resize: none;
+  color: var(--ink);
+  background: transparent;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.qa-composer__control button {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 10px;
+  color: #fff;
+  background: var(--ink);
+  cursor: pointer;
+}
+
+.qa-composer__control button:disabled {
+  opacity: .35;
+}
+
+.qa-composer > p {
+  margin: 7px 8px 0;
+  color: var(--quiet);
+  font-size: 10px;
+}
+
+.qa-composer > p[role="alert"] {
+  color: var(--danger);
+}
+
+.qa-citation-drawer {
+  position: fixed;
+  inset: 0 0 0 auto;
+  z-index: 15;
+  width: 340px;
+  overflow: auto;
+  border-left: 1px solid var(--border);
+  padding: 20px 18px;
+  background: var(--bg);
+}
+
+.qa-citation-drawer > header,
+.knowledge-gap-dialog > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.qa-citation-drawer header p,
+.knowledge-gap-dialog header p {
+  margin: 0 0 3px;
+  color: var(--quiet);
+  font-size: 10px;
+}
+
+.qa-citation-drawer h2,
+.knowledge-gap-dialog h2 {
+  margin: 0;
+  font-size: 17px;
+}
+
+.qa-citation-drawer header button,
+.knowledge-gap-dialog header button {
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 21px;
+  cursor: pointer;
+}
+
+.qa-citation-scope,
+.knowledge-gap-scope {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 22px;
+  border-radius: 10px;
+  padding: 12px;
+  color: var(--muted);
+  background: var(--accent-soft);
+  font-size: 11px;
+}
+
+.qa-citation-scope strong,
+.knowledge-gap-scope strong {
+  color: var(--accent);
+}
+
+.qa-citation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.qa-citation-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 9px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--surface);
+}
+
+.qa-citation-card__number {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.qa-citation-card > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.qa-citation-card__kind {
+  margin: 0;
+  color: var(--quiet);
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.qa-citation-card strong,
+.qa-citation-card code,
+.qa-citation-card span,
+.qa-citation-card time,
+.qa-citation-card a {
+  overflow-wrap: anywhere;
+}
+
+.qa-citation-card strong {
+  font-size: 12px;
+}
+
+.qa-citation-card span,
+.qa-citation-card time,
+.qa-citation-card a,
+.qa-citation-card code {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.qa-citation-card a {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.qa-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgb(32 33 35 / 38%);
+}
+
+.knowledge-gap-dialog {
+  width: min(520px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  border-radius: 14px;
+  padding: 22px;
+  background: var(--surface);
+  box-shadow: 0 24px 80px rgb(32 33 35 / 20%);
+}
+
+.knowledge-gap-scope p {
+  margin: 4px 0 0;
+  color: var(--ink);
+  line-height: 1.55;
+}
+
+.knowledge-gap-dialog form {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 18px;
+}
+
+.knowledge-gap-dialog form label {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.knowledge-gap-dialog select,
+.knowledge-gap-dialog textarea {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--surface);
+  font-size: 12px;
+}
+
+.knowledge-gap-dialog textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.knowledge-gap-dialog form p {
+  margin: 4px 0;
+  color: var(--quiet);
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.knowledge-gap-dialog form p[role="alert"] {
+  color: var(--danger);
+}
+
+.knowledge-gap-dialog form > button {
+  align-self: flex-end;
+  min-height: 38px;
+  border: 0;
+  border-radius: 8px;
+  padding: 9px 14px;
+  color: #fff;
+  background: var(--ink);
+  cursor: pointer;
+}
+
+.knowledge-gap-success {
+  min-height: 150px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: var(--accent);
+  text-align: center;
+}
+
+.knowledge-gap-success .icon-glyph {
+  width: 28px;
+  height: 28px;
+}
+
+.knowledge-gap-success span {
+  color: var(--muted);
+  font-size: 11px;
+}

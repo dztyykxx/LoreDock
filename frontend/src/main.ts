@@ -3,7 +3,8 @@ import App from './App.vue'
 import { setUnauthorizedHandler } from './api/http'
 import { projectApi } from './api/projects'
 import { knowledgeApi } from './api/knowledge'
-import { knowledgeApiKey, projectApiKey, sessionKey } from './appContext'
+import { qaApi } from './api/qa'
+import { knowledgeApiKey, projectApiKey, qaApiKey, sessionKey } from './appContext'
 import { createLoreDockRouter } from './router'
 import { createSessionController } from './session/useSession'
 import './style.css'
@@ -16,4 +17,5 @@ createApp(App)
   .provide(sessionKey, session)
   .provide(projectApiKey, projectApi)
   .provide(knowledgeApiKey, knowledgeApi)
+  .provide(qaApiKey, qaApi)
   .mount('#app')

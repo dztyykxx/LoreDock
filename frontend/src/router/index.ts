@@ -5,6 +5,7 @@ import ProjectListView from '../views/ProjectListView.vue'
 import ProjectSettingsView from '../views/ProjectSettingsView.vue'
 import KnowledgeWorkspaceView from '../views/KnowledgeWorkspaceView.vue'
 import KnowledgeEditorView from '../views/KnowledgeEditorView.vue'
+import ProjectQaView from '../views/ProjectQaView.vue'
 
 export function createLoreDockRouter(session: SessionController): Router {
   const router = createRouter({
@@ -53,6 +54,12 @@ export function createLoreDockRouter(session: SessionController): Router {
         name: 'project-settings',
         component: ProjectSettingsView,
         meta: { requiresAuth: true, adminOnly: true },
+      },
+      {
+        path: '/projects/:identifier/qa',
+        name: 'project-qa',
+        component: ProjectQaView,
+        meta: { requiresAuth: true },
       },
       {
         path: '/projects/:identifier/knowledge/new',

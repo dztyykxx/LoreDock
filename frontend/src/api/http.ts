@@ -21,13 +21,20 @@ export function setUnauthorizedHandler(handler: UnauthorizedHandler): void {
   unauthorizedHandler = handler
 }
 
+/**
+ * 为浏览器原生流式客户端解析与 JSON 请求一致的 API 地址。
+ */
+export function resolveApiUrl(path: string): string {
+  return `${apiBaseUrl}${path}`
+}
+
 export async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers)
   if (init.body !== undefined && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
   }
 
-  const response = await fetch(`${apiBaseUrl}${path}`, {
+  const response = await fetch(resolveApiUrl(path), {
     ...init,
     headers,
     credentials: 'include',
