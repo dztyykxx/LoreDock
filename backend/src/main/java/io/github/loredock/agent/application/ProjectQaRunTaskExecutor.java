@@ -7,6 +7,7 @@ import io.github.loredock.agent.domain.ProjectQaResultValidator;
 import io.github.loredock.agent.domain.TrustedProjectQaResult;
 import io.github.loredock.platform.time.TimeProvider;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -75,11 +76,11 @@ public class ProjectQaRunTaskExecutor implements AgentRunTaskExecutor {
                 return;
             }
             publishTrustedResult(request, trusted, finishedAt);
-            log.info("agent_run execution completed runId={} project={} branch={} resultType={} evidenceCount={} "
-                            + "citationCount={} stepCount={} modelCallCount={} elapsedMs={}",
-                    request.runId(), request.scope().projectIdentifier(), request.scope().branch(), trusted.resultType(),
+            log.info("agent_run execution completed traceId={} runId={} project={} branch={} resultType={} "
+                            + "evidenceCount={} citationCount={} stepCount={} modelCallCount={} tokenUsageKnown={} elapsedMs={}",
+                    traceId(request), request.runId(), request.scope().projectIdentifier(), request.scope().branch(), trusted.resultType(),
                     result.evidence().size(), trusted.citations().size(), result.usage().stepCount(),
-                    result.usage().modelCallCount(), result.usage().elapsedMillis());
+                    result.usage().modelCallCount(), tokenUsageKnown(result.usage()), result.usage().elapsedMillis());
         } catch (AgentToolException exception) {
             fail(request, exception.code(), timeProvider.now(), AgentExecutionUsage.none());
         } catch (AgentExecutionException exception) {
@@ -114,8 +115,19 @@ public class ProjectQaRunTaskExecutor implements AgentRunTaskExecutor {
             events.append(request.runId(), terminated ? AgentEventType.RUN_TERMINATED : AgentEventType.RUN_FAILED,
                     code.name(), finishedAt);
         }
-        log.warn("agent_run execution failed runId={} project={} branch={} errorCode={}",
-                request.runId(), request.scope().projectIdentifier(), request.scope().branch(), code);
+        log.warn("agent_run execution failed traceId={} runId={} project={} branch={} errorCode={} "
+                        + "stepCount={} modelCallCount={} tokenUsageKnown={} elapsedMs={}",
+                traceId(request), request.runId(), request.scope().projectIdentifier(), request.scope().branch(), code,
+                usage.stepCount(), usage.modelCallCount(), tokenUsageKnown(usage), usage.elapsedMillis());
+    }
+
+    private String traceId(AgentExecutionRequest request) {
+        String current = MDC.get("traceId");
+        return current == null || current.isBlank() ? request.runId().toString() : current;
+    }
+
+    private boolean tokenUsageKnown(AgentExecutionUsage usage) {
+        return usage.inputTokens() != null && usage.outputTokens() != null;
     }
 
     private java.util.List<String> chunks(String value, int maximumCodePoints) {

@@ -12,6 +12,7 @@ import io.github.loredock.project.application.BranchView;
 import io.github.loredock.project.application.ProjectDetailView;
 import io.github.loredock.project.application.ProjectQueryUseCase;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
@@ -141,11 +142,16 @@ public class StartProjectQaRunService implements StartProjectQaRunUseCase {
             events.append(runId, AgentEventType.RUN_FAILED, AgentErrorCode.AGENT_RUNTIME_BUSY.name(), failedAt);
         }
         AgentRunSnapshot result = runs.findById(runId).orElse(accepted);
-        log.info("agent_run start completed runId={} project={} branch={} snapshotAvailable={} "
+        log.info("agent_run start completed traceId={} runId={} project={} branch={} snapshotAvailable={} "
                         + "knowledgeGenerationAvailable={} status={}",
-                runId, scope.projectIdentifier(), scope.branch(), scope.hasCodeSnapshot(),
+                traceId(runId), runId, scope.projectIdentifier(), scope.branch(), scope.hasCodeSnapshot(),
                 scope.knowledgeGenerationId() != null, result.status());
         return result;
+    }
+
+    private String traceId(UUID runId) {
+        String current = MDC.get("traceId");
+        return current == null || current.isBlank() ? runId.toString() : current;
     }
 
     private void requireAvailable() {

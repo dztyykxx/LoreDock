@@ -1,23 +1,32 @@
 package io.github.loredock.agent.infrastructure.persistence;
 
 import io.github.loredock.agent.application.AgentEventRepository;
+import io.github.loredock.agent.application.AgentExecutionPort;
+import io.github.loredock.agent.application.AgentExecutionRequest;
+import io.github.loredock.agent.application.AgentExecutionResult;
 import io.github.loredock.agent.application.AgentExecutionUsage;
 import io.github.loredock.agent.application.AgentEvidenceRepository;
 import io.github.loredock.agent.application.AgentRunCreateData;
 import io.github.loredock.agent.application.AgentRunAcceptanceService;
 import io.github.loredock.agent.application.AgentRunRepository;
+import io.github.loredock.agent.application.AgentRuntimeLimits;
 import io.github.loredock.agent.application.AgentToolCallRepository;
+import io.github.loredock.agent.application.ProjectQaRunTaskExecutor;
 import io.github.loredock.agent.domain.AgentErrorCode;
 import io.github.loredock.agent.domain.AgentEventType;
 import io.github.loredock.agent.domain.AgentEvidence;
+import io.github.loredock.agent.domain.AgentRefusalReason;
 import io.github.loredock.agent.domain.AgentResultType;
 import io.github.loredock.agent.domain.AgentRunStatus;
 import io.github.loredock.agent.domain.AgentScopeSnapshot;
 import io.github.loredock.agent.domain.AgentVersionSnapshot;
 import io.github.loredock.agent.domain.AnswerBasis;
 import io.github.loredock.agent.domain.EvidenceSourceType;
+import io.github.loredock.agent.domain.ProjectQaModelResult;
+import io.github.loredock.agent.domain.ProjectQaResultValidator;
 import io.github.loredock.agent.domain.TrustedProjectQaResult;
 import io.github.loredock.agent.infrastructure.runtime.AgentRunRecovery;
+import io.github.loredock.platform.time.TimeProvider;
 import org.springframework.boot.DefaultApplicationArguments;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,6 +42,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 import java.time.Instant;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -52,6 +62,7 @@ class AgentRuntimePersistenceIT {
     private static final UUID BRANCH_ID = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
     private static final UUID SKILL_ID = UUID.fromString("10000000-0000-0000-0000-000000000001");
     private static final UUID DOCUMENT_ID = UUID.fromString("77777777-7777-7777-7777-777777777777");
+    private static final UUID SNAPSHOT_ID = UUID.fromString("88888888-8888-8888-8888-888888888888");
 
     @Container
     private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(
@@ -66,6 +77,8 @@ class AgentRuntimePersistenceIT {
     @Autowired private AgentEvidenceRepository evidence;
     @Autowired private AgentToolCallRepository toolCalls;
     @Autowired private AgentRunRecovery recovery;
+    @Autowired private ProjectQaResultValidator validator;
+    @Autowired private TimeProvider timeProvider;
     @Autowired private JdbcTemplate jdbcTemplate;
 
     @DynamicPropertySource
@@ -93,6 +106,7 @@ class AgentRuntimePersistenceIT {
         jdbcTemplate.update("delete from agent_run");
         jdbcTemplate.update("delete from agent_skill_version");
         jdbcTemplate.update("delete from knowledge_document");
+        jdbcTemplate.update("delete from code_snapshot");
         jdbcTemplate.update("delete from project_branch");
         jdbcTemplate.update("delete from project_space");
         jdbcTemplate.update("delete from stored_object");
@@ -301,6 +315,122 @@ class AgentRuntimePersistenceIT {
                 runs.findById(completedRunId).orElseThrow().status());
     }
 
+    /**
+     * 业务目的：Fake Model 产生的业务、实现和混合回答必须经过真实 PostgreSQL 证据外键与引用事务后才可发布。
+     */
+    @Test
+    void fakeModelCompletesKnowledgeCodeAndMixedAnswersWithTrustedEvents() {
+        var scenarios = List.of(AnswerBasis.BUSINESS_RULE, AnswerBasis.CURRENT_IMPLEMENTATION, AnswerBasis.MIXED);
+        for (AnswerBasis basis : scenarios) {
+            UUID runId = UUID.randomUUID();
+            AgentEvidence knowledge = knowledgeEvidence(runId, true);
+            AgentEvidence code = codeEvidence(runId, true);
+            List<AgentEvidence> ledger = switch (basis) {
+                case BUSINESS_RULE -> List.of(knowledge);
+                case CURRENT_IMPLEMENTATION -> List.of(code);
+                case MIXED -> List.of(knowledge, code);
+            };
+            String answer = ("可信回答-" + basis + "-").repeat(70);
+            ProjectQaModelResult modelResult = new ProjectQaModelResult(
+                    AgentResultType.ANSWER, basis, answer, null,
+                    ledger.stream().map(AgentEvidence::id).toList());
+
+            var snapshot = executeFake(runId, "trusted-" + basis, true, modelResult, ledger);
+            var published = events.findAfter(runId, 0, 200);
+            String joined = published.stream()
+                    .filter(event -> event.type() == AgentEventType.ANSWER_DELTA)
+                    .map(event -> event.payload()).reduce("", String::concat);
+
+            assertThat(snapshot.status()).isEqualTo(AgentRunStatus.COMPLETED);
+            assertThat(snapshot.resultType()).isEqualTo(AgentResultType.ANSWER);
+            assertThat(snapshot.citations()).hasSize(ledger.size()).allSatisfy(citation -> {
+                assertThat(citation.projectIdentifier()).isEqualTo("atlas");
+                assertThat(citation.branch()).isEqualTo("main");
+                assertThat(citation.sourceUpdatedAt()).isNotNull();
+            });
+            assertThat(joined).isEqualTo(snapshot.resultText()).isEqualTo(answer);
+            assertThat(published).extracting(event -> event.sequence()).isSorted().doesNotHaveDuplicates();
+            assertThat(published).extracting(event -> event.type()).containsSubsequence(
+                    AgentEventType.RUN_STARTED, AgentEventType.SKILL_PINNED, AgentEventType.MODEL_STARTED,
+                    AgentEventType.TOOL_STARTED, AgentEventType.SOURCE_FOUND, AgentEventType.TOOL_COMPLETED)
+                    .endsWith(AgentEventType.RUN_COMPLETED);
+            System.out.printf("测试证据：场景=Fake Model可信%s回答，项目=atlas，分支=main，commit=abcdef1，"
+                            + "证据=%d，引用=%d，回答事件=%d，状态=%s%n",
+                    basis, ledger.size(), snapshot.citations().size(),
+                    published.stream().filter(event -> event.type() == AgentEventType.ANSWER_DELTA).count(),
+                    snapshot.status());
+        }
+    }
+
+    /**
+     * 业务目的：伪造或被裁剪的引用即使来自模型最终文本，也只能落为稳定拒答，绝不能产生可信回答增量。
+     */
+    @Test
+    void invalidModelCitationPersistsRefusalWithoutAnswerDelta() {
+        UUID runId = UUID.randomUUID();
+        AgentEvidence trimmed = knowledgeEvidence(runId, false);
+        ProjectQaModelResult forged = new ProjectQaModelResult(
+                AgentResultType.ANSWER, AnswerBasis.BUSINESS_RULE, "不可信模型答案", null,
+                List.of(trimmed.id(), UUID.randomUUID()));
+
+        var snapshot = executeFake(runId, "invalid-citation", true, forged, List.of(trimmed));
+        var published = events.findAfter(runId, 0, 200);
+
+        assertThat(snapshot.status()).isEqualTo(AgentRunStatus.COMPLETED);
+        assertThat(snapshot.resultType()).isEqualTo(AgentResultType.REFUSAL);
+        assertThat(snapshot.refusalReason()).isEqualTo(AgentRefusalReason.AGENT_CITATION_INVALID);
+        assertThat(snapshot.resultText()).isEqualTo(ProjectQaResultValidator.REFUSAL_TEXT);
+        assertThat(snapshot.citations()).isEmpty();
+        assertThat(published).noneMatch(event -> event.type() == AgentEventType.ANSWER_DELTA);
+        assertThat(published).filteredOn(event -> event.type() == AgentEventType.REFUSAL)
+                .singleElement().extracting(event -> event.payload())
+                .isEqualTo(ProjectQaResultValidator.REFUSAL_TEXT);
+        System.out.printf("测试证据：场景=非法引用降级拒答，runId=%s，reason=%s，可信回答事件=0，引用=0%n",
+                runId, snapshot.refusalReason());
+    }
+
+    /**
+     * 业务目的：证据不足、越界、无代码快照和知识代码冲突必须持久化稳定拒答原因与有限当前范围来源。
+     */
+    @Test
+    void refusalMatrixPersistsStableReasonsAndCurrentScopeCitations() {
+        UUID insufficientRun = UUID.randomUUID();
+        var insufficient = executeFake(insufficientRun, "insufficient", true,
+                refusal(AgentRefusalReason.INSUFFICIENT_EVIDENCE, List.of()), List.of());
+        UUID outOfScopeRun = UUID.randomUUID();
+        var outOfScope = executeFake(outOfScopeRun, "out-of-scope", true,
+                refusal(AgentRefusalReason.OUT_OF_SCOPE, List.of()), List.of());
+        UUID noSnapshotRun = UUID.randomUUID();
+        var noSnapshot = executeFake(noSnapshotRun, "no-snapshot", false,
+                new ProjectQaModelResult(AgentResultType.ANSWER, AnswerBasis.CURRENT_IMPLEMENTATION,
+                        "模型尝试回答实现", null, List.of()), List.of());
+        UUID conflictRun = UUID.randomUUID();
+        AgentEvidence knowledge = knowledgeEvidence(conflictRun, true);
+        AgentEvidence code = codeEvidence(conflictRun, true);
+        var conflict = executeFake(conflictRun, "conflict", true,
+                new ProjectQaModelResult(AgentResultType.REFUSAL, AnswerBasis.MIXED,
+                        ProjectQaResultValidator.REFUSAL_TEXT, AgentRefusalReason.SOURCE_CONFLICT,
+                        List.of(knowledge.id(), code.id())), List.of(knowledge, code));
+
+        assertThat(List.of(insufficient, outOfScope, noSnapshot, conflict))
+                .allSatisfy(snapshot -> {
+                    assertThat(snapshot.status()).isEqualTo(AgentRunStatus.COMPLETED);
+                    assertThat(snapshot.resultType()).isEqualTo(AgentResultType.REFUSAL);
+                    assertThat(snapshot.resultText()).contains(ProjectQaResultValidator.REFUSAL_TEXT);
+                });
+        assertThat(insufficient.refusalReason()).isEqualTo(AgentRefusalReason.INSUFFICIENT_EVIDENCE);
+        assertThat(outOfScope.refusalReason()).isEqualTo(AgentRefusalReason.OUT_OF_SCOPE);
+        assertThat(noSnapshot.refusalReason()).isEqualTo(AgentRefusalReason.CODE_SNAPSHOT_NOT_INDEXED);
+        assertThat(noSnapshot.scope().branch()).isEqualTo("main");
+        assertThat(noSnapshot.scope().snapshotId()).isNull();
+        assertThat(conflict.refusalReason()).isEqualTo(AgentRefusalReason.SOURCE_CONFLICT);
+        assertThat(conflict.citations()).extracting(citation -> citation.sourceType())
+                .containsExactly(EvidenceSourceType.KNOWLEDGE, EvidenceSourceType.CODE);
+        System.out.printf("测试证据：场景=可信拒答矩阵，原因=%s，无快照分支=%s，冲突引用=%d%n",
+                List.of(insufficient.refusalReason(), outOfScope.refusalReason(), noSnapshot.refusalReason(),
+                        conflict.refusalReason()), noSnapshot.scope().branch(), conflict.citations().size());
+    }
+
     private Object insertAfter(CountDownLatch start, AgentRunCreateData data) throws InterruptedException {
         start.await();
         try {
@@ -324,6 +454,61 @@ class AgentRuntimePersistenceIT {
                 acceptedAt);
     }
 
+    private AgentRunCreateData createDataWithSnapshot(UUID runId, String key, Instant acceptedAt) {
+        return new AgentRunCreateData(runId, "member", key, "c".repeat(64), "project_qa", "d".repeat(64), 12,
+                new AgentScopeSnapshot(PROJECT_ID, "atlas", BRANCH_ID, "main", SNAPSHOT_ID, "abcdef1", null,
+                        List.of("GLOBAL", "PROJECT", "BRANCH")),
+                new AgentVersionSnapshot(SKILL_ID, "project_qa", "1.0.0", "a".repeat(64),
+                        "openai-compatible", "deepseek-v4-flash", "project-qa-v1", "readonly-v1", "limits-v1"),
+                acceptedAt);
+    }
+
+    private io.github.loredock.agent.application.AgentRunSnapshot executeFake(
+            UUID runId,
+            String key,
+            boolean withSnapshot,
+            ProjectQaModelResult modelResult,
+            List<AgentEvidence> ledger
+    ) {
+        Instant acceptedAt = timeProvider.now();
+        AgentRunCreateData data = withSnapshot
+                ? createDataWithSnapshot(runId, key, acceptedAt) : createData(runId, key, acceptedAt);
+        runs.insert(data);
+        AgentExecutionPort fake = (request, observer) -> {
+            observer.onEvent(AgentEventType.TOOL_STARTED, "knowledge_search#1");
+            if (!ledger.isEmpty()) {
+                evidence.saveAll(runId, ledger);
+                observer.onEvent(AgentEventType.SOURCE_FOUND, "count=" + ledger.size());
+            }
+            observer.onEvent(AgentEventType.TOOL_COMPLETED, "knowledge_search#1:count=" + ledger.size());
+            return new AgentExecutionResult(modelResult, ledger,
+                    new AgentExecutionUsage(3, 2, 1, 0, 20L, 10L, 25));
+        };
+        ProjectQaRunTaskExecutor executor = new ProjectQaRunTaskExecutor(
+                java.util.Optional.of(fake), runs, events, validator, timeProvider);
+        executor.execute(new AgentExecutionRequest(runId, "仅存在于进程内的问题", "skill", "schema",
+                data.scope(), data.versions(),
+                new AgentRuntimeLimits(8, 8, Duration.ofSeconds(30), 10, 2000, 24000, 8000, 200),
+                acceptedAt.plusSeconds(30)));
+        return runs.findById(runId).orElseThrow();
+    }
+
+    private ProjectQaModelResult refusal(AgentRefusalReason reason, List<UUID> citations) {
+        return new ProjectQaModelResult(AgentResultType.REFUSAL, null,
+                ProjectQaResultValidator.REFUSAL_TEXT, reason, citations);
+    }
+
+    private AgentEvidence knowledgeEvidence(UUID runId, boolean retained) {
+        return new AgentEvidence(UUID.randomUUID(), runId, EvidenceSourceType.KNOWLEDGE, retained, 0.9,
+                DOCUMENT_ID, null, "atlas", "main", null, null, "业务规则", timeProvider.now());
+    }
+
+    private AgentEvidence codeEvidence(UUID runId, boolean retained) {
+        return new AgentEvidence(UUID.randomUUID(), runId, EvidenceSourceType.CODE, retained, 0.9,
+                null, SNAPSHOT_ID, "atlas", "main", "abcdef1", "src/ReviewService.java", null,
+                timeProvider.now());
+    }
+
     private void seedScopeAndSkill() {
         jdbcTemplate.update("""
                 insert into stored_object(id, object_key, status, original_filename, content_type, size_bytes,
@@ -339,6 +524,19 @@ class AgentRuntimePersistenceIT {
                 insert into project_branch(id, project_id, name, created_at, updated_at, created_by, updated_by)
                 values (?::uuid, ?::uuid, 'main', now(), now(), 'test', 'test')
                 """, BRANCH_ID.toString(), PROJECT_ID.toString());
+        jdbcTemplate.update("""
+                insert into stored_object(id, object_key, status, original_filename, content_type, size_bytes,
+                    sha256, created_at, updated_at, created_by, updated_by)
+                values (?::uuid, 'public-code-fixture', 'AVAILABLE', 'public-code.zip', 'application/zip', 10,
+                    ?, now(), now(), 'test', 'test')
+                """, UUID.randomUUID().toString(), "b".repeat(64));
+        jdbcTemplate.update("""
+                insert into code_snapshot(id, project_id, branch_id, commit_hash, input_object_key, status,
+                    indexed_file_count, ignored_file_count, indexed_at,
+                    created_at, updated_at, created_by, updated_by)
+                values (?::uuid, ?::uuid, ?::uuid, 'abcdef1', 'public-code-fixture', 'ACTIVE', 3, 0, now(),
+                    now(), now(), 'test', 'test')
+                """, SNAPSHOT_ID.toString(), PROJECT_ID.toString(), BRANCH_ID.toString());
         jdbcTemplate.update("""
                 insert into knowledge_document(id, format, title, body, directory_path, scope_type, project_id,
                     branch_id, source_type, status, revision, published_at, published_by,
