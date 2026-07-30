@@ -3,6 +3,7 @@
 | 属性 | 内容 |
 |---|---|
 | 调研日期 | 2026-07-29 |
+| 最近修订 | 2026-07-30，多 Agent 文档整理决策 |
 | 调研目标 | 判断 Java 主技术栈能否覆盖 Agent、RAG、MCP、代码检索和 CPU Embedding，并给出 MVP 可执行组合 |
 | 结论 | 使用 Java 单体后端；MVP 运行时不引入 Python，Embedding 优先采用 Java ONNX，必要时再切换独立推理服务 |
 
@@ -15,11 +16,11 @@ Java 可以完整覆盖当前 MVP，且比 Python 主后端更符合本项目的
 | 领域 | 推荐方案 |
 |---|---|
 | Java 运行时 | Java 21 |
-| Web 后端 | Spring Boot 4.1.x、Spring MVC |
-| AI 集成 | Spring AI 2.0.x，使用 BOM 锁定版本 |
+| Web 后端 | Spring Boot 3.5.x、Spring MVC |
+| AI 集成 | Spring AI 1.1.2 + Spring AI Alibaba 1.1.2.x，使用 BOM 锁定版本 |
 | 大模型 | 公司 MiniMax M2.7，通过兼容接口接入 |
-| Agent | Spring AI Tool Calling 基础能力 + 自研受控执行循环 |
-| Skill | 项目内 Markdown/YAML 文件，纳入 Git 版本管理 |
+| Agent | Spring AI Alibaba Graph 固定工作流 + ReactAgent + PostgreSQL 检查点 |
+| Skill 与项目记忆 | 版本化 `SKILL.md` + 每项目一个 `PROJECT_MEMORY.md`，数据库记录版本并由 ObjectStorage 保存正文 |
 | MCP | Spring AI MCP WebMVC Starter，Streamable HTTP |
 | 业务数据库 | PostgreSQL 15+ |
 | 向量 | pgvector 0.8.x，HNSW/Cosine |
@@ -29,10 +30,11 @@ Java 可以完整覆盖当前 MVP，且比 Python 主后端更符合本项目的
 | 前端 | Vue 3 + TypeScript + Vite |
 | 部署 | 单体应用 + PostgreSQL，Docker Compose |
 
-两个重要调整：
+三个重要调整：
 
 1. **不默认部署 MinIO。** MinIO 社区仓库已在 2026 年 4 月归档，社区版改为源码分发，并采用 AGPLv3。MVP 使用本地持久化卷更稳妥；如公司已有 S3 兼容存储，再通过适配器接入。
 2. **不默认运行 Python 服务。** Spring AI 已能通过 ONNX 在 JVM 内计算 Embedding。只有在中文模型兼容性或 CPU 性能实测不达标时，才增加独立推理容器。
+3. **文档整理采用固定多 Agent Graph。** 需求、代码和测试证据并行提取，随后编写、独立审查并在证据不足时等待人工；Web 项目问答仍使用单 Agent。MVP 不建设动态 Supervisor、分布式 Agent 或可视化工作流编辑器。
 
 ## 2. 为什么 Java 方案成立
 
@@ -57,18 +59,19 @@ Lucene 10 要求 Java 21 或更高版本，因此 Java 21 是当前最合理的�
 
 使用 Java 21 还能获得较新的 JVM 性能和并发能力，同时仍是长期支持版本。
 
-### 3.2 推荐 Spring Boot 4.1.x + Spring AI 2.0.x
+### 3.2 推荐 Spring Boot 3.5.x + Spring AI 1.1.2 + Spring AI Alibaba 1.1.2.x
 
-Spring AI 2.0.x 官方支持 Spring Boot 4.0.x 和 4.1.x，并提供 `spring-ai-bom:2.0.0` 管理依赖版本。[Spring AI Getting Started](https://docs.spring.io/spring-ai/reference/getting-started.html)
+Spring AI Alibaba 1.1.2.x 的正式版本线对应 Spring AI 1.1.2 与 Spring Boot 3.5.x，并提供 Agent Framework、Graph、多 Agent 编排、Skill、人工介入、持久化和流式输出。本项目允许从已经建立的 Spring Boot 4.x / Spring AI 2.0.x 工程基线降级，以换取与核心文档整理创新直接匹配的成熟 Java Agent 能力。[Spring AI Alibaba 版本说明](https://java2ai.com/docs/versions/)、[Spring AI Alibaba 概览](https://java2ai.com/docs/overview/)
 
 选择原则：
 
 - 使用正式发布版，不使用 SNAPSHOT 或 Milestone；
-- 通过 Spring Boot Parent 和 Spring AI BOM 锁定依赖；
+- 通过 Spring Boot Parent、Spring AI BOM 和 Spring AI Alibaba BOM 锁定一致版本；
 - MVP 开发期间不主动升级大版本；
-- 直接使用 Starter，避免手动混入不同版本的 MCP SDK。
+- 直接使用 Starter，避免手动混入不同补丁版本的 Agent Framework、Graph、模型和 MCP SDK；
+- 最终 Spring AI Alibaba 补丁版本由 PoC 在 Maven Central 正式构件中选择并记录依赖树。
 
-如果公司内网只能提供 Spring Boot 3.x，则降级方案是 Spring Boot 3.5.x + Spring AI 1.1.8；该分支同样已有 Streamable HTTP MCP 支持。但这是兼容方案，不是首选。
+降级前必须用隔离 PoC 验证现有测试编译、MiniMax `ChatModel`、三个并行节点、PostgreSQL 检查点跨进程恢复和人工中断继续。PoC 未通过前不得先全面改写业务代码；正式迁移后必须重新运行已完成任务的相关测试。
 
 ## 4. MiniMax M2.7 接入
 
@@ -104,64 +107,93 @@ FakeChatModel                本地测试实现
 
 ## 5. Agent 与 Skill 实现
 
-### 5.1 不使用复杂 Agent 框架
+### 5.1 固定多 Agent Graph
 
-Spring AI 支持由应用控制 Tool Calling 循环：应用检查模型返回的工具调用、执行工具、将结果加入上下文，然后继续请求模型。[Spring AI Tool Calling](https://docs.spring.io/spring-ai/reference/api/tools.html)
+Spring AI Alibaba Agent Framework 提供 `ReactAgent`，Graph 提供顺序、并行、条件、循环、持久化和人工中断能力。[多智能体文档](https://java2ai.com/docs/frameworks/agent-framework/advanced/multi-agent/)、[持久化执行](https://java2ai.com/en/docs/frameworks/graph-core/core/long-time-running-task/)
 
-这正适合当前需求，因为系统必须自己控制：
-
-- 当前 Skill 的工具白名单；
-- 最大执行步骤；
-- 最大检索数量和上下文长度；
-- 项目和分支范围；
-- 草稿写入权限；
-- 来源引用；
-- 超时、取消和运行日志。
-
-建议执行结构：
+本项目不使用 LLM Supervisor 自由规划主流程，而由应用定义固定 Graph：
 
 ```text
-加载 Skill
-→ 构造系统提示和工具白名单
-→ 请求 MiniMax
-→ 校验工具名与参数
-→ 执行内部工具
-→ 保存工具调用摘要
-→ 回传结果
-→ 完成、拒答或达到运行限制
+准备输入
+→ 并行执行需求证据、代码证据、测试证据 Agent
+→ 确定性合并证据台账
+→ 文档编写 Agent
+→ 独立审查 Agent
+→ 通过、最多一次返工或等待人工
+→ 待审核草稿
 ```
 
-### 5.2 Skill 文件格式
+固定 Graph 保留多 Agent 的核心价值，同时减少动态路由、无限循环和不可恢复副作用。Web 问答继续使用单个 `project_qa` Agent；普通知识生成复用证据—编写—审查流程；知识体检使用固定 audit—curator—reviewer 预设。
 
-MVP 使用项目内文件，不做数据库可视化编排器：
+应用仍然负责：
+
+- 角色工具白名单和工具参数；
+- 项目、分支、Commit 和知识范围；
+- 最大节点、一次返工、超时、检索和上下文限制；
+- 草稿、报告和知识缺口的幂等写入；
+- 来源引用和未确认项；
+- 运行、步骤、公开事件、取消、恢复和人工反馈；
+- 禁止 Agent 发布正式知识。
+
+### 5.2 持久状态与恢复
+
+Graph checkpoint 与 LoreDock 业务状态分开：
+
+```text
+PostgreSQL Graph Saver
+  └─ 节点检查点、下一节点和 Graph 状态
+
+LoreDock 业务表
+  └─ 运行、步骤、事件、版本快照、错误和人工请求
+
+ObjectStorage
+  └─ 大型证据、草稿版本和审查报告 Markdown
+```
+
+Graph `threadId` 使用服务端生成的运行标识，不使用项目名、对话 ID 或用户输入路径。节点完成后提交检查点；后端异常退出后把遗留运行标记为可恢复，由管理员从 Web 手动继续。已完成节点使用持久结果重放，草稿等副作用使用稳定幂等键，避免重复模型调用和重复写入。
+
+如果正式 Spring AI Alibaba BOM 中的 PostgreSQL Saver 无法关闭自动建表或不能通过跨实例恢复测试，则不使用 SNAPSHOT，而是在基础设施层实现 Saver 端口并继续由 Flyway 管理表结构。
+
+### 5.3 Skill 与项目记忆
+
+Spring AI Alibaba 支持以 `SKILL.md`、可选 references/examples/scripts 组织可复用 Skill，并支持自定义 `SkillRegistry`。[Skills 文档](https://java2ai.com/docs/frameworks/agent-framework/tutorials/skills/)
+
+LoreDock 使用以下分层：
+
+```text
+不可覆盖的系统安全规则
++ 全局版本化 SKILL.md
++ 项目 PROJECT_MEMORY.md
++ 本次任务输入与人工反馈
+```
+
+每个项目在 MVP 只维护一个 `PROJECT_MEMORY.md`，记录项目目标、术语、模块边界、历史约束和文档提取方向。全局 Skill 和项目记忆正文使用 Markdown，数据库保存版本、状态、哈希、修改人与 ObjectStorage object key。运行开始后固定实际使用版本；中途更新只影响新运行。
+
+系统实现自定义 `SkillRegistry` 从应用端口读取已发布版本，不给 Agent 任意文件系统、Shell 或网络访问。工具权限、项目范围、运行限制和发布权限不从 Markdown 推导，也不能被项目记忆或人工反馈放宽。
+
+### 5.4 运行可观测与人在回路
+
+证据不足或独立审查阻断时，Graph 通过检查点暂停。人工可以补充当前运行方向、允许保留待核实项、要求重写或取消；反馈绑定运行、等待节点和目标产物版本。将反馈保存为项目记忆是独立二次确认，新记忆版本不改变当前运行快照。[Human-in-the-loop](https://java2ai.com/en/docs/frameworks/agent-framework/advanced/human-in-the-loop/)
+
+前端首次通过 REST 获取运行聚合快照，通过 SSE 接收阶段性事件。只保存和展示角色状态、工具与来源摘要、中间产物、审查问题、Token、耗时和错误，不保存或展示模型原始思维链。
+
+### 5.5 Skill 文件示例
 
 ```text
 skills/
-├── project_qa/SKILL.md
-├── document_writer/SKILL.md
-└── change_documenter/SKILL.md
+├── project-qa/SKILL.md
+├── requirement-evidence/SKILL.md
+├── code-evidence/SKILL.md
+├── test-evidence/SKILL.md
+├── document-writer/SKILL.md
+└── document-reviewer/SKILL.md
 ```
 
-每个 Skill 头部使用 YAML 元数据：
-
-```yaml
-name: change_documenter
-version: 1.0.0
-allowed_tools:
-  - knowledge_search
-  - document_read
-  - code_search
-  - change_material_read
-  - draft_save
-max_steps: 8
-output_schema: change_knowledge_draft_v1
-```
-
-Agent 运行记录保存 Skill 名称、版本、模型、步骤数、工具调用、引用和最终状态。
+Skill Markdown 声明角色、输入、步骤、输出结构、引用和拒答要求；工具白名单、最大步骤和写入权限使用受控结构化配置保存并由后端强制校验。运行记录保存 Graph、Skill、项目记忆、模型和输出结构版本，以及步骤、工具摘要、引用、Token 和最终状态。
 
 ## 6. MCP 实现
 
-Spring AI 2.0 提供 WebMVC Streamable HTTP Starter，并可通过 `@McpTool` 自动生成工具 Schema。[Spring AI Streamable HTTP MCP](https://docs.spring.io/spring-ai/reference/api/mcp/mcp-streamable-http-server-boot-starter-docs.html)、[MCP Server Annotations](https://docs.spring.io/spring-ai/reference/api/mcp/mcp-annotations-server.html)
+Spring AI 1.1.x 提供 WebMVC Streamable HTTP Starter，并可通过注解生成工具 Schema。MCP 依赖必须与 Spring AI Alibaba 选定的 Spring AI 1.1.2 版本保持一致。[Spring AI Streamable HTTP MCP](https://docs.spring.io/spring-ai/reference/api/mcp/mcp-streamable-http-server-boot-starter-docs.html)、[MCP Server Annotations](https://docs.spring.io/spring-ai/reference/api/mcp/mcp-annotations-server.html)
 
 建议：
 
@@ -421,18 +453,26 @@ Java → MiniMax → knowledge_search 工具调用
 
 故意让新索引任务失败，确认旧快照仍然可查；成功后再切换活动 snapshot。
 
+### Spike 7：多 Agent、人工中断与恢复
+
+使用 Fake Model 和脱敏材料验证需求、代码和测试证据节点真实并行，文档编写结果由上下文隔离的 reviewer 审查；在节点完成后停止并重新从 IDEA 启动后端，使用相同运行标识从 PostgreSQL 检查点继续；人工反馈能够恢复等待中的 Graph，已完成节点和草稿写入不会重复。
+
+通过条件：Spring Boot 3.5.x、Spring AI 1.1.2 与 Spring AI Alibaba 1.1.2.x 正式构件兼容；并行、检查点、人工中断和恢复全部通过；工具范围、项目隔离和禁止发布仍由后端强制执行。
+
 ## 14. 最终建议
 
 采用以下落地顺序：
 
 ```text
-Java 21 + Spring Boot 4.1 + PostgreSQL
-→ MiniMax Tool Calling 验证
+Java 21 + Spring Boot 3.5 + PostgreSQL
+→ Spring AI Alibaba 多 Agent、检查点与人工中断验证
+→ MiniMax ChatModel 与 Tool Calling 验证
 → Java ONNX Embedding 验证
 → pgvector 文档检索
 → Lucene 代码检索
-→ 受控 Agent Runtime 与三个 Skill
-→ Web 问答和草稿审核
+→ 可恢复 Agent Runtime、版本化 Skill 与项目记忆
+→ 单 Agent Web 问答
+→ 多 Agent 证据提取、编写、独立审查与人工审核
 → MCP Streamable HTTP
 ```
 
