@@ -27,7 +27,5 @@ const props = defineProps<{
   sampleKnowledgeCount: number
 }>()
 
-const target = computed(() => props.role === 'ADMIN'
-  ? `/projects/${props.project.id}/settings`
-  : `/projects/${props.project.identifier}`)
+const target = computed(() => `/projects/${props.project.identifier}`)
 </script>

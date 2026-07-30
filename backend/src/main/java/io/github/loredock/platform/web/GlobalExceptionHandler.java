@@ -6,6 +6,8 @@ import cn.dev33.satoken.exception.NotRoleException;
 import io.github.loredock.identity.application.ForbiddenOperationException;
 import io.github.loredock.identity.application.InvalidCredentialsException;
 import io.github.loredock.identity.application.LoginRequiredException;
+import io.github.loredock.knowledge.domain.DocumentReplacementConflictException;
+import io.github.loredock.knowledge.domain.DocumentStateConflictException;
 import io.github.loredock.platform.time.TimeProvider;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -53,6 +55,21 @@ public class GlobalExceptionHandler {
         ErrorCode code = exception.errorCode();
         LOGGER.warn("application_failure traceId={} code={} diagnostic={}",
                 traceId(), code.name(), redactor.redact(exception.getMessage()));
+        return ResponseEntity.status(code.status()).body(error(code, List.of()));
+    }
+
+    /**
+     * 映射知识领域状态冲突；领域层保持纯 Java，因此在平台 HTTP 边界补充稳定错误码。
+     *
+     * @param exception 状态机或替代规则冲突
+     * @return 对应 DOCUMENT_STATE_CONFLICT 或 DOCUMENT_REPLACEMENT_CONFLICT 的 409 响应
+     */
+    @ExceptionHandler({DocumentStateConflictException.class, DocumentReplacementConflictException.class})
+    public ResponseEntity<ApiError> handleKnowledgeConflict(RuntimeException exception) {
+        ErrorCode code = exception instanceof DocumentReplacementConflictException
+                ? ErrorCode.DOCUMENT_REPLACEMENT_CONFLICT
+                : ErrorCode.DOCUMENT_STATE_CONFLICT;
+        LOGGER.warn("knowledge_conflict traceId={} code={} classification=domain_conflict", traceId(), code.name());
         return ResponseEntity.status(code.status()).body(error(code, List.of()));
     }
 

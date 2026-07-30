@@ -1,0 +1,285 @@
+import { requestJson, type ApiError } from './http'
+
+export type DocumentFormat = 'MARKDOWN' | 'PLAIN_TEXT'
+export type DocumentStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
+export type KnowledgeScopeType = 'GLOBAL' | 'PROJECT' | 'BRANCH'
+export type KnowledgeIndexSyncStatus = 'NOT_APPLICABLE' | 'NEVER_INDEXED' | 'PENDING' | 'STALE' | 'SYNCED'
+export type DocumentSourceType = 'MANUAL' | 'WIKI' | 'UPLOAD'
+export type KnowledgeImportBatchStatus = 'COMPLETED' | 'PARTIAL' | 'FAILED'
+export type KnowledgeImportItemStatus = 'SUCCEEDED' | 'FAILED' | 'IGNORED'
+export type KnowledgeIndexJobStatus = 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'FAILED'
+
+export interface PageResult<T> {
+  items: T[]
+  page: number
+  size: number
+  totalElements: number
+  totalPages: number
+}
+
+export interface KnowledgeScopeView {
+  type: KnowledgeScopeType
+  projectId: string | null
+  branchId: string | null
+}
+
+export interface KnowledgeScopeInput {
+  type: KnowledgeScopeType
+  project?: string | null
+  branch?: string | null
+}
+
+export interface DocumentSourceView {
+  type: DocumentSourceType
+  wikiUrl: string | null
+  originalFilename: string | null
+  curationNote: string | null
+}
+
+export interface DocumentSourceInput {
+  type: DocumentSourceType
+  wikiUrl?: string | null
+  originalFilename?: string | null
+  curationNote?: string | null
+}
+
+export interface KnowledgeDocumentSummary {
+  id: string
+  format: DocumentFormat
+  title: string
+  directory: string
+  tags: string[]
+  source: DocumentSourceView
+  scope: KnowledgeScopeView
+  status: DocumentStatus
+  revision: number
+  syncStatus: KnowledgeIndexSyncStatus
+  updatedAt: string
+}
+
+export interface KnowledgeDirectoryNode {
+  path: string
+  name: string
+  documentCount: number
+}
+
+export interface KnowledgeDocumentView extends KnowledgeDocumentSummary {
+  body: string
+  publishedAt: string | null
+}
+
+export interface AdminKnowledgeDocumentView extends KnowledgeDocumentView {
+  publishedBy: string | null
+  archivedAt: string | null
+  archivedBy: string | null
+  replacement: {
+    replacesDocumentId: string | null
+    replacedByDocumentId: string | null
+  }
+  createdAt: string
+  createdBy: string
+  updatedBy: string
+}
+
+export interface KnowledgeBrowseResult {
+  directories: KnowledgeDirectoryNode[]
+  documents: PageResult<KnowledgeDocumentSummary>
+}
+
+export interface BrowseKnowledgeInput {
+  context: 'GLOBAL' | 'PROJECT'
+  project?: string
+  branch?: string
+  directory?: string
+  page?: number
+  size?: number
+}
+
+export interface AdminKnowledgeFilter {
+  scopeType?: KnowledgeScopeType
+  projectId?: string
+  branchId?: string
+  directory?: string
+  status?: DocumentStatus
+  tag?: string
+  page?: number
+  size?: number
+}
+
+export interface KnowledgeDocumentWriteInput {
+  format: DocumentFormat
+  title: string
+  body: string
+  directory: string
+  tags: string[]
+  source: DocumentSourceInput
+  scope: KnowledgeScopeInput
+}
+
+export interface KnowledgeImportOptions {
+  scope: KnowledgeScopeInput
+  directoryPrefix: string
+  tags: string[]
+  sourceDefaults: DocumentSourceInput
+}
+
+export interface KnowledgeImportItem {
+  ordinal: number
+  entryName: string
+  status: KnowledgeImportItemStatus
+  reason: string
+  message: string
+  documentId: string | null
+}
+
+export interface KnowledgeImportBatch {
+  id: string
+  originalFilename: string
+  scope: KnowledgeScopeView
+  directoryPrefix: string
+  status: KnowledgeImportBatchStatus
+  succeededCount: number
+  failedCount: number
+  ignoredCount: number
+  items: KnowledgeImportItem[]
+  createdAt: string
+  createdBy: string
+}
+
+export interface KnowledgeIndexJob {
+  id: string
+  status: KnowledgeIndexJobStatus
+  progress: number
+  startedAt: string | null
+  finishedAt: string | null
+  failureSummary: string | null
+}
+
+export interface KnowledgeIndexPollOptions {
+  maxAttempts?: number
+  intervalMs?: number
+  signal?: AbortSignal
+}
+
+export interface KnowledgeApi {
+  browse(input: BrowseKnowledgeInput): Promise<KnowledgeBrowseResult>
+  getDocument(documentId: string, input: Pick<BrowseKnowledgeInput, 'context' | 'project' | 'branch'>): Promise<KnowledgeDocumentView>
+  listAdmin(input?: AdminKnowledgeFilter): Promise<PageResult<KnowledgeDocumentSummary>>
+  getAdminDocument(documentId: string): Promise<AdminKnowledgeDocumentView>
+  createDocument(input: KnowledgeDocumentWriteInput): Promise<AdminKnowledgeDocumentView>
+  updateDocument(documentId: string, input: KnowledgeDocumentWriteInput): Promise<AdminKnowledgeDocumentView>
+  publishDocument(documentId: string, replacesDocumentId?: string): Promise<AdminKnowledgeDocumentView>
+  archiveDocument(documentId: string): Promise<AdminKnowledgeDocumentView>
+  importDocuments(file: File, options: KnowledgeImportOptions): Promise<KnowledgeImportBatch>
+  getImportBatch(batchId: string): Promise<KnowledgeImportBatch>
+  submitIndexJob(): Promise<KnowledgeIndexJob>
+  getIndexJob(jobId: string): Promise<KnowledgeIndexJob>
+  pollIndexJob(jobId: string, options?: KnowledgeIndexPollOptions): Promise<KnowledgeIndexJob>
+}
+
+function appendQuery(params: URLSearchParams, key: string, value: string | number | undefined): void {
+  if (value !== undefined) {
+    params.set(key, String(value))
+  }
+}
+
+export const knowledgeApi: KnowledgeApi = {
+  browse(input) {
+    const query = new URLSearchParams()
+    appendQuery(query, 'context', input.context)
+    appendQuery(query, 'project', input.project)
+    appendQuery(query, 'branch', input.branch)
+    appendQuery(query, 'directory', input.directory)
+    appendQuery(query, 'page', input.page)
+    appendQuery(query, 'size', input.size)
+    return requestJson<KnowledgeBrowseResult>(`/api/knowledge-documents?${query}`)
+  },
+  getDocument(documentId, input) {
+    const query = new URLSearchParams()
+    appendQuery(query, 'context', input.context)
+    appendQuery(query, 'project', input.project)
+    appendQuery(query, 'branch', input.branch)
+    return requestJson<KnowledgeDocumentView>(
+      `/api/knowledge-documents/${encodeURIComponent(documentId)}?${query}`,
+    )
+  },
+  listAdmin(input = {}) {
+    const query = new URLSearchParams()
+    appendQuery(query, 'scopeType', input.scopeType)
+    appendQuery(query, 'projectId', input.projectId)
+    appendQuery(query, 'branchId', input.branchId)
+    appendQuery(query, 'directory', input.directory)
+    appendQuery(query, 'status', input.status)
+    appendQuery(query, 'tag', input.tag)
+    appendQuery(query, 'page', input.page)
+    appendQuery(query, 'size', input.size)
+    const suffix = query.size > 0 ? `?${query}` : ''
+    return requestJson<PageResult<KnowledgeDocumentSummary>>(`/api/admin/knowledge-documents${suffix}`)
+  },
+  getAdminDocument: documentId => requestJson<AdminKnowledgeDocumentView>(
+    `/api/admin/knowledge-documents/${encodeURIComponent(documentId)}`,
+  ),
+  createDocument: input => requestJson<AdminKnowledgeDocumentView>('/api/admin/knowledge-documents', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  }),
+  updateDocument: (documentId, input) => requestJson<AdminKnowledgeDocumentView>(
+    `/api/admin/knowledge-documents/${encodeURIComponent(documentId)}`,
+    { method: 'PUT', body: JSON.stringify(input) },
+  ),
+  publishDocument: (documentId, replacesDocumentId) => requestJson<AdminKnowledgeDocumentView>(
+    `/api/admin/knowledge-documents/${encodeURIComponent(documentId)}/publish`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ replacesDocumentId: replacesDocumentId ?? null }),
+    },
+  ),
+  archiveDocument: documentId => requestJson<AdminKnowledgeDocumentView>(
+    `/api/admin/knowledge-documents/${encodeURIComponent(documentId)}/archive`,
+    { method: 'POST' },
+  ),
+  importDocuments(file, options) {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('options', new Blob([JSON.stringify(options)], { type: 'application/json' }))
+    return requestJson<KnowledgeImportBatch>('/api/admin/knowledge-document-imports', {
+      method: 'POST',
+      body: form,
+    })
+  },
+  getImportBatch: batchId => requestJson<KnowledgeImportBatch>(
+    `/api/admin/knowledge-document-imports/${encodeURIComponent(batchId)}`,
+  ),
+  submitIndexJob: () => requestJson<KnowledgeIndexJob>('/api/admin/knowledge-index-jobs', { method: 'POST' }),
+  getIndexJob: jobId => requestJson<KnowledgeIndexJob>(
+    `/api/admin/knowledge-index-jobs/${encodeURIComponent(jobId)}`,
+  ),
+  async pollIndexJob(jobId, options = {}) {
+    const maxAttempts = Math.max(1, options.maxAttempts ?? 20)
+    const intervalMs = Math.max(0, options.intervalMs ?? 1_000)
+    let latest: KnowledgeIndexJob | undefined
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      options.signal?.throwIfAborted()
+      latest = await knowledgeApi.getIndexJob(jobId)
+      if (latest.status === 'SUCCEEDED' || latest.status === 'FAILED') {
+        return latest
+      }
+      if (attempt < maxAttempts - 1 && intervalMs > 0) {
+        await wait(intervalMs, options.signal)
+      }
+    }
+    return latest as KnowledgeIndexJob
+  },
+}
+
+export type KnowledgeApiError = ApiError
+
+function wait(delayMs: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = window.setTimeout(resolve, delayMs)
+    signal?.addEventListener('abort', () => {
+      window.clearTimeout(timer)
+      reject(signal.reason ?? new DOMException('Aborted', 'AbortError'))
+    }, { once: true })
+  })
+}

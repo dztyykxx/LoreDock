@@ -1,9 +1,11 @@
 import { inject, type InjectionKey } from 'vue'
 import type { ProjectApi } from './api/projects'
+import type { KnowledgeApi } from './api/knowledge'
 import type { SessionController } from './session/useSession'
 
 export const sessionKey: InjectionKey<SessionController> = Symbol('loredock-session')
 export const projectApiKey: InjectionKey<ProjectApi> = Symbol('loredock-project-api')
+export const knowledgeApiKey: InjectionKey<KnowledgeApi> = Symbol('loredock-knowledge-api')
 
 export function useSession(): SessionController {
   const session = inject(sessionKey)
@@ -17,6 +19,14 @@ export function useProjectApi(): ProjectApi {
   const api = inject(projectApiKey)
   if (!api) {
     throw new Error('LoreDock project API is not provided')
+  }
+  return api
+}
+
+export function useKnowledgeApi(): KnowledgeApi {
+  const api = inject(knowledgeApiKey)
+  if (!api) {
+    throw new Error('LoreDock knowledge API is not provided')
   }
   return api
 }

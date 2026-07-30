@@ -11,16 +11,16 @@
     <nav class="sidebar-nav" aria-label="主导航">
       <button type="button" disabled><IconGlyph name="message" />问答</button>
       <RouterLink to="/projects"><IconGlyph name="folder" />项目</RouterLink>
-      <button type="button" disabled><IconGlyph name="book" />通用业务知识</button>
+      <RouterLink data-testid="global-knowledge-link" to="/knowledge"><IconGlyph name="book" />通用业务知识</RouterLink>
       <button type="button" disabled><IconGlyph name="search" />全局搜索</button>
     </nav>
 
     <div v-if="currentProject" class="sidebar-project">
       <p>当前项目</p>
-      <div class="sidebar-project__card">
+      <RouterLink data-testid="current-project-link" class="sidebar-project__card" :to="`/projects/${currentProject.identifier}`">
         <span class="project-icon"><IconGlyph name="network" /></span>
         <span><strong>{{ currentProject.name }}</strong><small>{{ currentProject.identifier }}</small></span>
-      </div>
+      </RouterLink>
     </div>
     <div v-else class="sidebar-recent">
       <p>最近问答</p>

@@ -8,7 +8,7 @@ LoreDock 用于把散落在公司 Wiki、项目文档、需求、PR、Commit、�
 
 ## 当前状态
 
-MVP 开发计划 T1“工程骨架与基础设施”和 T2“认证、项目与分支管理”已完成。当前提供固定管理员/组内只读账号、独立 MCP Token 边界、项目启停与分支管理、PostgreSQL 持久化，以及面向电脑浏览器的登录、项目列表和项目设置页。用户注册、用户表和账号管理后台不在 MVP 范围内。
+MVP 开发计划 T1“工程骨架与基础设施”、T2“认证、项目与分支管理”和 T3“知识文档完整生命周期”已完成。当前提供固定管理员/组内只读账号、独立 MCP Token 边界、项目与分支管理、三级范围知识文档、安全导入、发布/归档/替代和 PostgreSQL generation 索引重建。用户注册、用户表和账号管理后台不在 MVP 范围内。
 
 ## 目标场景
 
@@ -82,7 +82,7 @@ MVP 计划通过 Streamable HTTP 暴露只读工具：
 
 技术选型仍以已确认的 OpenSpec 规格为准，调研文档中的建议不自动等同于最终实现。
 
-### T1/T2 冻结版本矩阵
+### T1–T3 冻结版本矩阵
 
 以下版本均为 2026-07-29 从官方发布源核验的 GA 版本。JDK 21 和 Node.js 24 安装在开发机，Maven 使用仓库 Wrapper；Docker 只承载 PostgreSQL/pgvector 等服务依赖。
 
@@ -99,6 +99,7 @@ MVP 计划通过 Streamable HTTP 暴露只读工具：
 | Lombok | 1.18.46 | `backend/pom.xml` |
 | Sa-Token | 1.45.0 | `backend/pom.xml`，使用 Spring Boot 4 Starter |
 | Spring Security Crypto | 跟随 Spring Boot 4.1.0 | 仅使用 BCrypt，不启用 Spring Security 认证链 |
+| Apache Commons Compress | 1.28.0 | `backend/pom.xml`；Apache-2.0，仅用于 ZIP 中央目录与条目类型检查 |
 | PostgreSQL / pgvector | 17 / 0.8.1 | `pgvector/pgvector:0.8.1-pg17` |
 | Node.js | 24.18.0 | `.nvmrc`、`.node-version`、本地运行环境 |
 | npm | 11.16.0 | `frontend/package.json` |
@@ -203,7 +204,18 @@ PATH=/opt/homebrew/opt/node@24/bin:$PATH npm audit --audit-level=high
 - 管理员项目管理：`/api/admin/projects/**`；
 - MCP 认证边界：`/mcp/**`，使用 `Authorization: Bearer <token>`。T2 仅实现前置校验，尚未提供 MCP 工具。
 
-前端是电脑浏览器页面，通过 Vite 同站代理访问 `/api`。项目、分支、状态和身份始终使用真实 API；知识数、快照与 Commit 等 T3/T4 字段尚无接口，当前仅使用集中定义的设计稿样例，不参与权限或写操作。
+前端是电脑浏览器页面，通过 Vite 同站代理访问 `/api`。项目、分支、知识文档、生命周期状态和身份始终使用真实 API；快照与 Commit 等 T4 数据尚未接入。
+
+### T3 知识文档入口与运行边界
+
+- 已登录只读浏览：`GET /api/knowledge-documents` 与 `GET /api/knowledge-documents/{id}`，必须明确 `GLOBAL` 或项目/分支上下文；
+- 管理员文档管理：`/api/admin/knowledge-documents/**`，包含创建、编辑、发布、归档和同范围替代；
+- 管理员导入：`POST /api/admin/knowledge-document-imports`，支持严格 UTF-8 的 `.md`、`.markdown`、`.txt` 和包含 Markdown 的 `.zip`；
+- 管理员重建：`/api/admin/knowledge-index-jobs`，同一单实例内的活动重建使用 single-flight 复用任务 ID。
+
+默认单文件上传上限为 20 MiB，multipart 请求上限为 21 MiB；反向代理必须至少允许 21 MiB，且不得把更大的代理上限当成应用层配额。ZIP 默认最多 200 个条目、单项展开 2 MiB、累计展开 50 MiB、压缩比 100:1；结构损坏、加密/分卷、重复规范化路径或超额会在创建文档前整批拒绝。
+
+重建在一个 PostgreSQL `REPEATABLE READ` 快照中构建新 generation，验证后原子切换 `ACTIVE`。失败会保留上一个成功 generation 供浏览；归档和范围变更还会在读取时做实时资格复核。single-flight 只保证 MVP 单 JVM 部署，多实例部署前必须增加分布式互斥。
 
 ## 数据迁移、备份与故障排查
 
@@ -212,8 +224,10 @@ PATH=/opt/homebrew/opt/node@24/bin:$PATH npm audit --audit-level=high
 - 端口冲突时调整 `.env`；若修改后端端口，还需同步 Vite 代理目标。构建工具链错误时确认 `java -version` 为 21、`node --version` 为 24。
 - 后端以 `Identity configuration is invalid` 拒绝启动时，检查是否恰好配置两个不同用户名、一个 ADMIN/一个 MEMBER、有效 BCrypt 哈希和 64 位小写十六进制 MCP Token 摘要。错误日志不会回显具体凭据。
 - 页面登录成功但刷新后失效时，先确认前后端使用同站代理，生产 HTTPS 环境已开启 Secure Cookie，且期间后端进程没有重启。
+- 上传被 413 拒绝时，同时核对反向代理、Spring multipart 和 `LOREDOCK_KNOWLEDGE_IMPORT_*` 业务配额；以最小的一层为实际上限。
+- 重新索引失败时，依据任务 ID 查看脱敏摘要；不要手工修改 generation 状态，普通浏览会继续使用上一个成功索引。
 - 默认 profile 使用便于本地调试的文本控制台日志；生产环境以 `--spring.profiles.active=prod` 启动后启用 Logstash JSON，供日志采集系统解析。
-- 数据库备份可执行 `docker compose exec -T database pg_dump -U loredock -d loredock -Fc > loredock.dump`；对象文件位于 `LOREDOCK_STORAGE_ROOT`（默认 `data/objects`），可在停止写入后单独归档。恢复时数据库备份和对象目录必须来自同一静默写入窗口，避免元数据与文件不一致。
+- 数据库备份可执行 `docker compose exec -T database pg_dump -U loredock -d loredock -Fc > loredock.dump`；原始导入文件位于 `LOREDOCK_STORAGE_ROOT`（默认 `data/objects`），是与导入批次证据对应的受控对象，不是可单独重建的缓存。恢复时数据库备份和对象目录必须来自同一静默写入窗口，避免元数据与文件不一致。
 - T1 后台任务是单实例、进程内有界执行器，不提供分布式调度或自动重放。重启只会把失去心跳的 `RUNNING` 任务终结为 `FAILED/PROCESS_INTERRUPTED`。
 
 更完整的包结构、数据模型和运行约定见 [T1 工程与基础设施架构](docs/architecture/T1工程与基础设施.md)。

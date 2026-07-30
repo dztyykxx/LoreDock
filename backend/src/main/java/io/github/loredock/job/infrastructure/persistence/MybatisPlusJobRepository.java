@@ -56,6 +56,17 @@ public class MybatisPlusJobRepository implements JobRepository {
     }
 
     @Override
+    public Optional<BackgroundJob> findActiveByType(String type) {
+        return Optional.ofNullable(mapper.selectOne(Wrappers.<BackgroundJobEntity>lambdaQuery()
+                        .eq(BackgroundJobEntity::getJobType, type)
+                        .in(BackgroundJobEntity::getStatus, JobStatus.PENDING.name(), JobStatus.RUNNING.name())
+                        .orderByAsc(BackgroundJobEntity::getCreatedAt)
+                        .orderByAsc(BackgroundJobEntity::getId)
+                        .last("limit 1")))
+                .map(this::toDomain);
+    }
+
+    @Override
     public boolean update(BackgroundJob job, JobStatus expectedStatus, Instant updatedAt, String updatedBy) {
         JobSnapshot snapshot = job.snapshot();
         int updated = mapper.update(Wrappers.<BackgroundJobEntity>lambdaUpdate()

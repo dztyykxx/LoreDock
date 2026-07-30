@@ -3,6 +3,8 @@ import type { SessionController } from '../session/useSession'
 import LoginView from '../views/LoginView.vue'
 import ProjectListView from '../views/ProjectListView.vue'
 import ProjectSettingsView from '../views/ProjectSettingsView.vue'
+import KnowledgeWorkspaceView from '../views/KnowledgeWorkspaceView.vue'
+import KnowledgeEditorView from '../views/KnowledgeEditorView.vue'
 
 export function createLoreDockRouter(session: SessionController): Router {
   const router = createRouter({
@@ -17,15 +19,69 @@ export function createLoreDockRouter(session: SessionController): Router {
         meta: { requiresAuth: true },
       },
       {
+        path: '/knowledge',
+        name: 'knowledge-global',
+        component: KnowledgeWorkspaceView,
+        meta: { requiresAuth: true },
+      },
+      {
+        path: '/knowledge/new',
+        name: 'knowledge-global-new',
+        component: KnowledgeEditorView,
+        meta: { requiresAuth: true, adminOnly: true, memberFallback: '/knowledge' },
+      },
+      {
+        path: '/knowledge/import',
+        name: 'knowledge-global-import',
+        component: KnowledgeEditorView,
+        meta: { requiresAuth: true, adminOnly: true, memberFallback: '/knowledge' },
+      },
+      {
+        path: '/knowledge/:documentId/edit',
+        name: 'knowledge-global-edit',
+        component: KnowledgeEditorView,
+        meta: { requiresAuth: true, adminOnly: true, memberFallback: '/knowledge' },
+      },
+      {
+        path: '/knowledge/:documentId',
+        name: 'knowledge-global-detail',
+        component: KnowledgeWorkspaceView,
+        meta: { requiresAuth: true },
+      },
+      {
         path: '/projects/:projectId/settings',
         name: 'project-settings',
         component: ProjectSettingsView,
         meta: { requiresAuth: true, adminOnly: true },
       },
       {
+        path: '/projects/:identifier/knowledge/new',
+        name: 'project-knowledge-new',
+        component: KnowledgeEditorView,
+        meta: { requiresAuth: true, adminOnly: true, memberFallback: 'project-knowledge' },
+      },
+      {
+        path: '/projects/:identifier/knowledge/import',
+        name: 'project-knowledge-import',
+        component: KnowledgeEditorView,
+        meta: { requiresAuth: true, adminOnly: true, memberFallback: 'project-knowledge' },
+      },
+      {
+        path: '/projects/:identifier/knowledge/:documentId/edit',
+        name: 'project-knowledge-edit',
+        component: KnowledgeEditorView,
+        meta: { requiresAuth: true, adminOnly: true, memberFallback: 'project-knowledge' },
+      },
+      {
+        path: '/projects/:identifier/knowledge/:documentId',
+        name: 'project-knowledge-detail',
+        component: KnowledgeWorkspaceView,
+        meta: { requiresAuth: true },
+      },
+      {
         path: '/projects/:identifier',
-        name: 'project-detail',
-        component: ProjectSettingsView,
+        name: 'project-knowledge',
+        component: KnowledgeWorkspaceView,
         meta: { requiresAuth: true },
       },
       { path: '/:pathMatch(.*)*', redirect: '/projects' },
@@ -66,6 +122,12 @@ export function installSessionGuards(router: Router, session: SessionController)
     }
 
     if (to.meta.adminOnly && session.identity.value?.role !== 'ADMIN') {
+      if (to.meta.memberFallback === 'project-knowledge') {
+        return { name: 'project-knowledge', params: { identifier: to.params.identifier }, query: to.query }
+      }
+      if (typeof to.meta.memberFallback === 'string') {
+        return to.meta.memberFallback
+      }
       return { name: 'projects' }
     }
 

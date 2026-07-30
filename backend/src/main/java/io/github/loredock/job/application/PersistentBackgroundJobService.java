@@ -48,6 +48,7 @@ public class PersistentBackgroundJobService implements BackgroundJobService, Aut
     private final AuditMetadataFactory auditFactory;
     private final JobFailureClassifier failureClassifier;
     private final String instanceId = UUID.randomUUID().toString();
+    private final Object singleFlightLock = new Object();
 
     /**
      * 创建具有明确并发和队列上限的任务服务。
@@ -89,9 +90,22 @@ public class PersistentBackgroundJobService implements BackgroundJobService, Aut
 
     @Override
     public UUID submit(JobRequest request) {
-        if (request == null || request.type() == null || !handlers.containsKey(request.type())) {
-            throw new ApplicationException(ErrorCode.UNSUPPORTED_JOB_TYPE, "任务类型未注册");
+        validateRequest(request);
+        return submitNew(request);
+    }
+
+    @Override
+    public UUID submitSingleFlight(JobRequest request) {
+        validateRequest(request);
+        // MVP 明确为单实例部署：JVM 锁把“查活动任务—插入新任务”串行化，不宣称提供分布式互斥。
+        synchronized (singleFlightLock) {
+            return repository.findActiveByType(request.type())
+                    .map(job -> job.snapshot().id())
+                    .orElseGet(() -> submitNew(request));
         }
+    }
+
+    private UUID submitNew(JobRequest request) {
         UUID jobId = UUID.randomUUID();
         BackgroundJob job = BackgroundJob.pending(
                 jobId, request.type(), request.inputObjectKey(), timeProvider.now());
@@ -105,9 +119,20 @@ public class PersistentBackgroundJobService implements BackgroundJobService, Aut
         return jobId;
     }
 
+    private void validateRequest(JobRequest request) {
+        if (request == null || request.type() == null || !handlers.containsKey(request.type())) {
+            throw new ApplicationException(ErrorCode.UNSUPPORTED_JOB_TYPE, "任务类型未注册");
+        }
+    }
+
     @Override
     public Optional<JobSnapshot> find(UUID jobId) {
         return repository.find(jobId).map(BackgroundJob::snapshot);
+    }
+
+    @Override
+    public Optional<JobSnapshot> findActiveByType(String type) {
+        return repository.findActiveByType(type).map(BackgroundJob::snapshot);
     }
 
     @Override

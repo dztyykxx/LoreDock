@@ -19,10 +19,21 @@ public interface BackgroundJobService {
     UUID submit(JobRequest request);
 
     /**
+     * 在单实例进程内复用同类型 PENDING/RUNNING 任务；终态后创建新任务。
+     *
+     * @param request 任务命令
+     * @return 既有活动任务或新任务 ID
+     */
+    UUID submitSingleFlight(JobRequest request);
+
+    /**
      * @param jobId 任务 ID
      * @return 当前任务快照，不存在时为空
      */
     Optional<JobSnapshot> find(UUID jobId);
+
+    /** @return 指定类型最早创建的 PENDING/RUNNING 任务。 */
+    Optional<JobSnapshot> findActiveByType(String type);
 
     /**
      * 幂等取消正在运行的任务；尚未开始、已经终结或不存在时不改变状态。

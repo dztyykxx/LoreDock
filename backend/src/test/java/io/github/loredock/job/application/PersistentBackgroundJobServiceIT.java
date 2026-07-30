@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -186,6 +187,48 @@ class PersistentBackgroundJobServiceIT {
         assertThat(recovered.errorMessage()).contains("未自动重放");
         assertThat(repository.find(fresh.snapshot().id()).orElseThrow().snapshot().status())
                 .isEqualTo(JobStatus.RUNNING);
+    }
+
+    /**
+     * 业务目的：single-flight 只复用同类型活动任务，默认 submit 和其他类型仍独立，终态后可以重新提交。
+     */
+    @Test
+    void singleFlightReusesOnlySameTypeActiveJobAndAllowsNewJobAfterTerminal() throws Exception {
+        CountDownLatch started = new CountDownLatch(4);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicBoolean persistedBeforeExecution = new AtomicBoolean(true);
+        JobHandler typeA = handler("TYPE_A", context -> {
+            persistedBeforeExecution.compareAndSet(true, jdbcTemplate.queryForObject(
+                    "select count(*) > 0 from background_job where id = ?",
+                    Boolean.class, context.jobId()));
+            started.countDown();
+            await(release);
+        });
+        JobHandler typeB = handler("TYPE_B", context -> {
+            started.countDown();
+            await(release);
+        });
+        PersistentBackgroundJobService service = service(properties(4, 4), typeA, typeB);
+
+        var shared = service.submitSingleFlight(new JobRequest("TYPE_A", null));
+        var reused = service.submitSingleFlight(new JobRequest("TYPE_A", null));
+        var otherType = service.submitSingleFlight(new JobRequest("TYPE_B", null));
+        var defaultFirst = service.submit(new JobRequest("TYPE_A", null));
+        var defaultSecond = service.submit(new JobRequest("TYPE_A", null));
+
+        assertThat(reused).isEqualTo(shared);
+        assertThat(otherType).isNotEqualTo(shared);
+        assertThat(defaultFirst).isNotEqualTo(defaultSecond).isNotEqualTo(shared);
+        assertThat(service.findActiveByType("TYPE_A")).isPresent()
+                .get().extracting(JobSnapshot::id).isEqualTo(shared);
+        assertThat(persistedBeforeExecution).isTrue();
+        assertThat(started.await(3, TimeUnit.SECONDS)).isTrue();
+        release.countDown();
+        Awaitility.await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
+                assertThat(service.find(shared).orElseThrow().status()).isEqualTo(JobStatus.SUCCEEDED));
+
+        var afterTerminal = service.submitSingleFlight(new JobRequest("TYPE_A", null));
+        assertThat(afterTerminal).isNotEqualTo(shared);
     }
 
     private PersistentBackgroundJobService service(JobProperties properties, JobHandler... handlers) {

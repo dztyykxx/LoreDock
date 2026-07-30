@@ -4,6 +4,12 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import io.github.loredock.job.infrastructure.persistence.BackgroundJobEntity;
+import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeDocumentEntity;
+import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeDocumentTagEntity;
+import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeImportBatchEntity;
+import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeImportItemEntity;
+import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeIndexDocumentEntity;
+import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeIndexGenerationEntity;
 import io.github.loredock.project.infrastructure.persistence.ProjectBranchEntity;
 import io.github.loredock.project.infrastructure.persistence.ProjectSpaceEntity;
 import io.github.loredock.storage.infrastructure.persistence.StoredObjectEntity;
@@ -29,6 +35,12 @@ class PersistenceMappingContractTest {
         assertExplicitMapping(BackgroundJobEntity.class, "background_job");
         assertExplicitMapping(ProjectSpaceEntity.class, "project_space");
         assertExplicitMapping(ProjectBranchEntity.class, "project_branch");
+        assertExplicitMapping(KnowledgeDocumentEntity.class, "knowledge_document");
+        assertExplicitMapping(KnowledgeDocumentTagEntity.class, "knowledge_document_tag");
+        assertExplicitMapping(KnowledgeImportBatchEntity.class, "knowledge_import_batch");
+        assertExplicitMapping(KnowledgeImportItemEntity.class, "knowledge_import_item");
+        assertExplicitMapping(KnowledgeIndexGenerationEntity.class, "knowledge_index_generation");
+        assertExplicitMapping(KnowledgeIndexDocumentEntity.class, "knowledge_index_document");
     }
 
     /**

@@ -35,7 +35,7 @@
         <section class="general-knowledge-card">
           <span class="general-knowledge-card__icon"><IconGlyph name="book" /></span>
           <div><h2>通用业务知识</h2><p>查看跨项目适用的术语、流程、规范与兼容策略</p></div>
-          <button type="button" disabled>进入知识库<IconGlyph name="arrowRight" /></button>
+          <RouterLink to="/knowledge">进入知识库<IconGlyph name="arrowRight" /></RouterLink>
         </section>
 
         <section class="projects-section" aria-labelledby="enabled-projects-title">
@@ -89,7 +89,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { RouterLink, useRouter } from 'vue-router'
 import type { CreateProjectInput, ProjectSummary } from '../api/types'
 import { useProjectApi, useSession } from '../appContext'
 import AppButton from '../components/AppButton.vue'

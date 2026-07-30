@@ -33,7 +33,13 @@
             <AppButton icon="plus" disabled>新建知识</AppButton>
           </template>
         </ProjectHero>
-        <ProjectTabs active="settings" />
+        <ProjectTabs
+          active="settings"
+          :role="identity.role"
+          :project-identifier="project.identifier"
+          :project-id="project.id"
+          :branch="selectedBranch"
+        />
         <PageHeader
           breadcrumb="项目 / 项目设置"
           :title="isAdministrator ? '项目设置' : '项目范围'"

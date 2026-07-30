@@ -19,6 +19,9 @@ public interface JobRepository {
     /** @return 指定任务的当前领域状态。 */
     Optional<BackgroundJob> find(UUID jobId);
 
+    /** @return 指定任务类型最早创建的活动任务，终态任务不返回。 */
+    Optional<BackgroundJob> findActiveByType(String type);
+
     /**
      * 条件更新任务状态和审计字段。
      *

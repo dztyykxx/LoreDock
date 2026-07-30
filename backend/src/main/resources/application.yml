@@ -1,6 +1,11 @@
 spring:
   application:
     name: loredock
+  servlet:
+    multipart:
+      max-file-size: ${LOREDOCK_KNOWLEDGE_IMPORT_MAX_UPLOAD_SIZE:20MB}
+      # multipart 还包含 JSON options 和边界字节，请求上限需略高于文件上限。
+      max-request-size: ${LOREDOCK_KNOWLEDGE_IMPORT_MAX_REQUEST_SIZE:21MB}
   datasource:
     url: ${LOREDOCK_DB_URL:jdbc:postgresql://localhost:5432/loredock}
     username: ${LOREDOCK_DB_USER:loredock}
@@ -72,6 +77,13 @@ loredock:
       token-sha256: ${LOREDOCK_MCP_TOKEN_SHA256:}
   storage:
     root: ${LOREDOCK_STORAGE_ROOT:./data/objects}
+  knowledge:
+    importing:
+      max-upload-size: ${LOREDOCK_KNOWLEDGE_IMPORT_MAX_UPLOAD_SIZE:20MB}
+      max-archive-entries: ${LOREDOCK_KNOWLEDGE_IMPORT_MAX_ARCHIVE_ENTRIES:200}
+      max-entry-uncompressed-size: ${LOREDOCK_KNOWLEDGE_IMPORT_MAX_ENTRY_UNCOMPRESSED_SIZE:2MB}
+      max-archive-uncompressed-size: ${LOREDOCK_KNOWLEDGE_IMPORT_MAX_ARCHIVE_UNCOMPRESSED_SIZE:50MB}
+      max-compression-ratio: ${LOREDOCK_KNOWLEDGE_IMPORT_MAX_COMPRESSION_RATIO:100}
   jobs:
     core-pool-size: ${LOREDOCK_JOB_CORE_POOL_SIZE:2}
     max-pool-size: ${LOREDOCK_JOB_MAX_POOL_SIZE:4}

@@ -5,6 +5,7 @@ import AppButton from './AppButton.vue'
 import FormField from './FormField.vue'
 import ProjectCard from './ProjectCard.vue'
 import ProjectTabs from './ProjectTabs.vue'
+import AppSidebar from './AppSidebar.vue'
 import type { ProjectSummary } from '../api/types'
 
 const project: ProjectSummary = {
@@ -72,18 +73,69 @@ describe('design components', () => {
   })
 
   /**
-   * 业务目的：尚无接口的未来标签允许展示设计样例，但点击不得制造网络请求或伪造已实现路由。
+   * 业务目的：项目卡片对管理员和成员都应进入真实项目知识页，防止管理员被错误送往设置页而无法浏览知识。
    */
-  it('renders future sample tabs as non-executable controls', async () => {
-    const fetchMock = vi.fn()
-    vi.stubGlobal('fetch', fetchMock)
-    const wrapper = mount(ProjectTabs, { props: { active: 'settings' } })
+  it.each(['ADMIN', 'MEMBER'] as const)('opens project knowledge from a %s project card', role => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/projects/:identifier', name: 'project-knowledge', component: { template: '<div />' } }],
+    })
+    const wrapper = mount(ProjectCard, {
+      props: { project, role, sampleKnowledgeCount: 26 },
+      global: { plugins: [router] },
+    })
 
-    expect(wrapper.text()).toContain('知识文档')
-    expect(wrapper.text()).toContain('26')
-    await wrapper.get('[data-tab="knowledge"]').trigger('click')
-    expect(fetchMock).not.toHaveBeenCalled()
-    expect(wrapper.get('[data-tab="settings"]').attributes('aria-current')).toBe('page')
-    vi.unstubAllGlobals()
+    expect(wrapper.get('a').attributes('href')).toBe('/projects/api-project')
+  })
+
+  /**
+   * 业务目的：项目页签必须保留当前分支并把知识与设置导向真实路由，成员不能看到管理员设置入口。
+   */
+  it('renders real project tab navigation with role-aware settings', () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/projects/:identifier', name: 'project-knowledge', component: { template: '<div />' } },
+        { path: '/projects/:projectId/settings', name: 'project-settings', component: { template: '<div />' } },
+      ],
+    })
+    const wrapper = mount(ProjectTabs, {
+      props: {
+        active: 'knowledge',
+        role: 'ADMIN',
+        projectIdentifier: 'api-project',
+        projectId: project.id,
+        branch: 'feature/import',
+      },
+      global: { plugins: [router] },
+    })
+
+    expect(wrapper.get('[data-tab="knowledge"]').attributes('href')).toContain('branch=feature/import')
+    expect(wrapper.get('[data-tab="settings"]').attributes('href')).toBe(`/projects/${project.id}/settings`)
+  })
+
+  /**
+   * 业务目的：侧栏的通用知识和当前项目必须是可键盘访问的真实入口，防止继续以禁用样例控件冒充导航。
+   */
+  it('links the sidebar to global and current-project knowledge', () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/projects', component: { template: '<div />' } },
+        { path: '/knowledge', name: 'knowledge-global', component: { template: '<div />' } },
+        { path: '/projects/:identifier', name: 'project-knowledge', component: { template: '<div />' } },
+      ],
+    })
+    const wrapper = mount(AppSidebar, {
+      props: {
+        displayName: '管理员',
+        role: 'ADMIN',
+        currentProject: { name: '接口返回项目', identifier: 'api-project' },
+      },
+      global: { plugins: [router] },
+    })
+
+    expect(wrapper.get('[data-testid="global-knowledge-link"]').attributes('href')).toBe('/knowledge')
+    expect(wrapper.get('[data-testid="current-project-link"]').attributes('href')).toBe('/projects/api-project')
   })
 })
