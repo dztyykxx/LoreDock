@@ -25,12 +25,12 @@
 
 ## 4. V6 迁移与运行事实持久化
 
-- [ ] 4.1 先编写带中文业务目的注释的真实 PostgreSQL 失败迁移测试，覆盖 V1→V6、V5→V6、重复迁移、Skill 唯一启用、操作者+幂等键唯一、状态/结果约束、事件序号、证据/引用外键、JSON/正文大小限制和旧应用面对 future migration 的回滚兼容。
-- [ ] 4.2 追加 `V6__create_agent_runtime_tables.sql`，建立 `agent_skill_version`、`agent_run`、`agent_run_event`、`agent_tool_call`、`agent_evidence`、`agent_citation` 及必要索引/注释，使 4.1 通过；不得修改 V1～V5、自动建表或引入 Graph Saver DDL。
-- [ ] 4.3 为六张表的独立 Lombok 实体、显式 MyBatis-Plus 映射和领域/DTO 分离编写失败映射测试，覆盖每个表名、主键、列、枚举、可空 Token、UTC 时间、JSONB 和不透明 object key。
-- [ ] 4.4 实现 Mapper 与仓储适配器使 4.3 通过，优先使用 BaseMapper/Wrapper，只有批量或比较更新无法清楚表达时才用参数化注解 SQL，禁止 XML Mapper。
-- [ ] 4.5 为同一幂等键并发插入、状态比较更新、事件单调序号、证据批量写入、引用外键、终态后迟到写入和 `afterSequence` 有界分页编写真实 PostgreSQL 失败测试并实现相应短事务服务。
-- [ ] 4.6 捕获事务与 SQL 证据确认模型、工具和等待期间没有长事务，事件遵循“先持久化提交、后供下游读取”，失败不会留下已公开但数据库不存在的事件。
+- [x] 4.1 先编写带中文业务目的注释的真实 PostgreSQL 失败迁移测试，覆盖 V1→V6、V5→V6、重复迁移、Skill 唯一启用、操作者+幂等键唯一、状态/结果约束、事件序号、证据/引用外键、JSON/正文大小限制和旧应用面对 future migration 的回滚兼容。
+- [x] 4.2 追加 `V6__create_agent_runtime_tables.sql`，建立 `agent_skill_version`、`agent_run`、`agent_run_event`、`agent_tool_call`、`agent_evidence`、`agent_citation` 及必要索引/注释，使 4.1 通过；不得修改 V1～V5、自动建表或引入 Graph Saver DDL。
+- [x] 4.3 为六张表的独立 Lombok 实体、显式 MyBatis-Plus 映射和领域/DTO 分离编写失败映射测试，覆盖每个表名、主键、列、枚举、可空 Token、UTC 时间、JSONB 和不透明 object key。
+- [x] 4.4 实现 Mapper 与仓储适配器使 4.3 通过，优先使用 BaseMapper/Wrapper，只有批量或比较更新无法清楚表达时才用参数化注解 SQL，禁止 XML Mapper。
+- [x] 4.5 为同一幂等键并发插入、状态比较更新、事件单调序号、证据批量写入、引用外键、终态后迟到写入和 `afterSequence` 有界分页编写真实 PostgreSQL 失败测试并实现相应短事务服务。
+- [x] 4.6 捕获事务与 SQL 证据确认模型、工具和等待期间没有长事务，事件遵循“先持久化提交、后供下游读取”，失败不会留下已公开但数据库不存在的事件。
 
 ## 5. project_qa Skill 与受控配置
 

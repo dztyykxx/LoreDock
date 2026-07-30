@@ -3,6 +3,12 @@ package io.github.loredock.persistence;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import io.github.loredock.agent.infrastructure.persistence.AgentCitationEntity;
+import io.github.loredock.agent.infrastructure.persistence.AgentEvidenceEntity;
+import io.github.loredock.agent.infrastructure.persistence.AgentRunEntity;
+import io.github.loredock.agent.infrastructure.persistence.AgentRunEventEntity;
+import io.github.loredock.agent.infrastructure.persistence.AgentSkillVersionEntity;
+import io.github.loredock.agent.infrastructure.persistence.AgentToolCallEntity;
 import io.github.loredock.job.infrastructure.persistence.BackgroundJobEntity;
 import io.github.loredock.code.infrastructure.persistence.CodeIndexGenerationEntity;
 import io.github.loredock.code.infrastructure.persistence.CodeSnapshotEntity;
@@ -49,7 +55,13 @@ class PersistenceMappingContractTest {
         assertExplicitMapping(KnowledgeIndexDocumentEntity.class, "knowledge_index_document");
         assertExplicitMapping(KnowledgeSearchGenerationEntity.class, "knowledge_search_generation");
         assertExplicitMapping(KnowledgeSearchChunkEntity.class, "knowledge_search_chunk");
-        System.out.println("测试证据：场景=持久化显式映射，知识检索实体数=2，全部字段均声明表列映射");
+        assertExplicitMapping(AgentSkillVersionEntity.class, "agent_skill_version");
+        assertExplicitMapping(AgentRunEntity.class, "agent_run");
+        assertExplicitMapping(AgentRunEventEntity.class, "agent_run_event");
+        assertExplicitMapping(AgentToolCallEntity.class, "agent_tool_call");
+        assertExplicitMapping(AgentEvidenceEntity.class, "agent_evidence");
+        assertExplicitMapping(AgentCitationEntity.class, "agent_citation");
+        System.out.println("测试证据：场景=持久化显式映射，新增Agent实体数=6，全部字段均声明表列映射");
     }
 
     /**
