@@ -8,7 +8,7 @@ LoreDock 用于把散落在公司 Wiki、项目文档、需求、PR、Commit、�
 
 ## 当前状态
 
-MVP 开发计划 T1“工程骨架与基础设施”、T2“认证、项目与分支管理”、T3“知识文档完整生命周期”、T4“代码快照与 Lucene 检索”、T5“知识关键词、语义与混合检索”和 T6A“单 Agent 问答运行时”已完成。当前提供严格按通用、项目和分支隔离的知识/代码检索，以及固定 Skill、固定活动版本、只读工具白名单、可信引用、拒答、运行事实和持久事件。T7 将把该应用能力接入 Web；用户注册、用户表和账号管理后台不在 MVP 范围内。
+MVP 开发计划 T1“工程骨架与基础设施”、T2“认证、项目与分支管理”、T3“知识文档完整生命周期”、T4“代码快照与 Lucene 检索”、T5“知识关键词、语义与混合检索”、T6A“单 Agent 问答运行时”和 T7“Web 项目问答与知识缺口”已完成。当前提供严格按通用、项目和分支隔离的知识/代码检索，以及带可信状态、可续读事件、安全引用和人工反馈的 Web 问答闭环；用户注册、用户表和账号管理后台不在 MVP 范围内。
 
 ## 目标场景
 
@@ -196,7 +196,7 @@ PATH=/opt/homebrew/opt/node@24/bin:$PATH npm run dev
 
 ### T6A 单 Agent 运行配置
 
-`project_qa` 默认关闭，且 T6A 只提供后端应用契约，Web 入口由 T7 接入。启用前应先完成知识索引和目标分支代码快照准备，再通过部署 secret 注入模型密钥：
+`project_qa` 默认关闭，T7 已通过 `/projects/{identifier}/qa` 接入 Web 问答。启用前应先完成知识索引和目标分支代码快照准备，再通过部署 secret 注入模型密钥：
 
 ```bash
 export LOREDOCK_AGENT_ENABLED=true
@@ -291,6 +291,16 @@ Lucene 目录先写入 `<generation>.building`，关闭并重开验证后才原�
 - 返回有限片段、来源、更新时间、相关性和匹配方式，不返回完整正文、向量、对象键或内部配置；项目分支没有代码快照时仍返回允许的人工知识，并携带 `CODE_SNAPSHOT_NOT_INDEXED`。
 
 搜索返回 `KNOWLEDGE_INDEX_UNAVAILABLE`（503）时，先确认 T5 部署后是否成功执行过一次重建，以及 `knowledge_index_generation` 的 `ACTIVE` 记录是否有匹配的完整 `knowledge_search_generation` 元数据；不得手工激活 BUILDING。新重建失败会清理未完成 generation 并保留旧 ACTIVE。若 `KNOWLEDGE_EMBEDDING_UNAVAILABLE`（503），核对本地资源可读性、模型 SHA-256、512 维 `sentence_embedding` 输出和内存，不要改成 HTTP URI或关闭校验。
+
+### T7 项目问答与知识缺口入口
+
+- 前端项目问答：`/projects/{identifier}/qa?branch=...`；当前记录始终显示服务端固定的项目、分支和 commit，分支选择只影响下一次提问；
+- 问答创建、历史与详情：`POST/GET /api/projects/{identifier}/qa/questions` 及 `GET /api/projects/{identifier}/qa/questions/{questionId}`；创建请求必须携带客户端幂等键；
+- 可续读事件：`GET /api/projects/{identifier}/qa/questions/{questionId}/events`，使用 SSE `id`、`Last-Event-ID` 或 `afterSequence` 从已消费序号之后恢复；客户端收到终态后必须重新读取详情快照；
+- 成员反馈：`POST /api/projects/{identifier}/knowledge-gaps`；关联问答时项目、分支、问题、运行结果和引用均以服务端保存事实为准；
+- 管理员反馈处理：`GET /api/admin/knowledge-gaps`、详情与 `PATCH .../{feedbackId}/status`，只允许 `OPEN → ACKNOWLEDGED → CLOSED` 单向推进。
+
+问答 REST、SSE 与知识缺口接口均使用 Web 会话认证。相同创建请求在响应未知时复用原幂等键；用户主动要求重新运行时使用新键。模型故障只影响当前问答，文档浏览和既有搜索继续可用。API 和日志不会返回隐藏提示、模型思维链、完整证据正文、对象键或服务器绝对路径。
 
 ## 数据迁移、备份与故障排查
 
