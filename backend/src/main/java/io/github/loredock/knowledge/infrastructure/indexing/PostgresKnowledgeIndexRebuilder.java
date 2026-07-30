@@ -9,6 +9,7 @@ import io.github.loredock.knowledge.application.search.KnowledgeEmbeddingModelDe
 import io.github.loredock.knowledge.application.search.KnowledgeEmbeddingPort;
 import io.github.loredock.knowledge.application.search.KnowledgeEmbeddingUnavailableException;
 import io.github.loredock.knowledge.application.search.KnowledgeEmbeddingVector;
+import io.github.loredock.knowledge.application.search.ReciprocalRankFusion;
 import io.github.loredock.knowledge.application.search.indexing.AnalyzedKnowledgeText;
 import io.github.loredock.knowledge.application.search.indexing.KnowledgeChunk;
 import io.github.loredock.knowledge.application.search.indexing.KnowledgeChunker;
@@ -61,7 +62,6 @@ public class PostgresKnowledgeIndexRebuilder implements KnowledgeIndexRebuilder 
     private static final int SNAPSHOT_BATCH_SIZE = 100;
     private static final int EMBEDDING_BATCH_SIZE = 16;
     private static final int VECTOR_DIMENSION = 512;
-    private static final String FUSION_CONFIG_VERSION = "rrf-v1";
 
     private final KnowledgeDocumentMapper sourceDocuments;
     private final KnowledgeDocumentTagMapper sourceTags;
@@ -147,7 +147,7 @@ public class PostgresKnowledgeIndexRebuilder implements KnowledgeIndexRebuilder 
                     model.checksum(),
                     model.dimension(),
                     chunker.version(),
-                    FUSION_CONFIG_VERSION,
+                    ReciprocalRankFusion.CONFIG_VERSION,
                     snapshot.documentCount(),
                     planned.size(),
                     snapshot.createdAt()
@@ -167,7 +167,7 @@ public class PostgresKnowledgeIndexRebuilder implements KnowledgeIndexRebuilder 
                     "knowledge_search_rebuild completed jobId={} generationId={} documentCount={} chunkCount={} "
                             + "modelId={} modelChecksum={} chunkVersion={} fusionVersion={} elapsedMs={}",
                     jobId, generationId, snapshot.documentCount(), planned.size(), model.modelId(),
-                    checksumPrefix(model.checksum()), chunker.version(), FUSION_CONFIG_VERSION,
+                    checksumPrefix(model.checksum()), chunker.version(), ReciprocalRankFusion.CONFIG_VERSION,
                     elapsedMillis(startedAt));
             return new KnowledgeIndexRebuildResult(generationId, snapshot.documentCount());
         } catch (RuntimeException exception) {
