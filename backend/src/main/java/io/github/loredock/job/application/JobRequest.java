@@ -5,6 +5,19 @@ package io.github.loredock.job.application;
  *
  * @param type 已注册任务类型
  * @param inputObjectKey 可选输入对象键
+ * @param projectId 可选项目范围
+ * @param branchId 可选分支范围
+ * @param snapshotId 可选代码快照范围
  */
-public record JobRequest(String type, String inputObjectKey) {
+public record JobRequest(
+        String type,
+        String inputObjectKey,
+        java.util.UUID projectId,
+        java.util.UUID branchId,
+        java.util.UUID snapshotId
+) {
+    /** 保留不需要项目范围的既有知识与平台任务提交契约。 */
+    public JobRequest(String type, String inputObjectKey) {
+        this(type, inputObjectKey, null, null, null);
+    }
 }

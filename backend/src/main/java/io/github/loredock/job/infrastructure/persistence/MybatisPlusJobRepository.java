@@ -36,6 +36,9 @@ public class MybatisPlusJobRepository implements JobRepository {
                 .status(snapshot.status().name())
                 .progress(snapshot.progress())
                 .inputObjectKey(snapshot.inputObjectKey())
+                .projectId(snapshot.projectId())
+                .branchId(snapshot.branchId())
+                .snapshotId(snapshot.snapshotId())
                 .startedAt(snapshot.startedAt())
                 .finishedAt(snapshot.finishedAt())
                 .heartbeatAt(snapshot.heartbeatAt())
@@ -105,6 +108,9 @@ public class MybatisPlusJobRepository implements JobRepository {
                 JobStatus.valueOf(entity.getStatus()),
                 entity.getProgress(),
                 entity.getInputObjectKey(),
+                entity.getProjectId(),
+                entity.getBranchId(),
+                entity.getSnapshotId(),
                 entity.getStartedAt(),
                 entity.getFinishedAt(),
                 entity.getHeartbeatAt(),

@@ -13,7 +13,10 @@ import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Duration;
 import java.util.HashMap;
@@ -105,18 +108,57 @@ public class PersistentBackgroundJobService implements BackgroundJobService, Aut
         }
     }
 
+    @Override
+    public UUID submitExclusiveByBranch(JobRequest request) {
+        validateRequest(request);
+        if (request.projectId() == null || request.branchId() == null || request.snapshotId() == null) {
+            throw new IllegalArgumentException("分支排他任务必须包含项目、分支和快照范围");
+        }
+        return submitNew(request);
+    }
+
     private UUID submitNew(JobRequest request) {
         UUID jobId = UUID.randomUUID();
         BackgroundJob job = BackgroundJob.pending(
-                jobId, request.type(), request.inputObjectKey(), timeProvider.now());
+                jobId, request.type(), request.inputObjectKey(), request.projectId(), request.branchId(),
+                request.snapshotId(), timeProvider.now());
         // 必须先提交数据库记录，执行器中的任何路径才能通过任务 ID 留下可追踪结果。
-        repository.insertPending(job, auditFactory.created());
         try {
-            executor.execute(() -> execute(jobId, handlers.get(request.type())));
+            repository.insertPending(job, auditFactory.created());
+        } catch (DataIntegrityViolationException exception) {
+            if (causedByNamedConstraint(exception, "uq_background_job_code_branch_active")) {
+                throw new ApplicationException(
+                        ErrorCode.CODE_SNAPSHOT_JOB_ACTIVE,
+                        "同分支代码构建或重建任务已处于活动状态",
+                        exception);
+            }
+            throw exception;
+        }
+        scheduleAfterCommit(jobId, handlers.get(request.type()));
+        return jobId;
+    }
+
+    private void scheduleAfterCommit(UUID jobId, JobHandler handler) {
+        if (TransactionSynchronizationManager.isActualTransactionActive()
+                && TransactionSynchronizationManager.isSynchronizationActive()) {
+            // 候选快照与任务可能由调用方同事务登记；只有提交成功后处理器才能安全读取它们。
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    schedule(jobId, handler);
+                }
+            });
+            return;
+        }
+        schedule(jobId, handler);
+    }
+
+    private void schedule(UUID jobId, JobHandler handler) {
+        try {
+            executor.execute(() -> execute(jobId, handler));
         } catch (RejectedExecutionException exception) {
             failRejected(jobId);
         }
-        return jobId;
     }
 
     private void validateRequest(JobRequest request) {
@@ -171,7 +213,9 @@ public class PersistentBackgroundJobService implements BackgroundJobService, Aut
             if (!repository.update(job, JobStatus.PENDING, timeProvider.now(), actorProvider.currentActor())) {
                 return;
             }
-            handler.execute(new ExecutionContext(jobId, job.snapshot().inputObjectKey()));
+            JobSnapshot snapshot = job.snapshot();
+            handler.execute(new ExecutionContext(
+                    jobId, snapshot.inputObjectKey(), snapshot.projectId(), snapshot.branchId(), snapshot.snapshotId()));
             finishSucceeded(jobId);
         } catch (Exception exception) {
             finishFailed(jobId, exception);
@@ -225,6 +269,15 @@ public class PersistentBackgroundJobService implements BackgroundJobService, Aut
         return Map.copyOf(indexed);
     }
 
+    private boolean causedByNamedConstraint(Throwable failure, String constraintName) {
+        for (Throwable current = failure; current != null; current = current.getCause()) {
+            if (current.getMessage() != null && current.getMessage().contains(constraintName)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private BlockingQueue<Runnable> workQueue(int capacity) {
         return capacity == 0 ? new SynchronousQueue<>() : new ArrayBlockingQueue<>(capacity);
     }
@@ -241,10 +294,18 @@ public class PersistentBackgroundJobService implements BackgroundJobService, Aut
     private final class ExecutionContext implements JobExecutionContext {
         private final UUID jobId;
         private final String inputObjectKey;
+        private final UUID projectId;
+        private final UUID branchId;
+        private final UUID snapshotId;
 
-        private ExecutionContext(UUID jobId, String inputObjectKey) {
+        private ExecutionContext(
+                UUID jobId, String inputObjectKey, UUID projectId, UUID branchId, UUID snapshotId
+        ) {
             this.jobId = jobId;
             this.inputObjectKey = inputObjectKey;
+            this.projectId = projectId;
+            this.branchId = branchId;
+            this.snapshotId = snapshotId;
         }
 
         @Override
@@ -255,6 +316,21 @@ public class PersistentBackgroundJobService implements BackgroundJobService, Aut
         @Override
         public String inputObjectKey() {
             return inputObjectKey;
+        }
+
+        @Override
+        public UUID projectId() {
+            return projectId;
+        }
+
+        @Override
+        public UUID branchId() {
+            return branchId;
+        }
+
+        @Override
+        public UUID snapshotId() {
+            return snapshotId;
         }
 
         @Override

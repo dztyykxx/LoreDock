@@ -219,8 +219,12 @@ class PersistentBackgroundJobServiceIT {
         assertThat(reused).isEqualTo(shared);
         assertThat(otherType).isNotEqualTo(shared);
         assertThat(defaultFirst).isNotEqualTo(defaultSecond).isNotEqualTo(shared);
+        // 固定测试时钟让三个 TYPE_A 的 createdAt 相同，此时仓储契约按 UUID 字符序稳定选择。
+        var stableFirst = java.util.stream.Stream.of(shared, defaultFirst, defaultSecond)
+                .min(java.util.Comparator.comparing(java.util.UUID::toString))
+                .orElseThrow();
         assertThat(service.findActiveByType("TYPE_A")).isPresent()
-                .get().extracting(JobSnapshot::id).isEqualTo(shared);
+                .get().extracting(JobSnapshot::id).isEqualTo(stableFirst);
         assertThat(persistedBeforeExecution).isTrue();
         assertThat(started.await(3, TimeUnit.SECONDS)).isTrue();
         release.countDown();

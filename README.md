@@ -8,7 +8,7 @@ LoreDock 用于把散落在公司 Wiki、项目文档、需求、PR、Commit、�
 
 ## 当前状态
 
-MVP 开发计划 T1“工程骨架与基础设施”、T2“认证、项目与分支管理”和 T3“知识文档完整生命周期”已完成。当前提供固定管理员/组内只读账号、独立 MCP Token 边界、项目与分支管理、三级范围知识文档、安全导入、发布/归档/替代和 PostgreSQL generation 索引重建。用户注册、用户表和账号管理后台不在 MVP 范围内。
+MVP 开发计划 T1“工程骨架与基础设施”、T2“认证、项目与分支管理”、T3“知识文档完整生命周期”和 T4“代码快照与 Lucene 检索”已完成。当前还提供按项目、分支和 Commit 导入的受限 ZIP 代码快照、generation 原子切换、路径/内容搜索及有限代码片段读取。用户注册、用户表和账号管理后台不在 MVP 范围内。
 
 ## 目标场景
 
@@ -82,7 +82,7 @@ MVP 计划通过 Streamable HTTP 暴露只读工具：
 
 技术选型仍以已确认的 OpenSpec 规格为准，调研文档中的建议不自动等同于最终实现。
 
-### T1–T3 冻结版本矩阵
+### T1–T4 冻结版本矩阵
 
 以下版本均为 2026-07-29 从官方发布源核验的 GA 版本。JDK 21 和 Node.js 24 安装在开发机，Maven 使用仓库 Wrapper；Docker 只承载 PostgreSQL/pgvector 等服务依赖。
 
@@ -92,7 +92,7 @@ MVP 计划通过 Streamable HTTP 暴露只读工具：
 | Maven | 3.9.12 | Maven Wrapper |
 | Spring Boot | 4.1.0 | `backend/pom.xml` Parent |
 | Spring AI BOM | 2.0.0 | `backend/pom.xml` |
-| Apache Lucene | 10.5.0 | `backend/pom.xml` 属性，T1 不加载运行时 |
+| Apache Lucene | 10.5.0 | `backend/pom.xml` 属性；T4 使用 core、analysis-common、highlighter 最小模块 |
 | Flyway | 13.0.0 | `backend/pom.xml` 属性 |
 | Testcontainers | 2.0.5 | `backend/pom.xml` BOM |
 | MyBatis-Plus | 3.5.16 | `backend/pom.xml`，使用 Spring Boot 4 Starter |
@@ -204,7 +204,7 @@ PATH=/opt/homebrew/opt/node@24/bin:$PATH npm audit --audit-level=high
 - 管理员项目管理：`/api/admin/projects/**`；
 - MCP 认证边界：`/mcp/**`，使用 `Authorization: Bearer <token>`。T2 仅实现前置校验，尚未提供 MCP 工具。
 
-前端是电脑浏览器页面，通过 Vite 同站代理访问 `/api`。项目、分支、知识文档、生命周期状态和身份始终使用真实 API；快照与 Commit 等 T4 数据尚未接入。
+前端是电脑浏览器页面，通过 Vite 同站代理访问 `/api`。项目、分支、知识文档、生命周期状态和身份始终使用真实 API；T4 已提供后端代码快照接口，完整管理页面仍属于 T12。
 
 ### T3 知识文档入口与运行边界
 
@@ -217,6 +217,16 @@ PATH=/opt/homebrew/opt/node@24/bin:$PATH npm audit --audit-level=high
 
 重建在一个 PostgreSQL `REPEATABLE READ` 快照中构建新 generation，验证后原子切换 `ACTIVE`。失败会保留上一个成功 generation 供浏览；归档和范围变更还会在读取时做实时资格复核。single-flight 只保证 MVP 单 JVM 部署，多实例部署前必须增加分布式互斥。
 
+### T4 代码快照入口与运行边界
+
+- 管理员上传与查询：`POST /api/admin/code-snapshots`、`GET /api/admin/code-snapshots`、`GET /api/admin/code-snapshot-jobs/{jobId}`；
+- 管理员重建活动快照：`POST /api/admin/code-snapshots/{snapshotId}/reindex`；
+- 已登录成员活动状态、检索和片段：`GET /api/projects/{identifier}/code-snapshot`、`GET /api/projects/{identifier}/code-search`、`GET /api/projects/{identifier}/code-snippets`。
+
+上传只接受与扩展名、MIME 和魔数一致的 ZIP，默认外层上限 100 MiB。后台先校验完整中央目录，再逐文件流入 Lucene，不按 ZIP 条目名落盘；默认最多 50000 个条目、单个结构性展开 100 MiB、累计声明展开 1 GiB、压缩比 100:1，且只索引不超过 2 MiB 的完整严格 UTF-8 文本。`.git`、依赖/构建/缓存目录、环境文件、证书、私钥、明显密钥名、二进制和非法 UTF-8 文件不会进入索引，也不能通过片段接口旁路读取。
+
+Lucene 目录先写入 `<generation>.building`，关闭并重开验证后才原子发布为 UUID 目录；数据库随后在短事务中切换活动快照和 generation。失败保留旧活动入口。工作目录与索引目录由 `LOREDOCK_CODE_SNAPSHOT_WORK_ROOT`、`LOREDOCK_CODE_SNAPSHOT_INDEX_ROOT` 控制，二者不得重叠，也不得由请求指定。
+
 ## 数据迁移、备份与故障排查
 
 - Flyway 是表结构变更的唯一入口。不得修改已经执行的 `V*__*.sql`；需要变更时追加新迁移。checksum 不匹配时应恢复历史迁移原文并新增迁移，不要直接执行 `repair` 掩盖差异。
@@ -226,11 +236,13 @@ PATH=/opt/homebrew/opt/node@24/bin:$PATH npm audit --audit-level=high
 - 页面登录成功但刷新后失效时，先确认前后端使用同站代理，生产 HTTPS 环境已开启 Secure Cookie，且期间后端进程没有重启。
 - 上传被 413 拒绝时，同时核对反向代理、Spring multipart 和 `LOREDOCK_KNOWLEDGE_IMPORT_*` 业务配额；以最小的一层为实际上限。
 - 重新索引失败时，依据任务 ID 查看脱敏摘要；不要手工修改 generation 状态，普通浏览会继续使用上一个成功索引。
+- 代码搜索返回 503 时，先确认活动 generation 的 UUID 目录存在且进程可读；不要手工把 `.building` 重命名为活动目录。原始 ZIP 仍在对象存储时，应通过活动快照重建接口恢复。
+- 启动日志出现代码索引恢复清理告警时，记录 generation UUID 并检查索引根权限与磁盘空间；单个孤儿清理失败不会替换活动索引，可在解除占用后重启幂等重试。
 - 默认 profile 使用便于本地调试的文本控制台日志；生产环境以 `--spring.profiles.active=prod` 启动后启用 Logstash JSON，供日志采集系统解析。
-- 数据库备份可执行 `docker compose exec -T database pg_dump -U loredock -d loredock -Fc > loredock.dump`；原始导入文件位于 `LOREDOCK_STORAGE_ROOT`（默认 `data/objects`），是与导入批次证据对应的受控对象，不是可单独重建的缓存。恢复时数据库备份和对象目录必须来自同一静默写入窗口，避免元数据与文件不一致。
+- 数据库备份可执行 `docker compose exec -T database pg_dump -U loredock -d loredock -Fc > loredock.dump`；原始导入文件和代码 ZIP 位于 `LOREDOCK_STORAGE_ROOT`（默认 `data/objects`），必须与数据库来自同一静默写入窗口。`LOREDOCK_CODE_SNAPSHOT_INDEX_ROOT` 是可由原始 ZIP 重建的派生数据：需要恢复后立即查询时一并备份，否则恢复数据库与对象后逐个重建活动快照。`LOREDOCK_CODE_SNAPSHOT_WORK_ROOT` 是临时目录，不应备份。
 - T1 后台任务是单实例、进程内有界执行器，不提供分布式调度或自动重放。重启只会把失去心跳的 `RUNNING` 任务终结为 `FAILED/PROCESS_INTERRUPTED`。
 
-更完整的包结构、数据模型和运行约定见 [T1 工程与基础设施架构](docs/architecture/T1工程与基础设施.md)。
+更完整的运行约定见 [T1 工程与基础设施架构](docs/architecture/T1工程与基础设施.md) 与 [T4 代码快照与 Lucene 检索](docs/architecture/T4代码快照与Lucene检索.md)。
 
 ## 开发方式
 

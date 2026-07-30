@@ -62,6 +62,12 @@ class FlywayMigrationIT {
             assertThat(queryBoolean(connection,
                     "select to_regclass('foundation.knowledge_index_generation') is not null"))
                     .isTrue();
+            assertThat(queryBoolean(connection,
+                    "select to_regclass('foundation.code_snapshot') is not null"))
+                    .isTrue();
+            assertThat(queryBoolean(connection,
+                    "select to_regclass('foundation.code_index_generation') is not null"))
+                    .isTrue();
             assertThat(queryBoolean(connection, """
                     select exists(
                         select 1 from pg_constraint
@@ -135,14 +141,16 @@ class FlywayMigrationIT {
         }
 
         Flyway upgraded = migrationFor(schema);
-        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(2);
-        assertThat(migrationHistoryCount(schema)).isEqualTo(versionOneHistoryCount + 2);
+        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(3);
+        assertThat(migrationHistoryCount(schema)).isEqualTo(versionOneHistoryCount + 3);
         try (Connection connection = connection()) {
             assertThat(queryBoolean(connection, "select to_regclass('" + schema + ".project_space') is not null"))
                     .isTrue();
             assertThat(queryBoolean(connection, "select to_regclass('" + schema + ".project_branch') is not null"))
                     .isTrue();
             assertThat(queryBoolean(connection, "select to_regclass('" + schema + ".knowledge_document') is not null"))
+                    .isTrue();
+            assertThat(queryBoolean(connection, "select to_regclass('" + schema + ".code_snapshot') is not null"))
                     .isTrue();
         }
     }
@@ -164,12 +172,13 @@ class FlywayMigrationIT {
         int versionTwoHistoryCount = migrationHistoryCount(schema);
 
         Flyway upgraded = migrationFor(schema);
-        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(1);
-        assertThat(migrationHistoryCount(schema)).isEqualTo(versionTwoHistoryCount + 1);
+        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(2);
+        assertThat(migrationHistoryCount(schema)).isEqualTo(versionTwoHistoryCount + 2);
         try (Connection connection = connection()) {
             for (String table : new String[]{
                     "knowledge_document", "knowledge_document_tag", "knowledge_import_batch",
-                    "knowledge_import_item", "knowledge_index_generation", "knowledge_index_document"}) {
+                    "knowledge_import_item", "knowledge_index_generation", "knowledge_index_document",
+                    "code_snapshot", "code_index_generation"}) {
                 assertThat(queryBoolean(connection,
                         "select to_regclass('" + schema + "." + table + "') is not null"))
                         .as(table)

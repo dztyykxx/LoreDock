@@ -4,6 +4,8 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import io.github.loredock.job.infrastructure.persistence.BackgroundJobEntity;
+import io.github.loredock.code.infrastructure.persistence.CodeIndexGenerationEntity;
+import io.github.loredock.code.infrastructure.persistence.CodeSnapshotEntity;
 import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeDocumentEntity;
 import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeDocumentTagEntity;
 import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeImportBatchEntity;
@@ -33,6 +35,8 @@ class PersistenceMappingContractTest {
     void persistenceEntitiesDeclareExplicitTableIdAndFieldMappings() {
         assertExplicitMapping(StoredObjectEntity.class, "stored_object");
         assertExplicitMapping(BackgroundJobEntity.class, "background_job");
+        assertExplicitMapping(CodeSnapshotEntity.class, "code_snapshot");
+        assertExplicitMapping(CodeIndexGenerationEntity.class, "code_index_generation");
         assertExplicitMapping(ProjectSpaceEntity.class, "project_space");
         assertExplicitMapping(ProjectBranchEntity.class, "project_branch");
         assertExplicitMapping(KnowledgeDocumentEntity.class, "knowledge_document");

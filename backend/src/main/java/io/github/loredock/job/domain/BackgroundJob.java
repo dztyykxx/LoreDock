@@ -12,6 +12,9 @@ public final class BackgroundJob {
     private final UUID id;
     private final String type;
     private final String inputObjectKey;
+    private final UUID projectId;
+    private final UUID branchId;
+    private final UUID snapshotId;
     private JobStatus status;
     private int progress;
     private Instant startedAt;
@@ -25,6 +28,9 @@ public final class BackgroundJob {
         this.id = snapshot.id();
         this.type = snapshot.type();
         this.inputObjectKey = snapshot.inputObjectKey();
+        this.projectId = snapshot.projectId();
+        this.branchId = snapshot.branchId();
+        this.snapshotId = snapshot.snapshotId();
         this.status = snapshot.status();
         this.progress = snapshot.progress();
         this.startedAt = snapshot.startedAt();
@@ -45,13 +51,38 @@ public final class BackgroundJob {
      * @return 待执行任务
      */
     public static BackgroundJob pending(UUID id, String type, String inputObjectKey, Instant createdAt) {
+        return pending(id, type, inputObjectKey, null, null, null, createdAt);
+    }
+
+    /**
+     * 创建带项目、分支和快照范围的 PENDING 任务；范围会随状态快照持久化并传给处理器。
+     *
+     * @param id 新任务 ID
+     * @param type 已注册任务类型
+     * @param inputObjectKey 可选输入对象键
+     * @param projectId 可选项目 UUID
+     * @param branchId 可选分支 UUID
+     * @param snapshotId 可选代码快照 UUID
+     * @param createdAt 创建 UTC 时刻
+     * @return 待执行任务
+     */
+    public static BackgroundJob pending(
+            UUID id,
+            String type,
+            String inputObjectKey,
+            UUID projectId,
+            UUID branchId,
+            UUID snapshotId,
+            Instant createdAt
+    ) {
         Objects.requireNonNull(createdAt, "任务创建时间不能为空");
         if (type == null || type.isBlank() || type.length() > 64) {
             throw invalid("任务类型长度必须在 1 到 64 之间");
         }
         return new BackgroundJob(new JobSnapshot(
                 Objects.requireNonNull(id, "任务 ID 不能为空"), type, JobStatus.PENDING, 0,
-                inputObjectKey, null, null, null, null, null, null
+                inputObjectKey, projectId, branchId, snapshotId,
+                null, null, null, null, null, null
         ));
     }
 
@@ -152,7 +183,8 @@ public final class BackgroundJob {
      */
     public JobSnapshot snapshot() {
         return new JobSnapshot(
-                id, type, status, progress, inputObjectKey, startedAt, finishedAt,
+                id, type, status, progress, inputObjectKey, projectId, branchId, snapshotId,
+                startedAt, finishedAt,
                 heartbeatAt, ownerInstance, errorCode, errorMessage
         );
     }

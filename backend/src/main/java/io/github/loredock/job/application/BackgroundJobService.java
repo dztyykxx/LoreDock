@@ -27,6 +27,15 @@ public interface BackgroundJobService {
     UUID submitSingleFlight(JobRequest request);
 
     /**
+     * 以数据库部分唯一约束提交同分支排他任务。该操作不复用既有任务，冲突稳定映射为
+     * {@code CODE_SNAPSHOT_JOB_ACTIVE}；项目、分支和快照范围都必须提供。
+     *
+     * @param request 带完整代码范围的构建或重建命令
+     * @return 新任务 ID
+     */
+    UUID submitExclusiveByBranch(JobRequest request);
+
+    /**
      * @param jobId 任务 ID
      * @return 当前任务快照，不存在时为空
      */

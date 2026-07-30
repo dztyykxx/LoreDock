@@ -13,6 +13,21 @@ public interface JobExecutionContext {
     /** @return 可选输入对象键。 */
     String inputObjectKey();
 
+    /** @return 可选项目范围；无范围的既有任务返回 null。 */
+    default UUID projectId() {
+        return null;
+    }
+
+    /** @return 可选分支范围；无范围的既有任务返回 null。 */
+    default UUID branchId() {
+        return null;
+    }
+
+    /** @return 可选代码快照范围；无范围的既有任务返回 null。 */
+    default UUID snapshotId() {
+        return null;
+    }
+
     /**
      * 单调更新 0 到 99 的执行进度；成功终结时由平台写入 100。
      *

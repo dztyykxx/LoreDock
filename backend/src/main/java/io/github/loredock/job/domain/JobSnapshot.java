@@ -11,6 +11,9 @@ import java.util.UUID;
  * @param status 当前状态
  * @param progress 0 到 100 的单调进度
  * @param inputObjectKey 可选输入对象键
+ * @param projectId 可选项目范围
+ * @param branchId 可选分支范围
+ * @param snapshotId 可选代码快照范围
  * @param startedAt 开始 UTC 时刻
  * @param finishedAt 完成 UTC 时刻
  * @param heartbeatAt 最近心跳 UTC 时刻
@@ -24,6 +27,9 @@ public record JobSnapshot(
         JobStatus status,
         int progress,
         String inputObjectKey,
+        UUID projectId,
+        UUID branchId,
+        UUID snapshotId,
         Instant startedAt,
         Instant finishedAt,
         Instant heartbeatAt,
@@ -31,4 +37,21 @@ public record JobSnapshot(
         String errorCode,
         String errorMessage
 ) {
+    /** 保留 T1 无范围任务的恢复与测试构造方式。 */
+    public JobSnapshot(
+            UUID id,
+            String type,
+            JobStatus status,
+            int progress,
+            String inputObjectKey,
+            Instant startedAt,
+            Instant finishedAt,
+            Instant heartbeatAt,
+            String ownerInstance,
+            String errorCode,
+            String errorMessage
+    ) {
+        this(id, type, status, progress, inputObjectKey, null, null, null,
+                startedAt, finishedAt, heartbeatAt, ownerInstance, errorCode, errorMessage);
+    }
 }

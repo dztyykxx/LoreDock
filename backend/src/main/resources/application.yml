@@ -3,9 +3,9 @@ spring:
     name: loredock
   servlet:
     multipart:
-      max-file-size: ${LOREDOCK_KNOWLEDGE_IMPORT_MAX_UPLOAD_SIZE:20MB}
+      max-file-size: ${LOREDOCK_MULTIPART_MAX_FILE_SIZE:100MB}
       # multipart 还包含 JSON options 和边界字节，请求上限需略高于文件上限。
-      max-request-size: ${LOREDOCK_KNOWLEDGE_IMPORT_MAX_REQUEST_SIZE:21MB}
+      max-request-size: ${LOREDOCK_MULTIPART_MAX_REQUEST_SIZE:101MB}
   datasource:
     url: ${LOREDOCK_DB_URL:jdbc:postgresql://localhost:5432/loredock}
     username: ${LOREDOCK_DB_USER:loredock}
@@ -77,6 +77,17 @@ loredock:
       token-sha256: ${LOREDOCK_MCP_TOKEN_SHA256:}
   storage:
     root: ${LOREDOCK_STORAGE_ROOT:./data/objects}
+  code:
+    snapshot:
+      max-upload-size: ${LOREDOCK_CODE_SNAPSHOT_MAX_UPLOAD_SIZE:100MB}
+      max-archive-entries: ${LOREDOCK_CODE_SNAPSHOT_MAX_ARCHIVE_ENTRIES:50000}
+      max-archive-entry-uncompressed-size: ${LOREDOCK_CODE_SNAPSHOT_MAX_ARCHIVE_ENTRY_UNCOMPRESSED_SIZE:100MB}
+      max-indexed-file-size: ${LOREDOCK_CODE_SNAPSHOT_MAX_INDEXED_FILE_SIZE:2MB}
+      max-archive-uncompressed-size: ${LOREDOCK_CODE_SNAPSHOT_MAX_ARCHIVE_UNCOMPRESSED_SIZE:1GB}
+      max-compression-ratio: ${LOREDOCK_CODE_SNAPSHOT_MAX_COMPRESSION_RATIO:100}
+      max-search-snippet-chars: ${LOREDOCK_CODE_SNAPSHOT_MAX_SEARCH_SNIPPET_CHARS:2000}
+      work-root: ${LOREDOCK_CODE_SNAPSHOT_WORK_ROOT:./data/work/code}
+      index-root: ${LOREDOCK_CODE_SNAPSHOT_INDEX_ROOT:./data/indexes/code}
   knowledge:
     importing:
       max-upload-size: ${LOREDOCK_KNOWLEDGE_IMPORT_MAX_UPLOAD_SIZE:20MB}
