@@ -7,11 +7,11 @@
 
 ## 2. V5 持久化、分块与关键词数据
 
-- [ ] 2.1 为 V5 编写带中文业务目的注释的失败真实 PostgreSQL 迁移测试，覆盖 V1→V5、V4→V5、空库/重复迁移、generation 一对一、分块复合键/FK、三类范围、offset/计数、512 维、标签/全文索引和旧 ACTIVE 无搜索元数据时浏览仍可用。
-- [ ] 2.2 追加 `V5__create_knowledge_search_tables.sql` 及 `knowledge_search_generation`、`knowledge_search_chunk` 的独立 Lombok 持久化实体与显式 MyBatis-Plus 映射，使 2.1 通过；不得修改 V1～V4、自动建表、使用 H2、Spring AI 默认 vector_store 或 XML Mapper。
-- [ ] 2.3 为 `cjk-v1` 确定性分块和 CJK 文本分析编写带中文业务目的注释的失败单元测试，覆盖 Markdown 标题/段落边界、400 code point 上限、80 重叠、Unicode 安全 offset、空正文、标题/标签/正文词项权重、英文缩写、单字和特殊字符不解释为查询语法。
-- [ ] 2.4 实现最小 `DeterministicKnowledgeChunker` 与 `CjkKnowledgeTextAnalyzer` 使 2.3 通过；复用已有 Lucene CJK 分析能力，不执行 Markdown/HTML/指令，并用中文注释解释分块可追溯性、短查询受范围限制回退和同一分析器处理索引/查询的原因。
-- [ ] 2.5 为分块批量写入和检索元数据仓储编写带中文业务目的注释的失败 PostgreSQL 测试，覆盖 TSVector A/B/C 权重、安全参数绑定、vector 维度/NaN/Infinity 拒绝、标签数组、模型/分块/融合版本和文档/分块计数往返；实现 Mapper 注解 SQL 与仓储使测试通过。
+- [x] 2.1 为 V5 编写带中文业务目的注释的失败真实 PostgreSQL 迁移测试，覆盖 V1→V5、V4→V5、空库/重复迁移、generation 一对一、分块复合键/FK、三类范围、offset/计数、512 维、标签/全文索引和旧 ACTIVE 无搜索元数据时浏览仍可用。
+- [x] 2.2 追加 `V5__create_knowledge_search_tables.sql` 及 `knowledge_search_generation`、`knowledge_search_chunk` 的独立 Lombok 持久化实体与显式 MyBatis-Plus 映射，使 2.1 通过；不得修改 V1～V4、自动建表、使用 H2、Spring AI 默认 vector_store 或 XML Mapper。
+- [x] 2.3 为 `cjk-v1` 确定性分块和 CJK 文本分析编写带中文业务目的注释的失败单元测试，覆盖 Markdown 标题/段落边界、400 code point 上限、80 重叠、Unicode 安全 offset、空正文、标题/标签/正文词项权重、英文缩写、单字和特殊字符不解释为查询语法。
+- [x] 2.4 实现最小 `DeterministicKnowledgeChunker` 与 `CjkKnowledgeTextAnalyzer` 使 2.3 通过；复用已有 Lucene CJK 分析能力，不执行 Markdown/HTML/指令，并用中文注释解释分块可追溯性、短查询受范围限制回退和同一分析器处理索引/查询的原因。
+- [x] 2.5 为分块批量写入和检索元数据仓储编写带中文业务目的注释的失败 PostgreSQL 测试，覆盖 TSVector A/B/C 权重、安全参数绑定、vector 维度/NaN/Infinity 拒绝、标签数组、模型/分块/融合版本和文档/分块计数往返；实现 Mapper 注解 SQL 与仓储使测试通过。
 
 ## 3. 分阶段重建与失败回退
 

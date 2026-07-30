@@ -68,6 +68,12 @@ class FlywayMigrationIT {
             assertThat(queryBoolean(connection,
                     "select to_regclass('foundation.code_index_generation') is not null"))
                     .isTrue();
+            assertThat(queryBoolean(connection,
+                    "select to_regclass('foundation.knowledge_search_generation') is not null"))
+                    .isTrue();
+            assertThat(queryBoolean(connection,
+                    "select to_regclass('foundation.knowledge_search_chunk') is not null"))
+                    .isTrue();
             assertThat(queryBoolean(connection, """
                     select exists(
                         select 1 from pg_constraint
@@ -118,10 +124,10 @@ class FlywayMigrationIT {
     }
 
     /**
-     * 业务目的：已有 T1 数据库必须只追加升级到 T2 项目结构，防止修改 V1 或要求部署时重建基础表。
+     * 业务目的：已有 T1 数据库必须只追加升级到当前结构，防止修改 V1 或要求部署时重建基础表。
      */
     @Test
-    void versionOneDatabaseUpgradesInPlaceToProjectSchema() throws Exception {
+    void versionOneDatabaseUpgradesInPlaceToCurrentSchema() throws Exception {
         String schema = "upgrade_from_v1";
         Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
@@ -141,8 +147,8 @@ class FlywayMigrationIT {
         }
 
         Flyway upgraded = migrationFor(schema);
-        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(3);
-        assertThat(migrationHistoryCount(schema)).isEqualTo(versionOneHistoryCount + 3);
+        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(4);
+        assertThat(migrationHistoryCount(schema)).isEqualTo(versionOneHistoryCount + 4);
         try (Connection connection = connection()) {
             assertThat(queryBoolean(connection, "select to_regclass('" + schema + ".project_space') is not null"))
                     .isTrue();
@@ -152,14 +158,17 @@ class FlywayMigrationIT {
                     .isTrue();
             assertThat(queryBoolean(connection, "select to_regclass('" + schema + ".code_snapshot') is not null"))
                     .isTrue();
+            assertThat(queryBoolean(connection,
+                    "select to_regclass('" + schema + ".knowledge_search_generation') is not null"))
+                    .isTrue();
         }
     }
 
     /**
-     * 业务目的：已有 T2 数据库必须只追加一次 V3 知识结构，防止要求重建项目、分支或基础任务数据。
+     * 业务目的：已有 T2 数据库必须逐版追加到当前结构，防止要求重建项目、分支或基础任务数据。
      */
     @Test
-    void versionTwoDatabaseUpgradesInPlaceToKnowledgeSchema() throws Exception {
+    void versionTwoDatabaseUpgradesInPlaceToCurrentSchema() throws Exception {
         String schema = "upgrade_from_v2";
         Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
@@ -172,13 +181,14 @@ class FlywayMigrationIT {
         int versionTwoHistoryCount = migrationHistoryCount(schema);
 
         Flyway upgraded = migrationFor(schema);
-        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(2);
-        assertThat(migrationHistoryCount(schema)).isEqualTo(versionTwoHistoryCount + 2);
+        assertThat(upgraded.migrate().migrationsExecuted).isEqualTo(3);
+        assertThat(migrationHistoryCount(schema)).isEqualTo(versionTwoHistoryCount + 3);
         try (Connection connection = connection()) {
             for (String table : new String[]{
                     "knowledge_document", "knowledge_document_tag", "knowledge_import_batch",
                     "knowledge_import_item", "knowledge_index_generation", "knowledge_index_document",
-                    "code_snapshot", "code_index_generation"}) {
+                    "code_snapshot", "code_index_generation",
+                    "knowledge_search_generation", "knowledge_search_chunk"}) {
                 assertThat(queryBoolean(connection,
                         "select to_regclass('" + schema + "." + table + "') is not null"))
                         .as(table)

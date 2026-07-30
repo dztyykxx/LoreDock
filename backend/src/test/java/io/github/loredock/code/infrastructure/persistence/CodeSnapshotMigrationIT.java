@@ -32,7 +32,7 @@ class CodeSnapshotMigrationIT {
      */
     @Test
     void emptyAndVersionThreeDatabasesMigrateOnceToCodeSnapshotSchema() throws Exception {
-        Flyway empty = migrationFor("code_empty");
+        Flyway empty = migrationFor("code_empty", "4");
         assertThat(empty.migrate().migrationsExecuted).isEqualTo(4);
         assertThat(empty.migrate().migrationsExecuted).isZero();
 
@@ -45,7 +45,7 @@ class CodeSnapshotMigrationIT {
                 .target(MigrationVersion.fromVersion("3"))
                 .load()
                 .migrate();
-        assertThat(migrationFor(upgradeSchema).migrate().migrationsExecuted).isEqualTo(1);
+        assertThat(migrationFor(upgradeSchema, "4").migrate().migrationsExecuted).isEqualTo(1);
 
         try (Connection connection = connection()) {
             assertThat(exists(connection, "code_empty", "code_snapshot")).isTrue();
@@ -151,6 +151,16 @@ class CodeSnapshotMigrationIT {
                 .schemas(schema)
                 .defaultSchema(schema)
                 .locations("classpath:db/migration")
+                .load();
+    }
+
+    private Flyway migrationFor(String schema, String targetVersion) {
+        return Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .schemas(schema)
+                .defaultSchema(schema)
+                .locations("classpath:db/migration")
+                .target(MigrationVersion.fromVersion(targetVersion))
                 .load();
     }
 

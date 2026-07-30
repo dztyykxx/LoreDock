@@ -12,6 +12,8 @@ import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeImportBa
 import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeImportItemEntity;
 import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeIndexDocumentEntity;
 import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeIndexGenerationEntity;
+import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeSearchChunkEntity;
+import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeSearchGenerationEntity;
 import io.github.loredock.project.infrastructure.persistence.ProjectBranchEntity;
 import io.github.loredock.project.infrastructure.persistence.ProjectSpaceEntity;
 import io.github.loredock.storage.infrastructure.persistence.StoredObjectEntity;
@@ -45,6 +47,9 @@ class PersistenceMappingContractTest {
         assertExplicitMapping(KnowledgeImportItemEntity.class, "knowledge_import_item");
         assertExplicitMapping(KnowledgeIndexGenerationEntity.class, "knowledge_index_generation");
         assertExplicitMapping(KnowledgeIndexDocumentEntity.class, "knowledge_index_document");
+        assertExplicitMapping(KnowledgeSearchGenerationEntity.class, "knowledge_search_generation");
+        assertExplicitMapping(KnowledgeSearchChunkEntity.class, "knowledge_search_chunk");
+        System.out.println("测试证据：场景=持久化显式映射，知识检索实体数=2，全部字段均声明表列映射");
     }
 
     /**
