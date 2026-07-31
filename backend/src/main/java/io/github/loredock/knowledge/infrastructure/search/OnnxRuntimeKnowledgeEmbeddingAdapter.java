@@ -168,10 +168,11 @@ public final class OnnxRuntimeKnowledgeEmbeddingAdapter implements KnowledgeEmbe
 
     private RuntimeState initialize() {
         long startedAt = System.nanoTime();
-        validateConfiguration();
         HuggingFaceTokenizer tokenizer = null;
         OrtSession session = null;
         try {
+            // 配置缺失与模型文件不可用属于同一个基础设施边界，必须统一暴露稳定业务错误码。
+            validateConfiguration();
             Resource modelResource = localResource(properties.getModelUri());
             Resource tokenizerResource = localResource(properties.getTokenizerUri());
             byte[] modelBytes = readBytes(modelResource);

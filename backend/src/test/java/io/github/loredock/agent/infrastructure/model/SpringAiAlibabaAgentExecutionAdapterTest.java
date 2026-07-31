@@ -13,6 +13,7 @@ import io.github.loredock.agent.application.ProjectQaToolRegistry;
 import io.github.loredock.agent.domain.AgentErrorCode;
 import io.github.loredock.agent.domain.AgentEvidence;
 import io.github.loredock.agent.domain.AgentResultType;
+import io.github.loredock.agent.domain.AgentRefusalReason;
 import io.github.loredock.agent.domain.AgentScopeSnapshot;
 import io.github.loredock.agent.domain.AgentVersionSnapshot;
 import io.github.loredock.agent.domain.AnswerBasis;
@@ -115,6 +116,30 @@ class SpringAiAlibabaAgentExecutionAdapterTest {
     }
 
     /**
+     * 业务目的：兼容模型把合法 JSON 放进代码块或附带简短说明的常见输出，避免有证据的回答被误判为运行失败。
+     */
+    @Test
+    void acceptsJsonObjectWrappedByMarkdownFence() {
+        ScriptedChatModel model = new ScriptedChatModel(List.of(answer("""
+                以下是结果：
+                ```json
+                {"resultType":"REFUSAL","answerBasis":null,"text":"当前知识库没有足够依据",
+                 "citations":[],"refusalReason":"INSUFFICIENT_EVIDENCE","sourceConflict":false}
+                ```
+                """)), Duration.ZERO, false);
+        SpringAiAlibabaAgentExecutionAdapter adapter = new SpringAiAlibabaAgentExecutionAdapter(
+                model, mock(ProjectQaToolRegistry.class));
+
+        AgentExecutionResult result = adapter.execute(
+                request(RUN_ID, "未知问题", limits(8, 8, 30)), (type, payload) -> { });
+
+        assertThat(result.modelResult().resultType()).isEqualTo(AgentResultType.REFUSAL);
+        assertThat(result.modelResult().basis()).isNull();
+        assertThat(result.modelResult().refusalReason()).isEqualTo(AgentRefusalReason.INSUFFICIENT_EVIDENCE);
+        System.out.println("测试证据：场景=模型JSON代码块兼容，结果=REFUSAL，解析失败=false");
+    }
+
+    /**
      * 业务目的：下一次模型调用或总步骤将突破服务端固定上限时必须停止，模型参数不能提高限制。
      */
     @Test
@@ -123,7 +148,7 @@ class SpringAiAlibabaAgentExecutionAdapterTest {
                 tool("knowledge_search", "{\"query\":\"loop\",\"limit\":1}"),
                 tool("knowledge_search", "{\"query\":\"loop\",\"limit\":1}")), Duration.ZERO, false);
         ProjectQaToolRegistry tools = mock(ProjectQaToolRegistry.class);
-        when(tools.execute(any(), any(), any())).thenReturn(new AgentToolResult("none", List.of(), 0, 0));
+        when(tools.execute(any(), any(), any())).thenReturn(toolResult(knowledgeEvidence(), "knowledge evidence"));
         SpringAiAlibabaAgentExecutionAdapter adapter = new SpringAiAlibabaAgentExecutionAdapter(model, tools);
 
         assertThatThrownBy(() -> adapter.execute(
@@ -136,6 +161,72 @@ class SpringAiAlibabaAgentExecutionAdapterTest {
                         });
         assertThat(model.calls()).isEqualTo(1);
         System.out.printf("测试证据：场景=模型调用硬上限，上限=1，实际调用=%d，第二次调用=false%n", model.calls());
+    }
+
+    /**
+     * 业务目的：允许检索已成功但始终没有合格证据时，运行必须形成明确拒答，防止模型循环被误报为系统故障。
+     */
+    @Test
+    void successfulEmptyRetrievalAtBudgetBoundaryBecomesInsufficientEvidenceRefusal() {
+        ScriptedChatModel model = new ScriptedChatModel(List.of(
+                tool("knowledge_search", "{\"query\":\"不存在的规则\",\"limit\":1}"),
+                tool("knowledge_search", "{\"query\":\"仍然不存在\",\"limit\":1}")), Duration.ZERO, false);
+        ProjectQaToolRegistry tools = mock(ProjectQaToolRegistry.class);
+        when(tools.execute(any(), any(), any())).thenReturn(new AgentToolResult("", List.of(), 0, 0));
+        SpringAiAlibabaAgentExecutionAdapter adapter = new SpringAiAlibabaAgentExecutionAdapter(model, tools);
+
+        AgentExecutionResult result = adapter.execute(
+                request(RUN_ID, "目前有哪些文档？", limits(8, 1, 30)), (type, payload) -> { });
+
+        assertThat(result.modelResult().resultType()).isEqualTo(AgentResultType.REFUSAL);
+        assertThat(result.modelResult().refusalReason()).isEqualTo(AgentRefusalReason.INSUFFICIENT_EVIDENCE);
+        assertThat(result.modelResult().text()).isEqualTo("当前知识库没有足够依据");
+        assertThat(result.evidence()).isEmpty();
+        assertThat(result.usage().modelCallCount()).isEqualTo(1);
+        assertThat(result.usage().stepCount()).isEqualTo(2);
+        System.out.printf("测试证据：场景=成功空检索收敛拒答，步骤=%d，模型调用=%d，证据=%d，原因=%s%n",
+                result.usage().stepCount(), result.usage().modelCallCount(), result.evidence().size(),
+                result.modelResult().refusalReason());
+    }
+
+    /**
+     * 业务目的：检索工具本身失败必须保留真实故障，防止用户被错误告知为知识库没有证据。
+     */
+    @Test
+    void toolFailureIsNotConvertedToInsufficientEvidence() {
+        ScriptedChatModel model = new ScriptedChatModel(List.of(
+                tool("knowledge_search", "{\"query\":\"规则\",\"limit\":1}")), Duration.ZERO, false);
+        ProjectQaToolRegistry tools = mock(ProjectQaToolRegistry.class);
+        when(tools.execute(any(), any(), any()))
+                .thenThrow(new AgentToolException(AgentErrorCode.AGENT_EVIDENCE_VERSION_CHANGED));
+        SpringAiAlibabaAgentExecutionAdapter adapter = new SpringAiAlibabaAgentExecutionAdapter(model, tools);
+
+        assertThatThrownBy(() -> adapter.execute(
+                request(RUN_ID, "规则是什么？", limits(8, 8, 30)), (type, payload) -> { }))
+                .isInstanceOfSatisfying(AgentExecutionException.class,
+                        error -> assertThat(error.code()).isEqualTo(AgentErrorCode.AGENT_EVIDENCE_VERSION_CHANGED));
+        System.out.println("测试证据：场景=检索故障不转拒答，错误=AGENT_EVIDENCE_VERSION_CHANGED");
+    }
+
+    /**
+     * 业务目的：未分类的检索基础设施异常必须形成安全内部错误，不能被后续编排覆盖为证据不足或运行上限。
+     */
+    @Test
+    void unexpectedToolInfrastructureFailureKeepsSafeInternalError() {
+        ScriptedChatModel model = new ScriptedChatModel(List.of(
+                tool("knowledge_search", "{\"query\":\"规则\",\"limit\":1}")), Duration.ZERO, false);
+        ProjectQaToolRegistry tools = mock(ProjectQaToolRegistry.class);
+        when(tools.execute(any(), any(), any())).thenThrow(new IllegalStateException("private endpoint detail"));
+        SpringAiAlibabaAgentExecutionAdapter adapter = new SpringAiAlibabaAgentExecutionAdapter(model, tools);
+
+        assertThatThrownBy(() -> adapter.execute(
+                request(RUN_ID, "规则是什么？", limits(8, 8, 30)), (type, payload) -> { }))
+                .isInstanceOfSatisfying(AgentExecutionException.class,
+                        error -> {
+                            assertThat(error.code()).isEqualTo(AgentErrorCode.AGENT_INTERNAL_ERROR);
+                            assertThat(error.getMessage()).doesNotContain("private endpoint detail");
+                        });
+        System.out.println("测试证据：场景=检索基础设施异常，公开错误=AGENT_INTERNAL_ERROR，内部详情泄漏=false");
     }
 
     /**

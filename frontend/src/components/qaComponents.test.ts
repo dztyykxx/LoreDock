@@ -20,6 +20,7 @@ function question(overrides: Partial<QaQuestion> = {}): QaQuestion {
     answerBasis: 'MIXED',
     refusalReason: null,
     errorCode: null,
+    failureMessage: null,
     resultText: '范围必须在检索前锁定。',
     stepCount: 3,
     modelCallCount: 1,
@@ -109,17 +110,31 @@ describe('project QA components', () => {
 
     const unavailable = mount(QaAnswerPanel, {
       props: {
-        snapshot: question({ status: 'FAILED', trustState: 'FAILED', resultType: null, answerBasis: null, resultText: null, errorCode: 'AGENT_MODEL_UNAVAILABLE' }),
+        snapshot: question({ status: 'FAILED', trustState: 'FAILED', resultType: null, answerBasis: null, resultText: null, errorCode: 'AGENT_MODEL_UNAVAILABLE', failureMessage: '问答模型暂时无法连接，请稍后使用新运行重试。' }),
         partialText: '未完成的部分回答',
         connectionState: 'interrupted',
       },
     })
     expect(unavailable.text()).toContain('模型暂时不可用')
+    expect(unavailable.text()).toContain('问答模型暂时无法连接，请稍后使用新运行重试。')
+    expect(unavailable.text()).toContain('AGENT_MODEL_UNAVAILABLE')
     expect(unavailable.text()).toContain('连接已中断')
+    expect(unavailable.text()).not.toContain('未完成的部分回答')
     expect(unavailable.text()).not.toContain('有可靠依据')
     expect(unavailable.get('[data-testid="browse-knowledge"]').attributes('href')).toBe('/projects/network-designer')
     await unavailable.get('[data-testid="retry-answer"]').trigger('click')
     expect(unavailable.emitted('retry')).toHaveLength(1)
+
+    const limited = mount(QaAnswerPanel, {
+      props: {
+        snapshot: question({ status: 'TERMINATED', trustState: 'FAILED', resultType: null, answerBasis: null, resultText: null, errorCode: 'AGENT_STEP_LIMIT_EXCEEDED', failureMessage: '本次检索已达到运行上限，尚未形成可信回答。请缩小问题范围或使用新运行重试。' }),
+        partialText: '不应展示的中间文本',
+        connectionState: 'idle',
+      },
+    })
+    expect(limited.text()).toContain('本次检索已达到运行上限，尚未形成可信回答')
+    expect(limited.text()).toContain('AGENT_STEP_LIMIT_EXCEEDED')
+    expect(limited.text()).not.toContain('不应展示的中间文本')
   })
 
   /**

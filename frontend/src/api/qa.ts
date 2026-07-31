@@ -77,6 +77,7 @@ export interface QaQuestion {
   answerBasis: QaAnswerBasis | null
   refusalReason: QaRefusalReason | null
   errorCode: QaErrorCode | null
+  failureMessage: string | null
   resultText: string | null
   stepCount: number
   modelCallCount: number

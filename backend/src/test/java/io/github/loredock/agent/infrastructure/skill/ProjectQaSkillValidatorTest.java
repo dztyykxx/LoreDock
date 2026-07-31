@@ -31,12 +31,12 @@ class ProjectQaSkillValidatorTest {
         ProjectQaSkillDefinition definition = validator.validate(markdown, schema);
 
         assertThat(definition.name()).isEqualTo("project_qa");
-        assertThat(definition.version()).isEqualTo("1.0.0");
+        assertThat(definition.version()).isEqualTo("1.0.1");
         assertThat(definition.maxSteps()).isEqualTo(8);
         assertThat(definition.markdown()).contains(
                 "knowledge_search", "code_search", "code_snippet_read",
                 "BUSINESS_RULE", "CURRENT_IMPLEMENTATION", "MIXED",
-                "当前知识库没有足够依据", "公开模拟验收示例");
+                "当前知识库没有足够依据", "无活动代码快照", "不得重复", "公开模拟验收示例");
         System.out.printf("测试证据：场景=Skill结构校验，名称=%s，版本=%s，最大步骤=%d，只读工具数=3%n",
                 definition.name(), definition.version(), definition.maxSteps());
     }

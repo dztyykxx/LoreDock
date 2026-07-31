@@ -2463,6 +2463,13 @@ a {
   margin: 18px 0 0 44px;
 }
 
+.qa-answer > .qa-answer__failure-code {
+  margin-top: 8px;
+  color: var(--muted);
+  font-family: "Geist Mono", monospace;
+  font-size: 11px;
+}
+
 .qa-answer__basis span {
   border-radius: 7px;
   padding: 6px 9px;

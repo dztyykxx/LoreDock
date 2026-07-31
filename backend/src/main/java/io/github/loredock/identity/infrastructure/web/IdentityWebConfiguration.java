@@ -1,9 +1,12 @@
 package io.github.loredock.identity.infrastructure.web;
 
-import cn.dev33.satoken.interceptor.SaInterceptor;
 import cn.dev33.satoken.stp.StpUtil;
 import io.github.loredock.identity.domain.WebRole;
+import jakarta.servlet.DispatcherType;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
@@ -18,13 +21,30 @@ public class IdentityWebConfiguration implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         // 先判定会话再判定角色，使未登录管理请求稳定返回 401，而已登录成员返回 403。
-        registry.addInterceptor(new SaInterceptor(handler -> StpUtil.checkLogin()).isAnnotation(false))
+        registry.addInterceptor(requestOnly(() -> StpUtil.checkLogin()))
                 .addPathPatterns("/api/**")
                 .excludePathPatterns("/api/auth/login", "/api/auth/logout", "/api/v1/system/status")
                 .order(0);
-        registry.addInterceptor(new SaInterceptor(handler -> StpUtil.checkRole(ADMIN_ROLE)).isAnnotation(false))
+        registry.addInterceptor(requestOnly(() -> StpUtil.checkRole(ADMIN_ROLE)))
                 .addPathPatterns("/api/admin/**")
                 .order(1);
+    }
+
+    private HandlerInterceptor requestOnly(Runnable authorization) {
+        return new HandlerInterceptor() {
+            @Override
+            public boolean preHandle(
+                    HttpServletRequest request,
+                    HttpServletResponse response,
+                    Object handler
+            ) {
+                // SSE 完成后的 ASYNC 重派发不再具有 Sa-Token ThreadLocal；认证已在首次 REQUEST 派发完成。
+                if (request.getDispatcherType() == DispatcherType.REQUEST) {
+                    authorization.run();
+                }
+                return true;
+            }
+        };
     }
 
 }

@@ -28,6 +28,7 @@ function snapshot(overrides: Partial<QaQuestion> = {}): QaQuestion {
     questionId: 'question-1', runId: 'run-1', createdAt: '2026-07-31T08:00:00Z',
     scope: { projectIdentifier: 'network-designer', branch: 'feature/import', commit: 'abc1234', codeSnapshotAvailable: true },
     status: 'COMPLETED', resultType: 'ANSWER', trustState: 'RELIABLE_ANSWER', answerBasis: 'BUSINESS_RULE', refusalReason: null, errorCode: null,
+    failureMessage: null,
     resultText: '服务端固定到运行创建时的范围。', stepCount: 2, modelCallCount: 1, lastEventSequence: 8,
     messages: [{ id: 'message-1', role: 'USER', content: '当前范围是什么？', resultType: null, refusalReason: null, createdAt: '2026-07-31T08:00:00Z' }],
     citations: [], ...overrides,

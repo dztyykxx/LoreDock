@@ -25,6 +25,7 @@ public record WebQaQuestionResponse(
         AnswerBasis answerBasis,
         AgentRefusalReason refusalReason,
         AgentErrorCode errorCode,
+        String failureMessage,
         String resultText,
         int stepCount,
         int modelCallCount,

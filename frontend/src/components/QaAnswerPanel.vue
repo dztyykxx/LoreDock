@@ -16,6 +16,9 @@
     <template v-else-if="snapshot.trustState === 'FAILED'">
       <h3>{{ failureTitle }}</h3>
       <p>{{ failureDescription }}</p>
+      <p v-if="snapshot.errorCode" data-testid="failure-code" class="qa-answer__failure-code">
+        诊断代码：{{ snapshot.errorCode }}
+      </p>
       <div class="qa-answer__actions">
         <button data-testid="retry-answer" type="button" @click="$emit('retry')">使用新运行重试</button>
         <a data-testid="browse-knowledge" :href="`/projects/${encodeURIComponent(snapshot.scope.projectIdentifier)}`">浏览已发布知识</a>
@@ -68,12 +71,8 @@ const phaseLabel = computed(() => ({
 
 const failureTitle = computed(() => props.snapshot.errorCode === 'AGENT_MODEL_UNAVAILABLE' ? '模型暂时不可用' : '本次问答未完成')
 const failureDescription = computed(() => (
-  ({
-    AGENT_MODEL_UNAVAILABLE: '问答模型当前无法连接，项目文档与现有知识仍可正常浏览。',
-    AGENT_RUNTIME_BUSY: '问答队列当前繁忙，请稍后使用新运行重试。',
-    AGENT_RUN_TIMEOUT: '本次运行超过时间限制，未完成内容不会作为可信回答。',
-  } as Record<string, string>)[props.snapshot.errorCode ?? '']
-  ?? `运行未形成可信结果（${props.snapshot.errorCode ?? 'UNKNOWN'}）。`
+  props.snapshot.failureMessage
+  ?? '本次运行未形成可信回答，请使用新运行重试。'
 ))
 
 const refusalDescription = computed(() => (

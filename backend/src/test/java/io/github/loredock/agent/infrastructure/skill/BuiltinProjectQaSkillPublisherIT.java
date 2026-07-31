@@ -95,8 +95,14 @@ class BuiltinProjectQaSkillPublisherIT {
     @Test
     void conflictingSameVersionFailsWhileRetiredVersionRemainsReadable() throws Exception {
         ProjectQaSkillDefinition builtin = builtinDefinition();
+        jdbcTemplate.update("delete from agent_skill_version");
+        jdbcTemplate.update("delete from stored_object");
+        String oldMarkdown = builtin.markdown().replaceFirst("version: 1\\.0\\.1", "version: 1.0.0");
+        publisher.publish(validator.validate(oldMarkdown, builtin.outputSchema()));
         var old = versions.findByNameAndVersion("project_qa", "1.0.0").orElseThrow();
         byte[] oldContent = contentStore.get(old.objectKey());
+
+        publisher.publishBuiltin();
         ProjectQaSkillDefinition conflict = new ProjectQaSkillDefinition(
                 builtin.name(), builtin.version(), builtin.outputSchemaVersion(), builtin.maxSteps(),
                 builtin.markdown() + "\n同版本非法改动\n", builtin.outputSchema());
@@ -105,15 +111,11 @@ class BuiltinProjectQaSkillPublisherIT {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("同版本内容冲突");
 
-        String nextMarkdown = builtin.markdown().replaceFirst("version: 1\\.0\\.0", "version: 1.1.0");
-        ProjectQaSkillDefinition next = validator.validate(nextMarkdown, builtin.outputSchema());
-        publisher.publish(next);
-
-        assertThat(catalog.findEnabled("project_qa").orElseThrow().version()).isEqualTo("1.1.0");
+        assertThat(catalog.findEnabled("project_qa").orElseThrow().version()).isEqualTo("1.0.1");
         assertThat(versions.findByNameAndVersion("project_qa", "1.0.0").orElseThrow().status())
                 .isEqualTo("RETIRED");
         assertThat(contentStore.get(old.objectKey())).isEqualTo(oldContent);
-        System.out.println("测试证据：场景=Skill版本固定，同版本冲突=拒绝，启用版本=1.1.0，旧版本=可读");
+        System.out.println("测试证据：场景=Skill版本固定，同版本冲突=拒绝，启用版本=1.0.1，旧版本1.0.0=可读");
     }
 
     /**

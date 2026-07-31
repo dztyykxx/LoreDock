@@ -19,7 +19,8 @@ final class WebQaHttpMapper {
                 new WebQaScopeResponse(
                         scope.projectIdentifier(), scope.branch(), scope.commit(), scope.hasCodeSnapshot()),
                 snapshot.question().createdAt(), run.status(), run.resultType(), snapshot.trustState(),
-                run.answerBasis(), run.refusalReason(), run.errorCode(), run.resultText(),
+                run.answerBasis(), run.refusalReason(), run.errorCode(),
+                WebQaFailureMessageMapper.from(run.status(), run.errorCode()), run.resultText(),
                 run.stepCount(), run.modelCallCount(), lastEventSequence,
                 snapshot.messages().stream().map(WebQaHttpMapper::toMessage).toList(),
                 run.citations().stream().map(WebQaHttpMapper::toCitation).toList());

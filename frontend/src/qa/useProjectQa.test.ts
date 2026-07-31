@@ -19,6 +19,7 @@ function question(overrides: Partial<QaQuestion> = {}): QaQuestion {
     answerBasis: 'BUSINESS_RULE',
     refusalReason: null,
     errorCode: null,
+    failureMessage: null,
     resultText: '范围锁定避免跨项目召回。',
     stepCount: 2,
     modelCallCount: 1,
@@ -118,6 +119,32 @@ describe('createProjectQaController', () => {
     expect(detail).toHaveBeenCalledWith('network-designer', 'question-1')
     expect(controller.current.value?.resultText).toBe('服务端终态正文')
     expect(streams[1].close).toHaveBeenCalledOnce()
+  })
+
+  /**
+   * 业务目的：运行终止后必须丢弃浏览器内存中的未校验文本并恢复服务端失败说明，防止把部分输出误认为回答。
+   */
+  it('clears partial text and restores the server failure message after termination', async () => {
+    const handlers: QaEventStreamHandlers[] = []
+    const terminal = question({ status: 'TERMINATED', resultType: null, trustState: 'FAILED', answerBasis: null, resultText: null, errorCode: 'AGENT_STEP_LIMIT_EXCEEDED', failureMessage: '本次检索已达到运行上限，尚未形成可信回答。', lastEventSequence: 2 })
+    const qa = api({
+      detail: vi.fn().mockResolvedValue(terminal),
+      openEventStream: vi.fn((_project, _questionId, _after, callbacks) => {
+        handlers.push(callbacks)
+        return { close: vi.fn() }
+      }),
+    })
+    const controller = createProjectQaController(qa, 'network-designer', () => 'main')
+
+    await controller.observe(question({ status: 'RUNNING', resultType: null, trustState: 'IN_PROGRESS', answerBasis: null, resultText: null, lastEventSequence: 0 }))
+    handlers[0].onEvent('answer.delta', { version: 'v1', sequence: 1, occurredAt: '2026-07-31T08:00:01Z', phase: 'COMPOSING', textDelta: '未校验内容' })
+    handlers[0].onEvent('run.terminated', { version: 'v1', sequence: 2, occurredAt: '2026-07-31T08:00:02Z', phase: 'TERMINATED', errorCode: 'AGENT_STEP_LIMIT_EXCEEDED' })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(controller.partialText.value).toBe('')
+    expect(controller.current.value?.failureMessage).toContain('运行上限')
+    console.info(`测试证据：场景=终态快照恢复，状态=${controller.current.value?.status}，部分文本长度=${controller.partialText.value.length}，错误=${controller.current.value?.errorCode}`)
   })
 
   /**
