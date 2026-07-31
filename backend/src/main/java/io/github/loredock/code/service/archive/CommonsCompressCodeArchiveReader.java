@@ -5,7 +5,7 @@ import io.github.loredock.code.exception.CodeSnapshotArchiveInvalidException;
 import io.github.loredock.code.exception.CodeSnapshotTooLargeException;
 import io.github.loredock.code.model.result.CodeArchiveEntry;
 import io.github.loredock.platform.web.ApplicationException;
-import io.github.loredock.storage.service.ObjectStorage;
+import io.github.loredock.storage.api.ObjectStorage;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;

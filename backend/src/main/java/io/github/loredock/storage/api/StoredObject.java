@@ -1,4 +1,4 @@
-package io.github.loredock.storage.model.result;
+package io.github.loredock.storage.api;
 
 import java.time.Instant;
 

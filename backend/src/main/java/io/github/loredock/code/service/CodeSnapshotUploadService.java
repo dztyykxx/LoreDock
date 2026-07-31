@@ -11,9 +11,9 @@ import io.github.loredock.code.model.result.CodeSnapshotRecord;
 import io.github.loredock.code.model.result.ValidatedCodeSnapshotUpload;
 import io.github.loredock.code.service.archive.CodeSnapshotUploadValidator;
 import io.github.loredock.code.service.storage.ObjectStorageCodeSnapshotCompensation;
-import io.github.loredock.storage.model.result.ObjectMetadata;
-import io.github.loredock.storage.model.result.StoredObject;
-import io.github.loredock.storage.service.ObjectStorage;
+import io.github.loredock.storage.api.ObjectMetadata;
+import io.github.loredock.storage.api.ObjectStorage;
+import io.github.loredock.storage.api.StoredObject;
 import org.springframework.stereotype.Service;
 
 /**

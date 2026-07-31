@@ -9,7 +9,7 @@ import io.github.loredock.knowledge.config.KnowledgeImportProperties;
 import io.github.loredock.knowledge.exception.KnowledgeImportArchiveInvalidException;
 import io.github.loredock.knowledge.model.enums.ImportItemReason;
 import io.github.loredock.knowledge.model.snapshot.ZipArchiveInspection;
-import io.github.loredock.storage.service.ObjectStorage;
+import io.github.loredock.storage.api.ObjectStorage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;

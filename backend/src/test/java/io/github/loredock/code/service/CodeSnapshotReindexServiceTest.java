@@ -17,7 +17,7 @@ import io.github.loredock.code.service.archive.CodeSnapshotUploadValidator;
 import io.github.loredock.code.service.storage.ObjectStorageCodeSnapshotCompensation;
 import io.github.loredock.job.model.enums.JobStatus;
 import io.github.loredock.platform.persistence.AuditMetadata;
-import io.github.loredock.storage.service.ObjectStorage;
+import io.github.loredock.storage.api.ObjectStorage;
 import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;

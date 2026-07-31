@@ -1,7 +1,4 @@
-package io.github.loredock.storage.service;
-
-import io.github.loredock.storage.model.result.ObjectMetadata;
-import io.github.loredock.storage.model.result.StoredObject;
+package io.github.loredock.storage.api;
 import java.io.InputStream;
 
 /**

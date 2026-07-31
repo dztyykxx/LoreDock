@@ -40,7 +40,7 @@
 ## 6. job / storage / auth 契约
 
 - [ ] 6.1 定义 `job.api.JobService`（提交/查询/取消）并迁移 code/knowledge 对 `PersistentBackgroundJobService` 的直接引用；`JobHandler`/`JobExecutionContext` 收敛为模块内部类型或任务注册方式。
-- [ ] 6.2 将 `ObjectStorage` 收口为 `storage.api` 契约（真实替换边界），迁移 code/knowledge 直接引用。
+- [x] 6.2 将 `ObjectStorage` 收口为 `storage.api` 契约（真实替换边界），迁移 code/knowledge 直接引用。
 - [ ] 6.3 定义 `auth.api` 最小会话/操作者契约，迁移 qa/feedback 对 `SessionService` 的直接引用；不创建空 api。
 - [ ] 6.4 运行受影响 HTTP、PostgreSQL 与架构测试，确认无循环依赖。
 

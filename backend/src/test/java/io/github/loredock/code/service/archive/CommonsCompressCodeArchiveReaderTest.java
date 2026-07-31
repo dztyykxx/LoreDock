@@ -8,7 +8,7 @@ import static org.mockito.Mockito.when;
 import io.github.loredock.code.config.CodeSnapshotProperties;
 import io.github.loredock.code.exception.CodeSnapshotArchiveInvalidException;
 import io.github.loredock.code.exception.CodeSnapshotTooLargeException;
-import io.github.loredock.storage.service.ObjectStorage;
+import io.github.loredock.storage.api.ObjectStorage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;

@@ -7,7 +7,7 @@ import io.github.loredock.knowledge.model.result.ZipArchiveReadResult;
 import io.github.loredock.knowledge.model.snapshot.ZipArchiveEntryContent;
 import io.github.loredock.knowledge.model.snapshot.ZipArchiveEntryInspection;
 import io.github.loredock.knowledge.model.snapshot.ZipArchiveInspection;
-import io.github.loredock.storage.service.ObjectStorage;
+import io.github.loredock.storage.api.ObjectStorage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigDecimal;
