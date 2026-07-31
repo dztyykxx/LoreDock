@@ -1,6 +1,4 @@
-package io.github.loredock.auth.model;
-
-import io.github.loredock.auth.model.enums.WebRole;
+package io.github.loredock.auth.api;
 
 /**
  * 已通过 Web 凭据校验的操作者摘要，不包含密码哈希或会话令牌。

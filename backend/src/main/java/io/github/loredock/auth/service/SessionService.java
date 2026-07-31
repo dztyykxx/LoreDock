@@ -2,8 +2,9 @@ package io.github.loredock.auth.service;
 
 import cn.dev33.satoken.exception.SaTokenContextException;
 import cn.dev33.satoken.stp.StpUtil;
+import io.github.loredock.auth.api.AuthService;
+import io.github.loredock.auth.api.AuthenticatedActor;
 import io.github.loredock.auth.exception.LoginRequiredException;
-import io.github.loredock.auth.model.AuthenticatedActor;
 import java.util.Optional;
 import org.springframework.stereotype.Service;
 
@@ -11,7 +12,7 @@ import org.springframework.stereotype.Service;
  * Sa-Token Web 会话服务。集中处理建立、查询、退出和 SSE 长连接复核，不再维护会话 Port 与转发 Service。
  */
 @Service
-public class SessionService {
+public class SessionService implements AuthService {
 
     private final AccountService accounts;
 
@@ -26,6 +27,7 @@ public class SessionService {
     }
 
     /** @return 当前身份；非 Web 线程或无效会话返回空 */
+    @Override
     public Optional<AuthenticatedActor> current() {
         try {
             if (!StpUtil.isLogin()) {
@@ -40,6 +42,7 @@ public class SessionService {
     }
 
     /** @return 当前有效身份 @throws LoginRequiredException 未登录 */
+    @Override
     public AuthenticatedActor currentSession() {
         return current().orElseThrow(LoginRequiredException::new);
     }
@@ -56,7 +59,8 @@ public class SessionService {
     }
 
     /** @return 不公开 Token 内容的 SSE 会话租约 @throws LoginRequiredException 未登录 */
-    public SessionLease capture() {
+    @Override
+    public AuthService.SessionLease capture() {
         String tokenValue;
         try {
             tokenValue = StpUtil.getTokenValue();
@@ -66,16 +70,18 @@ public class SessionService {
         if (tokenValue == null || tokenValue.isBlank() || current().isEmpty()) {
             throw new LoginRequiredException();
         }
-        return new SessionLease(tokenValue);
+        return new SaTokenSessionLease(tokenValue);
     }
 
     /** @return 租约仍属于预期账号时为 true */
-    public boolean isValid(SessionLease lease, String expectedUsername) {
-        if (lease == null || expectedUsername == null || expectedUsername.isBlank()) {
+    @Override
+    public boolean isValid(AuthService.SessionLease lease, String expectedUsername) {
+        if (!(lease instanceof SaTokenSessionLease sessionLease)
+                || expectedUsername == null || expectedUsername.isBlank()) {
             return false;
         }
         try {
-            Object loginId = StpUtil.getStpLogic().getLoginIdByToken(lease.tokenValue);
+            Object loginId = StpUtil.getStpLogic().getLoginIdByToken(sessionLease.tokenValue);
             return loginId != null && expectedUsername.equals(loginId.toString())
                     && accounts.findByUsername(expectedUsername).isPresent();
         } catch (RuntimeException exception) {
@@ -86,10 +92,10 @@ public class SessionService {
     /**
      * SSE 线程间传递的私有会话能力。Token 不提供访问器，`toString` 也不会泄露内容。
      */
-    public static final class SessionLease {
+    private static final class SaTokenSessionLease implements AuthService.SessionLease {
         private final String tokenValue;
 
-        private SessionLease(String tokenValue) {
+        private SaTokenSessionLease(String tokenValue) {
             this.tokenValue = tokenValue;
         }
 

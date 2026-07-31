@@ -1,7 +1,7 @@
 package io.github.loredock.feedback.controller;
 
-import io.github.loredock.auth.model.AuthenticatedActor;
-import io.github.loredock.auth.service.SessionService;
+import io.github.loredock.auth.api.AuthService;
+import io.github.loredock.auth.api.AuthenticatedActor;
 import io.github.loredock.feedback.converter.KnowledgeGapHttpMapper;
 import io.github.loredock.feedback.model.command.CreateKnowledgeGapCommand;
 import io.github.loredock.feedback.model.request.CreateKnowledgeGapRequest;
@@ -21,10 +21,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/projects/{identifier}/knowledge-gaps")
 public class KnowledgeGapController {
     private final CreateKnowledgeGapService creates;
-    private final SessionService sessions;
+    private final AuthService sessions;
 
     /** @param creates 事务性反馈创建用例 @param sessions 当前认证身份 */
-    public KnowledgeGapController(CreateKnowledgeGapService creates, SessionService sessions) {
+    public KnowledgeGapController(CreateKnowledgeGapService creates, AuthService sessions) {
         this.creates = creates;
         this.sessions = sessions;
     }

@@ -1,6 +1,6 @@
 package io.github.loredock.auth.model.response;
 
-import io.github.loredock.auth.model.enums.WebRole;
+import io.github.loredock.auth.api.WebRole;
 
 /**
  * 登录成功与会话查询共用的安全身份响应，不包含 Token、Cookie 或密码哈希。

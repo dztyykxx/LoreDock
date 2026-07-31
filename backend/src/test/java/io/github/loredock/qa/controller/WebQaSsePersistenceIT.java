@@ -23,7 +23,7 @@ import io.github.loredock.agent.service.AgentEventService;
 import io.github.loredock.agent.service.AgentEvidenceService;
 import io.github.loredock.agent.service.AgentRunService;
 import io.github.loredock.agent.service.ProjectQaRunTaskExecutor;
-import io.github.loredock.auth.service.SessionService;
+import io.github.loredock.auth.api.AuthService;
 import io.github.loredock.project.api.ProjectScope;
 import io.github.loredock.project.api.ProjectService;
 import io.github.loredock.qa.api.QaQuestion;
@@ -132,7 +132,7 @@ class WebQaSsePersistenceIT {
         Long runId = created.runId();
         executeScriptedModel(created);
 
-        SessionService sessions = alwaysValidSession();
+        AuthService sessions = alwaysValidSession();
         WebQaSseService streams = new WebQaSseService(
                 new WebQaSseProperties(Duration.ofSeconds(5), Duration.ofMinutes(1),
                         2, 1, 1, 0, Duration.ofSeconds(1)),
@@ -219,9 +219,9 @@ class WebQaSsePersistenceIT {
                         timeProvider.instant().plusSeconds(30)));
     }
 
-    private SessionService alwaysValidSession() {
-        SessionService sessions = mock(SessionService.class);
-        SessionService.SessionLease lease = mock(SessionService.SessionLease.class);
+    private AuthService alwaysValidSession() {
+        AuthService sessions = mock(AuthService.class);
+        AuthService.SessionLease lease = mock(AuthService.SessionLease.class);
         when(sessions.capture()).thenReturn(lease);
         when(sessions.isValid(lease, "member")).thenReturn(true);
         return sessions;

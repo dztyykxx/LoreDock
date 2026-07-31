@@ -1,6 +1,6 @@
 package io.github.loredock.auth.controller;
 
-import io.github.loredock.auth.model.AuthenticatedActor;
+import io.github.loredock.auth.api.AuthenticatedActor;
 import io.github.loredock.auth.model.command.LoginCommand;
 import io.github.loredock.auth.model.request.LoginRequest;
 import io.github.loredock.auth.model.response.SessionResponse;

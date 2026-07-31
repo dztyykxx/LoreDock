@@ -38,18 +38,7 @@ class BackendMvcArchitectureTest {
             "AgentDefinitionProvider", "AgentRuntime", "ObjectStorage",
             "WebQaSseSink");
     /** 阶段六渐进迁移的存量跨模块非 api 引用清单；只允许随模块重构清空，不允许新增条目。 */
-    private static final List<String> KNOWN_CROSS_MODULE_VIOLATIONS = List.of(
-                "feedback/controller/AdminKnowledgeGapController.java -> import io.github.loredock.auth.model.AuthenticatedActor",
-                "feedback/controller/AdminKnowledgeGapController.java -> import io.github.loredock.auth.service.SessionService",
-                "feedback/controller/KnowledgeGapController.java -> import io.github.loredock.auth.model.AuthenticatedActor",
-                "feedback/controller/KnowledgeGapController.java -> import io.github.loredock.auth.service.SessionService",
-                "qa/controller/WebQaController.java -> import io.github.loredock.auth.model.AuthenticatedActor",
-                "qa/controller/WebQaController.java -> import io.github.loredock.auth.service.SessionService",
-                "qa/controller/WebQaSseController.java -> import io.github.loredock.auth.model.AuthenticatedActor",
-                "qa/controller/WebQaSseController.java -> import io.github.loredock.auth.service.SessionService",
-                "qa/model/request/WebQaSseStreamRequest.java -> import io.github.loredock.auth.service.SessionService",
-                "qa/service/WebQaSseService.java -> import io.github.loredock.auth.service.SessionService"
-    );
+    private static final List<String> KNOWN_CROSS_MODULE_VIOLATIONS = List.of();
 
     private static final Pattern IMPORT_PATTERN = Pattern.compile(
             "(?m)^import io\\.github\\.loredock\\.([a-z0-9]+)(?:\\.([A-Za-z0-9_.]+))?;");
@@ -180,7 +169,7 @@ class BackendMvcArchitectureTest {
             }
             String content = Files.readString(source);
             if (Pattern.compile("(?m)^public enum ").matcher(content).find()
-                    && !path.contains("/model/enums/")) {
+                    && !path.contains("/model/enums/") && !path.contains("/api/")) {
                 violations.add(SOURCE_ROOT.relativize(source) + " -> 公共枚举应位于 /model/enums/");
             }
         }

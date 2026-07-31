@@ -14,7 +14,7 @@ import io.github.loredock.agent.mapper.AgentRunEventMapper;
 import io.github.loredock.agent.model.entity.AgentRunEventEntity;
 import io.github.loredock.agent.model.enums.AgentEventType;
 import io.github.loredock.agent.service.AgentEventService;
-import io.github.loredock.auth.service.SessionService;
+import io.github.loredock.auth.api.AuthService;
 import io.github.loredock.qa.config.WebQaSseProperties;
 import io.github.loredock.qa.model.request.WebQaSseStreamRequest;
 import io.github.loredock.qa.model.result.WebQaQuestionRecord;
@@ -46,8 +46,8 @@ class WebQaSseServiceTest {
         AgentEventService eventStream = new AgentEventService(mapper, new ObjectMapper());
         AgentService agents = mock(AgentService.class);
         QaServiceImpl access = mock(QaServiceImpl.class);
-        SessionService sessions = mock(SessionService.class);
-        SessionService.SessionLease lease = mock(SessionService.SessionLease.class);
+        AuthService sessions = mock(AuthService.class);
+        AuthService.SessionLease lease = mock(AuthService.SessionLease.class);
         DefaultWebQaAssistantMessageMaterializer materializer = mock(DefaultWebQaAssistantMessageMaterializer.class);
         CountDownLatch waiting = new CountDownLatch(1);
         when(sessions.isValid(lease, "member")).thenAnswer(ignored -> {
@@ -89,8 +89,8 @@ class WebQaSseServiceTest {
         AgentService agents = mock(AgentService.class);
         AgentEventService eventStream = new AgentEventService(mock(AgentRunEventMapper.class), new ObjectMapper());
         QaServiceImpl access = mock(QaServiceImpl.class);
-        SessionService sessions = mock(SessionService.class);
-        SessionService.SessionLease lease = mock(SessionService.SessionLease.class);
+        AuthService sessions = mock(AuthService.class);
+        AuthService.SessionLease lease = mock(AuthService.SessionLease.class);
         when(sessions.isValid(lease, "member")).thenReturn(false);
         RecordingSink sink = new RecordingSink();
 
@@ -107,7 +107,7 @@ class WebQaSseServiceTest {
 
     private WebQaSseService service(
             AgentService agents,
-            SessionService sessions,
+            AuthService sessions,
             QaServiceImpl access,
             DefaultWebQaAssistantMessageMaterializer materializer
     ) {
@@ -118,7 +118,7 @@ class WebQaSseServiceTest {
                 sessions, materializer);
     }
 
-    private WebQaSseStreamRequest request(SessionService.SessionLease lease) {
+    private WebQaSseStreamRequest request(AuthService.SessionLease lease) {
         return new WebQaSseStreamRequest("member", "atlas", QUESTION_ID, RUN_ID, 0, lease);
     }
 

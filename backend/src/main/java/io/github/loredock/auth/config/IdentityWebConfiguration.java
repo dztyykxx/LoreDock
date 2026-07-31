@@ -1,7 +1,7 @@
 package io.github.loredock.auth.config;
 
 import cn.dev33.satoken.stp.StpUtil;
-import io.github.loredock.auth.model.enums.WebRole;
+import io.github.loredock.auth.api.WebRole;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;

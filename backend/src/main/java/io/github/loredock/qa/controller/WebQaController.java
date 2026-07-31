@@ -1,8 +1,8 @@
 package io.github.loredock.qa.controller;
 
 import io.github.loredock.agent.api.AgentService;
-import io.github.loredock.auth.model.AuthenticatedActor;
-import io.github.loredock.auth.service.SessionService;
+import io.github.loredock.auth.api.AuthService;
+import io.github.loredock.auth.api.AuthenticatedActor;
 import io.github.loredock.qa.converter.WebQaHttpMapper;
 import io.github.loredock.qa.api.QaService;
 import io.github.loredock.qa.model.request.CreateWebQaQuestionRequest;
@@ -24,7 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class WebQaController {
     private final QaService questions;
     private final AgentService agents;
-    private final SessionService sessions;
+    private final AuthService sessions;
 
     /**
      * @param questions 问答创建、历史与详情契约
@@ -34,7 +34,7 @@ public class WebQaController {
     public WebQaController(
             QaService questions,
             AgentService agents,
-            SessionService sessions
+            AuthService sessions
     ) {
         this.questions = questions;
         this.agents = agents;

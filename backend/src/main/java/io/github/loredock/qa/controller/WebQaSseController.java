@@ -1,7 +1,7 @@
 package io.github.loredock.qa.controller;
 
-import io.github.loredock.auth.model.AuthenticatedActor;
-import io.github.loredock.auth.service.SessionService;
+import io.github.loredock.auth.api.AuthService;
+import io.github.loredock.auth.api.AuthenticatedActor;
 import io.github.loredock.platform.web.ApiError;
 import io.github.loredock.platform.web.ErrorCode;
 import io.github.loredock.platform.web.SecurityErrorFactory;
@@ -26,8 +26,8 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 @RestController
 @RequestMapping("/api/projects/{identifier}/qa/questions/{questionId}/events")
 public class WebQaSseController {
-    private final SessionService sessions;
-    private final SessionService continuity;
+    private final AuthService sessions;
+    private final AuthService continuity;
     private final QaService questions;
     private final WebQaSseService streams;
     private final SecurityErrorFactory errorFactory;
@@ -40,8 +40,8 @@ public class WebQaSseController {
      * @param timeProvider UTC 错误时间源
      */
     public WebQaSseController(
-            SessionService sessions,
-            SessionService continuity,
+            AuthService sessions,
+            AuthService continuity,
             QaService questions,
             WebQaSseService streams,
             Clock timeProvider
@@ -70,7 +70,7 @@ public class WebQaSseController {
         AuthenticatedActor actor = sessions.currentSession();
         long cursor = WebQaSseCursor.resolve(lastEventId, afterSequence);
         var target = questions.detail(new QaService.DetailQuery(actor.username(), identifier, questionId));
-        SessionService.SessionLease lease = continuity.capture();
+        AuthService.SessionLease lease = continuity.capture();
         return streams.open(new WebQaSseStreamRequest(
                 actor.username(), identifier, questionId, target.runId(), cursor, lease));
     }

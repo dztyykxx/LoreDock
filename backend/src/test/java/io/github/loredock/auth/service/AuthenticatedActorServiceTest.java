@@ -4,8 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import io.github.loredock.auth.model.AuthenticatedActor;
-import io.github.loredock.auth.model.enums.WebRole;
+import io.github.loredock.auth.api.AuthenticatedActor;
+import io.github.loredock.auth.api.WebRole;
 import io.github.loredock.platform.persistence.AuditMetadata;
 import io.github.loredock.platform.persistence.AuditMetadataFactory;
 import java.time.Clock;

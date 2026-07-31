@@ -1,4 +1,4 @@
-package io.github.loredock.auth.model.enums;
+package io.github.loredock.auth.api;
 
 /**
  * Web 固定账号的稳定角色；角色只由服务端账号目录解析，不接受客户端声明。

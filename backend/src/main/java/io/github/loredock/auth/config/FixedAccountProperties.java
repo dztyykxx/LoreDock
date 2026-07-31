@@ -1,6 +1,6 @@
 package io.github.loredock.auth.config;
 
-import io.github.loredock.auth.model.enums.WebRole;
+import io.github.loredock.auth.api.WebRole;
 
 /**
  * 单个固定 Web 账号的强类型配置；passwordHash 必须是带盐 BCrypt 值。

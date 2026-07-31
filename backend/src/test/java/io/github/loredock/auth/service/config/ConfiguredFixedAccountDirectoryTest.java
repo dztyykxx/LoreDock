@@ -6,7 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import io.github.loredock.auth.config.FixedAccountProperties;
 import io.github.loredock.auth.config.FixedAccountsProperties;
 import io.github.loredock.auth.exception.IdentityConfigurationException;
-import io.github.loredock.auth.model.enums.WebRole;
+import io.github.loredock.auth.api.WebRole;
 import io.github.loredock.auth.service.AccountService;
 import java.util.List;
 import org.junit.jupiter.api.Test;

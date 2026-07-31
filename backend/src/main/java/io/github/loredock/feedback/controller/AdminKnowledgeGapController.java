@@ -1,7 +1,7 @@
 package io.github.loredock.feedback.controller;
 
-import io.github.loredock.auth.model.AuthenticatedActor;
-import io.github.loredock.auth.service.SessionService;
+import io.github.loredock.auth.api.AuthService;
+import io.github.loredock.auth.api.AuthenticatedActor;
 import io.github.loredock.feedback.converter.KnowledgeGapHttpMapper;
 import io.github.loredock.feedback.model.command.QueryKnowledgeGapsCommand;
 import io.github.loredock.feedback.model.command.UpdateKnowledgeGapStatusCommand;
@@ -26,10 +26,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/admin/knowledge-gaps")
 public class AdminKnowledgeGapController {
     private final ManageKnowledgeGapService manages;
-    private final SessionService sessions;
+    private final AuthService sessions;
 
     /** @param manages 管理查询和状态用例 @param sessions 当前认证身份 */
-    public AdminKnowledgeGapController(ManageKnowledgeGapService manages, SessionService sessions) {
+    public AdminKnowledgeGapController(ManageKnowledgeGapService manages, AuthService sessions) {
         this.manages = manages;
         this.sessions = sessions;
     }

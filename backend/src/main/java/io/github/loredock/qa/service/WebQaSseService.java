@@ -2,7 +2,7 @@ package io.github.loredock.qa.service;
 
 import io.github.loredock.agent.api.AgentEvent;
 import io.github.loredock.agent.api.AgentService;
-import io.github.loredock.auth.service.SessionService;
+import io.github.loredock.auth.api.AuthService;
 import io.github.loredock.qa.api.QaQuestionNotFoundException;
 import io.github.loredock.qa.api.QaService;
 import io.github.loredock.qa.config.WebQaSseProperties;
@@ -32,7 +32,7 @@ public class WebQaSseService {
     private final Clock timeProvider;
     private final QaServiceImpl access;
     private final AgentService agents;
-    private final SessionService sessions;
+    private final AuthService sessions;
     private final DefaultWebQaAssistantMessageMaterializer materializer;
 
     /**
@@ -50,7 +50,7 @@ public class WebQaSseService {
             Clock timeProvider,
             QaServiceImpl access,
             AgentService agents,
-            SessionService sessions,
+            AuthService sessions,
             DefaultWebQaAssistantMessageMaterializer materializer
     ) {
         this.properties = properties;
