@@ -3,7 +3,7 @@ package io.github.loredock.platform.web;
 import cn.dev33.satoken.exception.NotLoginException;
 import cn.dev33.satoken.exception.NotPermissionException;
 import cn.dev33.satoken.exception.NotRoleException;
-import io.github.loredock.agent.exception.AgentRequestException;
+import io.github.loredock.agent.api.AgentRequestException;
 import io.github.loredock.auth.exception.ForbiddenOperationException;
 import io.github.loredock.auth.exception.InvalidCredentialsException;
 import io.github.loredock.auth.exception.LoginRequiredException;
@@ -66,7 +66,7 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(AgentRequestException.class)
     public ResponseEntity<ApiError> handleAgentRequest(AgentRequestException exception) {
-        ErrorCode code = switch (exception.code()) {
+        ErrorCode code = switch (exception.errorCode()) {
             case AGENT_RUN_IDEMPOTENCY_CONFLICT -> ErrorCode.AGENT_RUN_IDEMPOTENCY_CONFLICT;
             case AGENT_SKILL_UNAVAILABLE -> ErrorCode.AGENT_SKILL_UNAVAILABLE;
             case AGENT_RUNTIME_UNAVAILABLE, AGENT_DISABLED -> ErrorCode.AGENT_RUNTIME_UNAVAILABLE;

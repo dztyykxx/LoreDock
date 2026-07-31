@@ -25,10 +25,10 @@
 
 ## 4. agent 模块契约
 
-- [ ] 4.1 定义 `agent.api.AgentService`：向 QA 提供运行启动、终态与公开事件；内部继续使用 `AgentRuntime`。
-- [ ] 4.2 为契约编写失败测试：只通过已确认模块 `api` 取得证据、回答/拒答/运行失败可区分、终态事件可查询。
-- [ ] 4.3 使 `StartProjectQaRunService`/`AgentRunQueryService`/`AgentEventService` 实现契约，迁移 qa 的直接引用。
-- [ ] 4.4 删除 agent 模块多余调度、定义、快照与过程模型，保留 `AgentRuntime` 与 `AgentDefinitionProvider` 真实边界；运行契约、HTTP 与架构测试。
+- [x] 4.1 定义 `agent.api.AgentService`：向 QA 提供运行启动、终态与公开事件；内部继续使用 `AgentRuntime`。
+- [x] 4.2 为契约编写失败测试：只通过已确认模块 `api` 取得证据、回答/拒答/运行失败可区分、终态事件可查询。
+- [x] 4.3 使 `StartProjectQaRunService`/`AgentRunQueryService`/`AgentEventService` 实现契约，迁移 qa 的直接引用。
+- [x] 4.4 删除 agent 模块多余调度、定义、快照与过程模型，保留 `AgentRuntime` 与 `AgentDefinitionProvider` 真实边界；运行契约、HTTP 与架构测试。
 
 ## 5. qa 模块契约
 

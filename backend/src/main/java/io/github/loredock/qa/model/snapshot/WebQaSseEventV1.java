@@ -1,7 +1,6 @@
 package io.github.loredock.qa.model.snapshot;
 
-import io.github.loredock.agent.model.enums.AgentErrorCode;
-import io.github.loredock.agent.model.enums.AgentResultType;
+import io.github.loredock.agent.api.AgentRun;
 import java.time.Instant;
 
 /**
@@ -15,7 +14,7 @@ public record WebQaSseEventV1(
         String tool,
         Integer count,
         String textDelta,
-        AgentResultType resultType,
-        AgentErrorCode errorCode
+        AgentRun.ResultType resultType,
+        AgentRun.ErrorCode errorCode
 ) {
 }

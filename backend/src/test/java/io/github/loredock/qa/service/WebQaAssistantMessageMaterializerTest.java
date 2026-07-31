@@ -7,13 +7,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import io.github.loredock.agent.model.enums.AgentErrorCode;
-import io.github.loredock.agent.model.enums.AgentRefusalReason;
-import io.github.loredock.agent.model.enums.AgentResultType;
-import io.github.loredock.agent.model.enums.AgentRunStatus;
-import io.github.loredock.agent.model.snapshot.AgentRunSnapshot;
-import io.github.loredock.agent.model.snapshot.AgentScopeSnapshot;
-import io.github.loredock.agent.model.snapshot.AgentVersionSnapshot;
+import io.github.loredock.agent.api.AgentRun;
 import io.github.loredock.qa.model.enums.WebQaMessageRole;
 import io.github.loredock.qa.model.result.WebQaMessageRecord;
 import io.github.loredock.qa.model.result.WebQaQuestionRecord;
@@ -40,20 +34,20 @@ class WebQaAssistantMessageMaterializerTest {
                 new DefaultWebQaAssistantMessageMaterializer(messages);
 
         assertThat(materializer.materialize(question(), run(
-                AgentRunStatus.COMPLETED, AgentResultType.ANSWER, null, null, "可信回答"))).isTrue();
+                AgentRun.Status.COMPLETED, AgentRun.ResultType.ANSWER, null, null, "可信回答"))).isTrue();
         assertThat(materializer.materialize(question(), run(
-                AgentRunStatus.COMPLETED, AgentResultType.ANSWER, null, null, "可信回答"))).isFalse();
+                AgentRun.Status.COMPLETED, AgentRun.ResultType.ANSWER, null, null, "可信回答"))).isFalse();
         assertThat(materializer.materialize(question(), run(
-                AgentRunStatus.COMPLETED, AgentResultType.REFUSAL,
-                AgentRefusalReason.INSUFFICIENT_EVIDENCE, null, "当前知识库没有足够依据"))).isTrue();
+                AgentRun.Status.COMPLETED, AgentRun.ResultType.REFUSAL,
+                AgentRun.RefusalReason.INSUFFICIENT_EVIDENCE, null, "当前知识库没有足够依据"))).isTrue();
 
         ArgumentCaptor<WebQaMessageRecord> values = ArgumentCaptor.forClass(WebQaMessageRecord.class);
         verify(messages, org.mockito.Mockito.times(3)).insertIfAbsent(values.capture());
         assertThat(values.getAllValues()).allSatisfy(value ->
                 assertThat(value.role()).isEqualTo(WebQaMessageRole.ASSISTANT));
-        assertThat(values.getAllValues().get(0).resultType()).isEqualTo(AgentResultType.ANSWER);
+        assertThat(values.getAllValues().get(0).resultType()).isEqualTo(AgentRun.ResultType.ANSWER);
         assertThat(values.getAllValues().get(2).refusalReason())
-                .isEqualTo(AgentRefusalReason.INSUFFICIENT_EVIDENCE);
+                .isEqualTo(AgentRun.RefusalReason.INSUFFICIENT_EVIDENCE);
         System.out.println("测试证据：场景=终态消息投影，回答首次=true，回答重复=false，拒答首次=true");
     }
 
@@ -67,11 +61,11 @@ class WebQaAssistantMessageMaterializerTest {
                 new DefaultWebQaAssistantMessageMaterializer(messages);
 
         assertThat(materializer.materialize(question(), run(
-                AgentRunStatus.RUNNING, null, null, null, null))).isFalse();
+                AgentRun.Status.RUNNING, null, null, null, null))).isFalse();
         assertThat(materializer.materialize(question(), run(
-                AgentRunStatus.FAILED, null, null, AgentErrorCode.AGENT_MODEL_UNAVAILABLE, null))).isFalse();
+                AgentRun.Status.FAILED, null, null, AgentRun.ErrorCode.AGENT_MODEL_UNAVAILABLE, null))).isFalse();
         assertThat(materializer.materialize(question(), run(
-                AgentRunStatus.TERMINATED, null, null, AgentErrorCode.AGENT_RUN_TIMEOUT, null))).isFalse();
+                AgentRun.Status.TERMINATED, null, null, AgentRun.ErrorCode.AGENT_RUN_TIMEOUT, null))).isFalse();
 
         verify(messages, never()).insertIfAbsent(any());
         System.out.println("测试证据：场景=非完成运行不投影，活动/失败/终止的助手消息数=0");
@@ -82,22 +76,18 @@ class WebQaAssistantMessageMaterializerTest {
                 8000000000000000084L, "atlas", 8000000000000000085L, "main", RUN_ID, NOW);
     }
 
-    private AgentRunSnapshot run(
-            AgentRunStatus status,
-            AgentResultType resultType,
-            AgentRefusalReason refusalReason,
-            AgentErrorCode errorCode,
+    private AgentRun run(
+            AgentRun.Status status,
+            AgentRun.ResultType resultType,
+            AgentRun.RefusalReason refusalReason,
+            AgentRun.ErrorCode errorCode,
             String text
     ) {
-        return new AgentRunSnapshot(
-                RUN_ID, "member", "agent-key", "b".repeat(64), "project_qa", status,
-                resultType, text, refusalReason, errorCode,
-                new AgentScopeSnapshot(8000000000000000086L, "atlas", 8000000000000000087L, "main",
-                        null, null, null, List.of("GLOBAL", "PROJECT", "BRANCH")),
-                new AgentVersionSnapshot("project_qa", "fake", "v1"),
-                4, 0, 0, null, null, NOW, status == AgentRunStatus.RUNNING ? NOW : null,
-                status == AgentRunStatus.COMPLETED || status == AgentRunStatus.FAILED
-                        || status == AgentRunStatus.TERMINATED ? NOW.plusSeconds(1) : null,
-                List.of());
+        return new AgentRun(
+                RUN_ID, status, resultType, null, text, refusalReason, errorCode,
+                new AgentRun.Scope(8000000000000000086L, "atlas", 8000000000000000087L, "main",
+                        null, null, null),
+                0, 0, NOW, status == AgentRun.Status.RUNNING ? NOW : null,
+                status.terminal() ? NOW.plusSeconds(1) : null, List.of());
     }
 }

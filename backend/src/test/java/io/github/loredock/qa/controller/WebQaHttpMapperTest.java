@@ -2,13 +2,7 @@ package io.github.loredock.qa.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-import io.github.loredock.agent.model.enums.AgentErrorCode;
-import io.github.loredock.agent.model.enums.AgentRefusalReason;
-import io.github.loredock.agent.model.enums.AgentResultType;
-import io.github.loredock.agent.model.enums.AgentRunStatus;
-import io.github.loredock.agent.model.snapshot.AgentRunSnapshot;
-import io.github.loredock.agent.model.snapshot.AgentScopeSnapshot;
-import io.github.loredock.agent.model.snapshot.AgentVersionSnapshot;
+import io.github.loredock.agent.api.AgentRun;
 import io.github.loredock.qa.converter.WebQaHttpMapper;
 import io.github.loredock.qa.model.enums.WebQaTrustState;
 import io.github.loredock.qa.model.response.WebQaQuestionResponse;
@@ -32,10 +26,10 @@ class WebQaHttpMapperTest {
     @Test
     void completedRefusalKeepsResultTextWithoutFailureMessage() {
         WebQaQuestionResponse response = WebQaHttpMapper.toResponse(snapshot(
-                AgentRunStatus.COMPLETED,
-                AgentResultType.REFUSAL,
+                AgentRun.Status.COMPLETED,
+                AgentRun.ResultType.REFUSAL,
                 "当前知识库没有足够依据",
-                AgentRefusalReason.INSUFFICIENT_EVIDENCE,
+                AgentRun.RefusalReason.INSUFFICIENT_EVIDENCE,
                 null,
                 WebQaTrustState.INSUFFICIENT_EVIDENCE), 5);
 
@@ -51,38 +45,36 @@ class WebQaHttpMapperTest {
     @Test
     void terminatedRunReturnsSafeFailureMessageAndDiagnosticCode() {
         WebQaQuestionResponse response = WebQaHttpMapper.toResponse(snapshot(
-                AgentRunStatus.TERMINATED,
+                AgentRun.Status.TERMINATED,
                 null,
                 null,
                 null,
-                AgentErrorCode.AGENT_STEP_LIMIT_EXCEEDED,
+                AgentRun.ErrorCode.AGENT_STEP_LIMIT_EXCEEDED,
                 WebQaTrustState.FAILED), 8);
 
         assertThat(response.resultText()).isNull();
         assertThat(response.failureMessage()).contains("达到运行上限").contains("缩小问题范围");
-        assertThat(response.errorCode()).isEqualTo(AgentErrorCode.AGENT_STEP_LIMIT_EXCEEDED);
+        assertThat(response.errorCode()).isEqualTo(AgentRun.ErrorCode.AGENT_STEP_LIMIT_EXCEEDED);
         System.out.printf("测试证据：场景=运行终止，状态=%s，错误码=%s，说明长度=%d%n",
                 response.status(), response.errorCode(), response.failureMessage().length());
     }
 
     private WebQaQuestionSnapshot snapshot(
-            AgentRunStatus status,
-            AgentResultType resultType,
+            AgentRun.Status status,
+            AgentRun.ResultType resultType,
             String resultText,
-            AgentRefusalReason refusalReason,
-            AgentErrorCode errorCode,
+            AgentRun.RefusalReason refusalReason,
+            AgentRun.ErrorCode errorCode,
             WebQaTrustState trustState
     ) {
         WebQaQuestionRecord question = new WebQaQuestionRecord(
                 QUESTION_ID, "member", "question-key", "a".repeat(64), PROJECT_ID, "nanobot",
                 BRANCH_ID, "main", RUN_ID, NOW);
-        AgentRunSnapshot run = new AgentRunSnapshot(
-                RUN_ID, "member", "run-key", "b".repeat(64), "project_qa", status,
-                resultType, null, resultText, refusalReason, errorCode,
-                new AgentScopeSnapshot(PROJECT_ID, "nanobot", BRANCH_ID, "main", null, null,
-                        8000000000000000169L, List.of("GLOBAL", "PROJECT", "BRANCH")),
-                new AgentVersionSnapshot("project_qa", "fake-model", "project-qa-v1"),
-                8, 4, 2, null, null, NOW, NOW, NOW, List.of());
+        AgentRun run = new AgentRun(
+                RUN_ID, status, resultType, null, resultText, refusalReason, errorCode,
+                new AgentRun.Scope(PROJECT_ID, "nanobot", BRANCH_ID, "main", null, null,
+                        8000000000000000169L),
+                4, 2, NOW, NOW, NOW, List.of());
         return new WebQaQuestionSnapshot(question, run, trustState, List.of());
     }
 }

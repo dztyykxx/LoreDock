@@ -1,8 +1,7 @@
 package io.github.loredock.qa.service;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
-import io.github.loredock.agent.model.enums.AgentRefusalReason;
-import io.github.loredock.agent.model.enums.AgentResultType;
+import io.github.loredock.agent.api.AgentRun;
 import io.github.loredock.qa.mapper.WebQaMessageMapper;
 import io.github.loredock.qa.model.entity.WebQaMessageEntity;
 import io.github.loredock.qa.model.enums.WebQaMessageRole;
@@ -44,8 +43,8 @@ public class WebQaMessageDataService {
     private WebQaMessageRecord toRecord(WebQaMessageEntity value) {
         return new WebQaMessageRecord(
                 value.getId(), value.getQuestionId(), WebQaMessageRole.valueOf(value.getRole()), value.getContent(),
-                enumValue(AgentResultType.class, value.getResultType()),
-                enumValue(AgentRefusalReason.class, value.getRefusalReason()), value.getCreatedAt());
+                enumValue(AgentRun.ResultType.class, value.getResultType()),
+                enumValue(AgentRun.RefusalReason.class, value.getRefusalReason()), value.getCreatedAt());
     }
 
     private <T extends Enum<T>> T enumValue(Class<T> type, String value) {

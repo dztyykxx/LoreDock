@@ -3,10 +3,8 @@ package io.github.loredock.qa.controller;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import io.github.loredock.agent.model.enums.AgentErrorCode;
-import io.github.loredock.agent.model.enums.AgentEventType;
-import io.github.loredock.agent.model.enums.AgentResultType;
-import io.github.loredock.agent.model.snapshot.AgentEventSnapshot;
+import io.github.loredock.agent.api.AgentEvent;
+import io.github.loredock.agent.api.AgentRun;
 import io.github.loredock.qa.converter.WebQaSseEventMapper;
 import io.github.loredock.qa.model.snapshot.WebQaSseCursor;
 import io.github.loredock.qa.model.snapshot.WebQaSsePublicEvent;
@@ -38,8 +36,8 @@ class WebQaSseContractTest {
      */
     @Test
     void lifecycleAndSourceEventsExposeOnlyFiniteFields() {
-        WebQaSsePublicEvent model = map(2, AgentEventType.MODEL_STARTED, "secret-model-name");
-        WebQaSsePublicEvent source = map(3, AgentEventType.SOURCE_FOUND, "knowledge_search count=4");
+        WebQaSsePublicEvent model = map(2, AgentEvent.Type.MODEL_STARTED, "secret-model-name");
+        WebQaSsePublicEvent source = map(3, AgentEvent.Type.SOURCE_FOUND, "knowledge_search count=4");
 
         assertThat(model.name()).isEqualTo("model.started");
         assertThat(model.data().phase()).isEqualTo("GENERATING");
@@ -56,12 +54,12 @@ class WebQaSseContractTest {
      */
     @Test
     void trustedResultAndTerminalEventsHaveStableNames() {
-        WebQaSsePublicEvent completed = map(10, AgentEventType.RUN_COMPLETED, "ANSWER");
-        WebQaSsePublicEvent failed = map(11, AgentEventType.RUN_FAILED, "AGENT_MODEL_UNAVAILABLE");
+        WebQaSsePublicEvent completed = map(10, AgentEvent.Type.RUN_COMPLETED, "ANSWER");
+        WebQaSsePublicEvent failed = map(11, AgentEvent.Type.RUN_FAILED, "AGENT_MODEL_UNAVAILABLE");
 
-        assertThat(completed.data().resultType()).isEqualTo(AgentResultType.ANSWER);
+        assertThat(completed.data().resultType()).isEqualTo(AgentRun.ResultType.ANSWER);
         assertThat(completed.data().textDelta()).isNull();
-        assertThat(failed.data().errorCode()).isEqualTo(AgentErrorCode.AGENT_MODEL_UNAVAILABLE);
+        assertThat(failed.data().errorCode()).isEqualTo(AgentRun.ErrorCode.AGENT_MODEL_UNAVAILABLE);
         assertThat(failed.name()).isEqualTo("run.failed");
         System.out.printf("测试证据：场景=SSE可信终态，完成类型=%s，失败码=%s，正文泄露=false%n",
                 completed.data().resultType(), failed.data().errorCode());
@@ -72,19 +70,19 @@ class WebQaSseContractTest {
      */
     @Test
     void malformedAgentPayloadIsNeverForwarded() {
-        assertThatThrownBy(() -> map(1, AgentEventType.SOURCE_FOUND, "shell_exec count=1"))
+        assertThatThrownBy(() -> map(1, AgentEvent.Type.SOURCE_FOUND, "shell_exec count=1"))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> map(2, AgentEventType.SOURCE_FOUND, "knowledge_search count=NaN"))
+        assertThatThrownBy(() -> map(2, AgentEvent.Type.SOURCE_FOUND, "knowledge_search count=NaN"))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> map(3, AgentEventType.RUN_COMPLETED, "MAYBE"))
+        assertThatThrownBy(() -> map(3, AgentEvent.Type.RUN_COMPLETED, "MAYBE"))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> map(4, AgentEventType.RUN_FAILED, "password=secret"))
+        assertThatThrownBy(() -> map(4, AgentEvent.Type.RUN_FAILED, "password=secret"))
                 .isInstanceOf(IllegalArgumentException.class);
         System.out.println("测试证据：场景=SSE伪造payload，未知工具/计数/结果/错误码均未映射");
     }
 
-    private WebQaSsePublicEvent map(long sequence, AgentEventType type, String payload) {
-        return WebQaSseEventMapper.toPublic(new AgentEventSnapshot(
+    private WebQaSsePublicEvent map(long sequence, AgentEvent.Type type, String payload) {
+        return WebQaSseEventMapper.toPublic(new AgentEvent(
                 8000000000000000170L, RUN_ID, sequence, type, payload, NOW));
     }
 }

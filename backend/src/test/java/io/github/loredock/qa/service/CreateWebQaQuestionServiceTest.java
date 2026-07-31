@@ -8,14 +8,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import io.github.loredock.agent.exception.AgentRequestException;
-import io.github.loredock.agent.model.command.StartProjectQaRunCommand;
-import io.github.loredock.agent.model.enums.AgentRunStatus;
-import io.github.loredock.agent.model.snapshot.AgentRunSnapshot;
-import io.github.loredock.agent.model.snapshot.AgentScopeSnapshot;
-import io.github.loredock.agent.model.snapshot.AgentVersionSnapshot;
-import io.github.loredock.agent.service.AgentRunQueryService;
-import io.github.loredock.agent.service.StartProjectQaRunService;
+import io.github.loredock.agent.api.AgentRequestException;
+import io.github.loredock.agent.api.AgentRun;
+import io.github.loredock.agent.api.AgentService;
 import io.github.loredock.project.api.ProjectScope;
 import io.github.loredock.project.api.ProjectService;
 import io.github.loredock.qa.model.command.CreateWebQaQuestionCommand;
@@ -41,8 +36,7 @@ class CreateWebQaQuestionServiceTest {
     private static final Long MESSAGE_ID = 6130197811678937095L;
     private static final Instant NOW = Instant.parse("2026-07-30T03:00:00Z");
     private ProjectService projects;
-    private StartProjectQaRunService starts;
-    private AgentRunQueryService runQueries;
+    private AgentService agents;
     private WebQaQuestionDataService questions;
     private WebQaMessageDataService messages;
     private CreateWebQaQuestionService service;
@@ -50,8 +44,7 @@ class CreateWebQaQuestionServiceTest {
     @BeforeEach
     void setUp() {
         projects = mock(ProjectService.class);
-        starts = mock(StartProjectQaRunService.class);
-        runQueries = mock(AgentRunQueryService.class);
+        agents = mock(AgentService.class);
         questions = mock(WebQaQuestionDataService.class);
         messages = mock(WebQaMessageDataService.class);
         Clock timeProvider = mock(Clock.class);
@@ -62,10 +55,10 @@ class CreateWebQaQuestionServiceTest {
                 .thenReturn(Optional.empty());
         when(questions.insertIfAbsent(any())).thenReturn(Optional.of(QUESTION_ID));
         when(messages.insertIfAbsent(any())).thenReturn(Optional.of(MESSAGE_ID));
-        when(starts.start(any())).thenReturn(run());
-        when(runQueries.get(RUN_ID, "member")).thenReturn(run());
+        when(agents.start(any())).thenReturn(run());
+        when(agents.get(RUN_ID, "member")).thenReturn(run());
         service = new CreateWebQaQuestionService(
-                projects, starts, runQueries, questions, messages, timeProvider);
+                projects, agents, questions, messages, timeProvider);
     }
 
     /**
@@ -77,8 +70,8 @@ class CreateWebQaQuestionServiceTest {
 
         WebQaQuestionSnapshot snapshot = service.create(command);
 
-        ArgumentCaptor<StartProjectQaRunCommand> start = ArgumentCaptor.forClass(StartProjectQaRunCommand.class);
-        verify(starts).start(start.capture());
+        ArgumentCaptor<AgentService.StartRequest> start = ArgumentCaptor.forClass(AgentService.StartRequest.class);
+        verify(agents).start(start.capture());
         assertThat(start.getValue().branch()).isEqualTo("main");
         assertThat(start.getValue().question()).isEqualTo("本次新问题").doesNotContain("历史问题", "历史回答");
         ArgumentCaptor<WebQaQuestionRecord> question = ArgumentCaptor.forClass(WebQaQuestionRecord.class);
@@ -101,16 +94,16 @@ class CreateWebQaQuestionServiceTest {
     @Test
     void explicitBranchCreationKeepsResolvedScope() {
         ProjectScope releaseProject = project("release", RELEASE_BRANCH_ID);
-        AgentRunSnapshot releaseRun = run("release", RELEASE_BRANCH_ID);
+        AgentRun releaseRun = run("release", RELEASE_BRANCH_ID);
         when(projects.resolveEnabledScope("atlas", "release")).thenReturn(releaseProject);
-        when(starts.start(any())).thenReturn(releaseRun);
-        when(runQueries.get(RUN_ID, "member")).thenReturn(releaseRun);
+        when(agents.start(any())).thenReturn(releaseRun);
+        when(agents.get(RUN_ID, "member")).thenReturn(releaseRun);
 
         WebQaQuestionSnapshot snapshot = service.create(CreateWebQaQuestionCommand.of(
                 "member", "MEMBER", "release-key", "atlas", "release", "发布分支如何实现？"));
 
-        ArgumentCaptor<StartProjectQaRunCommand> start = ArgumentCaptor.forClass(StartProjectQaRunCommand.class);
-        verify(starts).start(start.capture());
+        ArgumentCaptor<AgentService.StartRequest> start = ArgumentCaptor.forClass(AgentService.StartRequest.class);
+        verify(agents).start(start.capture());
         assertThat(start.getValue().branch()).isEqualTo("release");
         assertThat(snapshot.question().branchId()).isEqualTo(RELEASE_BRANCH_ID);
         assertThat(snapshot.question().branch()).isEqualTo("release");
@@ -132,7 +125,7 @@ class CreateWebQaQuestionServiceTest {
         WebQaQuestionSnapshot retried = service.create(command("client-key", "本次新问题"));
 
         assertThat(retried.question().id()).isEqualTo(first.question().id());
-        verify(starts, org.mockito.Mockito.times(1)).start(any());
+        verify(agents, org.mockito.Mockito.times(1)).start(any());
         verify(questions, org.mockito.Mockito.times(1)).insertIfAbsent(any());
         verify(messages, org.mockito.Mockito.times(1)).insertIfAbsent(any());
         System.out.printf("测试证据：场景=问答幂等复用，questionId=%s，runId=%s，模型启动次数=1%n",
@@ -153,7 +146,7 @@ class CreateWebQaQuestionServiceTest {
         assertThatThrownBy(() -> service.create(command("client-key", "不同问题")))
                 .isInstanceOf(AgentRequestException.class);
 
-        verify(starts, never()).start(any());
+        verify(agents, never()).start(any());
         verify(questions, never()).insertIfAbsent(any());
         verify(messages, never()).insertIfAbsent(any());
         System.out.printf("测试证据：场景=问答幂等冲突，原questionId=%s，新增运行数=0，新增消息数=0%n",
@@ -172,7 +165,7 @@ class CreateWebQaQuestionServiceTest {
                 "member", "MEMBER", "client-key", "atlas", "missing", "问题")))
                 .isInstanceOf(IllegalArgumentException.class);
 
-        verify(starts, never()).start(any());
+        verify(agents, never()).start(any());
         verify(questions, never()).insertIfAbsent(any());
         verify(messages, never()).insertIfAbsent(any());
         System.out.println("测试证据：场景=无效分支，Agent启动=0，问答写入=0，消息写入=0");
@@ -190,17 +183,14 @@ class CreateWebQaQuestionServiceTest {
         return new ProjectScope(PROJECT_ID, "atlas", "Atlas", true, selectedBranchId, selectedBranch);
     }
 
-    private AgentRunSnapshot run() {
+    private AgentRun run() {
         return run("main", BRANCH_ID);
     }
 
-    private AgentRunSnapshot run(String branch, Long branchId) {
-        return new AgentRunSnapshot(
-                RUN_ID, "member", "agent-key", "a".repeat(64), "project_qa", AgentRunStatus.ACCEPTED,
-                null, null, null, null,
-                new AgentScopeSnapshot(PROJECT_ID, "atlas", branchId, branch, null, null, null,
-                        List.of("GLOBAL", "PROJECT", "BRANCH")),
-                new AgentVersionSnapshot("project_qa", "fake-model", "project-qa-v1"),
-                5, 0, 0, null, null, NOW, null, null, List.of());
+    private AgentRun run(String branch, Long branchId) {
+        return new AgentRun(
+                RUN_ID, AgentRun.Status.ACCEPTED, null, null, null, null, null,
+                new AgentRun.Scope(PROJECT_ID, "atlas", branchId, branch, null, null, null),
+                0, 0, NOW, null, null, List.of());
     }
 }

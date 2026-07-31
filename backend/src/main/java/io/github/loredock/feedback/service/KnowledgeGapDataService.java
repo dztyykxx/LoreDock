@@ -1,9 +1,7 @@
 package io.github.loredock.feedback.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import io.github.loredock.agent.model.enums.AgentErrorCode;
-import io.github.loredock.agent.model.enums.AgentRefusalReason;
-import io.github.loredock.agent.model.enums.AgentResultType;
+import io.github.loredock.agent.api.AgentRun;
 import io.github.loredock.feedback.mapper.KnowledgeGapFeedbackCitationMapper;
 import io.github.loredock.feedback.mapper.KnowledgeGapFeedbackMapper;
 import io.github.loredock.feedback.model.entity.KnowledgeGapFeedbackCitationEntity;
@@ -128,9 +126,9 @@ public class KnowledgeGapDataService {
                 value.getProjectId(), value.getProjectIdentifier(), value.getBranchId(), value.getBranchName(),
                 value.getQuestionId(), value.getRunId(), KnowledgeGapType.valueOf(value.getGapType()),
                 KnowledgeGapStatus.valueOf(value.getStatus()), value.getQuestionText(), value.getNote(),
-                enumValue(AgentResultType.class, value.getResultType()),
-                enumValue(AgentRefusalReason.class, value.getRefusalReason()),
-                enumValue(AgentErrorCode.class, value.getErrorCode()), value.getCreatedAt(), value.getUpdatedAt(),
+                enumValue(AgentRun.ResultType.class, value.getResultType()),
+                enumValue(AgentRun.RefusalReason.class, value.getRefusalReason()),
+                enumValue(AgentRun.ErrorCode.class, value.getErrorCode()), value.getCreatedAt(), value.getUpdatedAt(),
                 value.getCreatedBy(), value.getUpdatedBy());
     }
 

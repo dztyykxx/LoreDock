@@ -1,7 +1,6 @@
 package io.github.loredock.qa.model.result;
 
-import io.github.loredock.agent.model.enums.AgentRefusalReason;
-import io.github.loredock.agent.model.enums.AgentResultType;
+import io.github.loredock.agent.api.AgentRun;
 import io.github.loredock.qa.model.enums.WebQaMessageRole;
 import java.time.Instant;
 
@@ -11,8 +10,8 @@ public record WebQaMessageRecord(
         Long questionId,
         WebQaMessageRole role,
         String content,
-        AgentResultType resultType,
-        AgentRefusalReason refusalReason,
+        AgentRun.ResultType resultType,
+        AgentRun.RefusalReason refusalReason,
         Instant createdAt
 ) {
 }

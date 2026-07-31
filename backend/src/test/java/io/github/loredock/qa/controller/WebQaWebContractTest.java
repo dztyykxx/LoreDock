@@ -18,16 +18,9 @@ import cn.dev33.satoken.dao.SaTokenDaoDefaultImpl;
 import cn.dev33.satoken.spring.SaBeanInject;
 import cn.dev33.satoken.spring.SaBeanRegister;
 import cn.dev33.satoken.spring.SaTokenContextRegister;
-import io.github.loredock.agent.exception.AgentRequestException;
-import io.github.loredock.agent.model.enums.AgentErrorCode;
-import io.github.loredock.agent.model.enums.AgentRunStatus;
-import io.github.loredock.agent.model.enums.EvidenceSourceType;
-import io.github.loredock.agent.model.snapshot.AgentCitationSnapshot;
-import io.github.loredock.agent.model.snapshot.AgentRunSnapshot;
-import io.github.loredock.agent.model.snapshot.AgentScopeSnapshot;
-import io.github.loredock.agent.model.snapshot.AgentVersionSnapshot;
-import io.github.loredock.agent.model.snapshot.EvidenceSourceMetadata;
-import io.github.loredock.agent.service.AgentRunQueryService;
+import io.github.loredock.agent.api.AgentRequestException;
+import io.github.loredock.agent.api.AgentRun;
+import io.github.loredock.agent.api.AgentService;
 import io.github.loredock.auth.TestAuthFactory;
 import io.github.loredock.auth.config.IdentityRoleConfiguration;
 import io.github.loredock.auth.config.IdentityWebConfiguration;
@@ -107,7 +100,7 @@ class WebQaWebContractTest {
     @Autowired private MockMvc mockMvc;
     @MockitoBean private CreateWebQaQuestionService creates;
     @MockitoBean private QueryWebQaQuestionService queries;
-    @MockitoBean private AgentRunQueryService events;
+    @MockitoBean private AgentService agents;
     @MockitoBean private WebQaSseService streams;
 
     @BeforeEach
@@ -115,7 +108,7 @@ class WebQaWebContractTest {
         SaTokenDaoDefaultImpl sessions = new SaTokenDaoDefaultImpl();
         sessions.init();
         SaManager.setSaTokenDao(sessions);
-        reset(creates, queries, events, streams);
+        reset(creates, queries, agents, streams);
     }
 
     /**
@@ -124,8 +117,8 @@ class WebQaWebContractTest {
     @Test
     void authenticatedRolesCreateAcceptedQuestionWithServerIdentity() throws Exception {
         when(creates.create(any())).thenReturn(snapshot());
-        when(events.lastSequence(RUN_ID, "member")).thenReturn(1L);
-        when(events.lastSequence(RUN_ID, "admin")).thenReturn(1L);
+        when(agents.lastEventSequence(RUN_ID, "member")).thenReturn(1L);
+        when(agents.lastEventSequence(RUN_ID, "admin")).thenReturn(1L);
 
         mockMvc.perform(post("/api/projects/atlas/qa/questions")
                         .cookie(loginCookie("member"))
@@ -185,7 +178,7 @@ class WebQaWebContractTest {
     void conflictAndHiddenDetailUseStableErrors() throws Exception {
         Cookie member = loginCookie("member");
         when(creates.create(any())).thenThrow(new AgentRequestException(
-                AgentErrorCode.AGENT_RUN_IDEMPOTENCY_CONFLICT));
+                AgentRun.ErrorCode.AGENT_RUN_IDEMPOTENCY_CONFLICT));
         mockMvc.perform(post("/api/projects/atlas/qa/questions")
                         .cookie(member).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"idempotencyKey\":\"client-key\",\"question\":\"不同问题\"}"))
@@ -235,7 +228,7 @@ class WebQaWebContractTest {
         WebQaQuestionSnapshot snapshot = snapshot();
         when(queries.history(any())).thenReturn(new WebQaQuestionPage(List.of(snapshot), "next-safe-cursor"));
         when(queries.detail(any())).thenReturn(snapshot);
-        when(events.lastSequence(RUN_ID, "member")).thenReturn(7L);
+        when(agents.lastEventSequence(RUN_ID, "member")).thenReturn(7L);
         Cookie member = loginCookie("member");
 
         mockMvc.perform(get("/api/projects/atlas/qa/questions")
@@ -341,17 +334,15 @@ class WebQaWebContractTest {
         WebQaQuestionRecord question = new WebQaQuestionRecord(
                 QUESTION_ID, "member", "client-key", "a".repeat(64), PROJECT_ID, "atlas",
                 BRANCH_ID, "main", RUN_ID, NOW);
-        AgentCitationSnapshot citation = new AgentCitationSnapshot(
-                8000000000000000158L, EvidenceSourceType.CODE, null, 8000000000000000159L, "atlas", "main",
+        AgentRun.Citation citation = new AgentRun.Citation(
+                8000000000000000158L, AgentRun.EvidenceSourceType.CODE, null, 8000000000000000159L, "atlas", "main",
                 "abcdef1", "src/Auth.java", "Auth.java", NOW, 1,
-                EvidenceSourceMetadata.historicalUnknown());
-        AgentRunSnapshot run = new AgentRunSnapshot(
-                RUN_ID, "member", "agent-key", "b".repeat(64), "project_qa", AgentRunStatus.ACCEPTED,
-                null, null, null, null, null,
-                new AgentScopeSnapshot(PROJECT_ID, "atlas", BRANCH_ID, "main", 8000000000000000160L, "abcdef1",
-                        8000000000000000161L, List.of("GLOBAL", "PROJECT", "BRANCH")),
-                new AgentVersionSnapshot("project_qa", "fake-model", "prompt"),
-                10, 0, 0, null, null, NOW, null, null, List.of(citation));
+                new AgentRun.SourceMetadata(null, null, null, null, null));
+        AgentRun run = new AgentRun(
+                RUN_ID, AgentRun.Status.ACCEPTED, null, null, null, null, null,
+                new AgentRun.Scope(PROJECT_ID, "atlas", BRANCH_ID, "main",
+                        8000000000000000160L, "abcdef1", 8000000000000000161L),
+                0, 0, NOW, null, null, List.of(citation));
         WebQaMessageRecord message = new WebQaMessageRecord(
                 8000000000000000162L, QUESTION_ID, WebQaMessageRole.USER, "为什么必须校验引用？",
                 null, null, NOW);

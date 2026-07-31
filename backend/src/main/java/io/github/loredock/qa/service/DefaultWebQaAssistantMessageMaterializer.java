@@ -1,8 +1,6 @@
 package io.github.loredock.qa.service;
 
-import io.github.loredock.agent.model.enums.AgentResultType;
-import io.github.loredock.agent.model.enums.AgentRunStatus;
-import io.github.loredock.agent.model.snapshot.AgentRunSnapshot;
+import io.github.loredock.agent.api.AgentRun;
 import io.github.loredock.qa.model.enums.WebQaMessageRole;
 import io.github.loredock.qa.model.result.WebQaMessageRecord;
 import io.github.loredock.qa.model.result.WebQaQuestionRecord;
@@ -23,21 +21,21 @@ public class DefaultWebQaAssistantMessageMaterializer {
     }
 
     @Transactional
-    public boolean materialize(WebQaQuestionRecord question, AgentRunSnapshot run) {
+    public boolean materialize(WebQaQuestionRecord question, AgentRun run) {
         if (!question.runId().equals(run.runId())) {
             throw new IllegalArgumentException("web QA question and run mismatch");
         }
-        if (run.status() != AgentRunStatus.COMPLETED) {
+        if (run.status() != AgentRun.Status.COMPLETED) {
             return false;
         }
         if (run.resultType() == null || run.resultText() == null || run.resultText().isBlank()
                 || run.finishedAt() == null) {
             throw new IllegalStateException("completed agent run has no public result");
         }
-        if (run.resultType() == AgentResultType.ANSWER && run.refusalReason() != null) {
+        if (run.resultType() == AgentRun.ResultType.ANSWER && run.refusalReason() != null) {
             throw new IllegalStateException("answer run contains refusal reason");
         }
-        if (run.resultType() == AgentResultType.REFUSAL && run.refusalReason() == null) {
+        if (run.resultType() == AgentRun.ResultType.REFUSAL && run.refusalReason() == null) {
             throw new IllegalStateException("refusal run has no reason");
         }
         boolean inserted = messages.insertIfAbsent(new WebQaMessageRecord(

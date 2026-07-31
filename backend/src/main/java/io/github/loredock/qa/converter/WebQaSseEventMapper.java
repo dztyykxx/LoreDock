@@ -1,8 +1,7 @@
 package io.github.loredock.qa.converter;
 
-import io.github.loredock.agent.model.enums.AgentErrorCode;
-import io.github.loredock.agent.model.enums.AgentResultType;
-import io.github.loredock.agent.model.snapshot.AgentEventSnapshot;
+import io.github.loredock.agent.api.AgentEvent;
+import io.github.loredock.agent.api.AgentRun;
 import io.github.loredock.qa.model.snapshot.WebQaSseEventV1;
 import io.github.loredock.qa.model.snapshot.WebQaSsePublicEvent;
 import java.util.Set;
@@ -19,7 +18,7 @@ public final class WebQaSseEventMapper {
     }
 
     /** @return 有限公开事件 */
-    public static WebQaSsePublicEvent toPublic(AgentEventSnapshot event) {
+    public static WebQaSsePublicEvent toPublic(AgentEvent event) {
         if (event == null || event.sequence() < 1 || event.type() == null || event.createdAt() == null) {
             throw new IllegalArgumentException("Agent event is incomplete");
         }
@@ -42,14 +41,14 @@ public final class WebQaSseEventMapper {
     }
 
     private static WebQaSsePublicEvent event(
-            AgentEventSnapshot source,
+            AgentEvent source,
             String name,
             String phase,
             String tool,
             Integer count,
             String textDelta,
-            AgentResultType resultType,
-            AgentErrorCode errorCode
+            AgentRun.ResultType resultType,
+            AgentRun.ErrorCode errorCode
     ) {
         return new WebQaSsePublicEvent(name, new WebQaSseEventV1(
                 VERSION, source.sequence(), source.createdAt(), phase, tool, count,
@@ -72,17 +71,17 @@ public final class WebQaSseEventMapper {
         }
     }
 
-    private static AgentResultType resultType(String payload) {
+    private static AgentRun.ResultType resultType(String payload) {
         try {
-            return AgentResultType.valueOf(requiredText(payload));
+            return AgentRun.ResultType.valueOf(requiredText(payload));
         } catch (IllegalArgumentException exception) {
             throw new IllegalArgumentException("Agent result payload is invalid", exception);
         }
     }
 
-    private static AgentErrorCode errorCode(String payload) {
+    private static AgentRun.ErrorCode errorCode(String payload) {
         try {
-            return AgentErrorCode.valueOf(requiredText(payload));
+            return AgentRun.ErrorCode.valueOf(requiredText(payload));
         } catch (IllegalArgumentException exception) {
             throw new IllegalArgumentException("Agent error payload is invalid", exception);
         }

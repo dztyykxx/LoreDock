@@ -1,11 +1,8 @@
 package io.github.loredock.qa.service;
 
-import io.github.loredock.agent.exception.AgentRequestException;
-import io.github.loredock.agent.model.command.StartProjectQaRunCommand;
-import io.github.loredock.agent.model.enums.AgentErrorCode;
-import io.github.loredock.agent.model.snapshot.AgentRunSnapshot;
-import io.github.loredock.agent.service.AgentRunQueryService;
-import io.github.loredock.agent.service.StartProjectQaRunService;
+import io.github.loredock.agent.api.AgentRequestException;
+import io.github.loredock.agent.api.AgentRun;
+import io.github.loredock.agent.api.AgentService;
 import io.github.loredock.project.api.ProjectScope;
 import io.github.loredock.project.api.ProjectService;
 import io.github.loredock.qa.model.command.CreateWebQaQuestionCommand;
@@ -33,31 +30,27 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 public class CreateWebQaQuestionService {
     private final ProjectService projects;
-    private final StartProjectQaRunService starts;
-    private final AgentRunQueryService runQueries;
+    private final AgentService agents;
     private final WebQaQuestionDataService questions;
     private final WebQaMessageDataService messages;
     private final Clock timeProvider;
 
     /**
      * @param projects 启用项目和明确分支解析
-     * @param starts Agent 运行受理入口
-     * @param runQueries 已有运行安全查询
+     * @param agents Agent 运行受理与安全查询契约
      * @param questions 问答身份仓储
      * @param messages 问答消息仓储
      * @param timeProvider UTC 时间源
      */
     public CreateWebQaQuestionService(
             ProjectService projects,
-            StartProjectQaRunService starts,
-            AgentRunQueryService runQueries,
+            AgentService agents,
             WebQaQuestionDataService questions,
             WebQaMessageDataService messages,
             Clock timeProvider
     ) {
         this.projects = projects;
-        this.starts = starts;
-        this.runQueries = runQueries;
+        this.agents = agents;
         this.questions = questions;
         this.messages = messages;
         this.timeProvider = timeProvider;
@@ -73,7 +66,7 @@ public class CreateWebQaQuestionService {
         if (existing.isPresent()) {
             requireSameRequest(existing.get(), requestHash);
             WebQaQuestionSnapshot reused = snapshot(
-                    existing.get(), runQueries.get(existing.get().runId(), command.operatorId()));
+                    existing.get(), agents.get(existing.get().runId(), command.operatorId()));
             log.info("web_qa create reused traceId={} questionId={} runId={} project={} branch={} status={} "
                             + "questionLength={} questionDigest={}",
                     traceId(existing.get().id()), existing.get().id(), existing.get().runId(),
@@ -82,7 +75,7 @@ public class CreateWebQaQuestionService {
             return reused;
         }
 
-        AgentRunSnapshot run = starts.start(new StartProjectQaRunCommand(
+        AgentRun run = agents.start(new AgentService.StartRequest(
                 agentIdempotencyKey(command.idempotencyKey().value()), command.operatorId(), command.operatorRole(),
                 project.projectIdentifier(), project.branchName(), command.question().value()));
         Instant createdAt = timeProvider.instant();
@@ -97,7 +90,7 @@ public class CreateWebQaQuestionService {
                             command.operatorId(), command.idempotencyKey().value())
                     .orElseThrow(() -> new IllegalStateException("web QA idempotent winner missing"));
             requireSameRequest(raced, requestHash);
-            return snapshot(raced, runQueries.get(raced.runId(), command.operatorId()));
+            return snapshot(raced, agents.get(raced.runId(), command.operatorId()));
         }
         question = new WebQaQuestionRecord(
                 insertedQuestionId.orElseThrow(), question.operatorId(), question.idempotencyKey(),
@@ -122,12 +115,12 @@ public class CreateWebQaQuestionService {
                 question, run, trustState(run), List.of(userMessage));
     }
 
-    private WebQaQuestionSnapshot snapshot(WebQaQuestionRecord question, AgentRunSnapshot run) {
+    private WebQaQuestionSnapshot snapshot(WebQaQuestionRecord question, AgentRun run) {
         List<WebQaMessageRecord> values = messages.findByQuestionId(question.id());
         return new WebQaQuestionSnapshot(question, run, trustState(run), values);
     }
 
-    private WebQaTrustState trustState(AgentRunSnapshot run) {
+    private WebQaTrustState trustState(AgentRun run) {
         return WebQaTrustState.from(run.status(), run.resultType(), run.refusalReason(), run.errorCode());
     }
 
@@ -136,8 +129,8 @@ public class CreateWebQaQuestionService {
             log.warn("web_qa create failed traceId={} questionId={} runId={} project={} branch={} "
                             + "errorCode={}",
                     traceId(existing.id()), existing.id(), existing.runId(), existing.projectIdentifier(),
-                    existing.branch(), AgentErrorCode.AGENT_RUN_IDEMPOTENCY_CONFLICT);
-            throw new AgentRequestException(AgentErrorCode.AGENT_RUN_IDEMPOTENCY_CONFLICT);
+                    existing.branch(), AgentRun.ErrorCode.AGENT_RUN_IDEMPOTENCY_CONFLICT);
+            throw new AgentRequestException(AgentRun.ErrorCode.AGENT_RUN_IDEMPOTENCY_CONFLICT);
         }
     }
 

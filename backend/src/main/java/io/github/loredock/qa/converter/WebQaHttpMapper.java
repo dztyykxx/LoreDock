@@ -1,7 +1,6 @@
 package io.github.loredock.qa.converter;
 
-import io.github.loredock.agent.model.snapshot.AgentCitationSnapshot;
-import io.github.loredock.agent.model.snapshot.EvidenceSourceMetadata;
+import io.github.loredock.agent.api.AgentRun;
 import io.github.loredock.qa.model.response.WebQaCitationResponse;
 import io.github.loredock.qa.model.response.WebQaMessageResponse;
 import io.github.loredock.qa.model.response.WebQaQuestionResponse;
@@ -36,8 +35,8 @@ public final class WebQaHttpMapper {
                 message.refusalReason(), message.createdAt());
     }
 
-    private static WebQaCitationResponse toCitation(AgentCitationSnapshot citation) {
-        EvidenceSourceMetadata metadata = citation.sourceMetadata();
+    private static WebQaCitationResponse toCitation(AgentRun.Citation citation) {
+        AgentRun.SourceMetadata metadata = citation.sourceMetadata();
         return new WebQaCitationResponse(
                 citation.order(), citation.sourceType(), citation.projectIdentifier(), citation.branch(),
                 citation.commit(), citation.repositoryPath(), citation.title(), citation.sourceUpdatedAt(),

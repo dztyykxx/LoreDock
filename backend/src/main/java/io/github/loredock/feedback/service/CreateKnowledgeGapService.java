@@ -1,6 +1,6 @@
 package io.github.loredock.feedback.service;
 
-import io.github.loredock.agent.model.snapshot.AgentRunSnapshot;
+import io.github.loredock.agent.api.AgentRun;
 import io.github.loredock.feedback.exception.KnowledgeGapIdempotencyConflictException;
 import io.github.loredock.feedback.model.command.CreateKnowledgeGapCommand;
 import io.github.loredock.feedback.model.enums.KnowledgeGapStatus;
@@ -175,7 +175,7 @@ public class CreateKnowledgeGapService {
         return current == null || current.isBlank() ? "background" : current;
     }
 
-    private record LinkedFacts(Long questionId, Long runId, String question, AgentRunSnapshot run) {
+    private record LinkedFacts(Long questionId, Long runId, String question, AgentRun run) {
         private static LinkedFacts manual(String question) {
             return new LinkedFacts(null, null, question, null);
         }

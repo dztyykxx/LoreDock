@@ -158,15 +158,16 @@ class ProjectQaDeterministicCoreE2EIT {
                 "member", "MEMBER", "e2e-answer-key", "atlas", "main", "范围隔离规则是什么？"));
         WebQaQuestionSnapshot detail = awaitTerminal(created.question().id());
 
-        assertThat(detail.run().status()).isEqualTo(AgentRunStatus.COMPLETED);
-        assertThat(detail.run().resultType()).isEqualTo(AgentResultType.ANSWER);
+        assertThat(detail.run().status()).isEqualTo(io.github.loredock.agent.api.AgentRun.Status.COMPLETED);
+        assertThat(detail.run().resultType()).isEqualTo(io.github.loredock.agent.api.AgentRun.ResultType.ANSWER);
         assertThat(detail.run().citations()).hasSize(1);
         assertThat(detail.run().citations().get(0).documentId()).isEqualTo(published.id());
         assertThat(detail.run().citations().get(0).projectIdentifier()).isEqualTo("atlas");
         assertThat(detail.messages()).extracting(message -> message.role())
                 .containsExactly(WebQaMessageRole.USER, WebQaMessageRole.ASSISTANT);
         assertThat(detail.messages().get(1).content()).contains("范围隔离规则");
-        assertThat(detail.messages().get(1).resultType()).isEqualTo(AgentResultType.ANSWER);
+        assertThat(detail.messages().get(1).resultType())
+                .isEqualTo(io.github.loredock.agent.api.AgentRun.ResultType.ANSWER);
         assertThat(scriptedModel.calls()).isGreaterThanOrEqualTo(2);
         System.out.printf("测试证据：场景=确定性核心E2E带引用回答，questionId=%d，runId=%d，终态=%s，"
                         + "结果=%s，引用数=%d，证据ID=%d，文档ID=%d，消息数=%d，模型调用=%d，耗时毫秒=%d%n",
@@ -186,9 +187,10 @@ class ProjectQaDeterministicCoreE2EIT {
                 "member", "MEMBER", "e2e-refusal-key", "atlas", "main", "这个项目有部署指南吗？"));
         WebQaQuestionSnapshot detail = awaitTerminal(created.question().id());
 
-        assertThat(detail.run().status()).isEqualTo(AgentRunStatus.COMPLETED);
-        assertThat(detail.run().resultType()).isEqualTo(AgentResultType.REFUSAL);
-        assertThat(detail.run().refusalReason()).isEqualTo(AgentRefusalReason.INSUFFICIENT_EVIDENCE);
+        assertThat(detail.run().status()).isEqualTo(io.github.loredock.agent.api.AgentRun.Status.COMPLETED);
+        assertThat(detail.run().resultType()).isEqualTo(io.github.loredock.agent.api.AgentRun.ResultType.REFUSAL);
+        assertThat(detail.run().refusalReason())
+                .isEqualTo(io.github.loredock.agent.api.AgentRun.RefusalReason.INSUFFICIENT_EVIDENCE);
         assertThat(detail.run().citations()).isEmpty();
         assertThat(detail.messages().get(1).role()).isEqualTo(WebQaMessageRole.ASSISTANT);
         assertThat(detail.messages().get(1).content()).isEqualTo("当前知识库没有足够依据");
@@ -204,9 +206,10 @@ class ProjectQaDeterministicCoreE2EIT {
         long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
         while (System.nanoTime() < deadline) {
             snapshot = questionQueries.detail(new QueryWebQaDetailCommand("member", "atlas", questionId));
-            AgentRunStatus status = snapshot.run().status();
-            if (status == AgentRunStatus.COMPLETED || status == AgentRunStatus.FAILED
-                    || status == AgentRunStatus.TERMINATED) {
+            var status = snapshot.run().status();
+            if (status == io.github.loredock.agent.api.AgentRun.Status.COMPLETED
+                    || status == io.github.loredock.agent.api.AgentRun.Status.FAILED
+                    || status == io.github.loredock.agent.api.AgentRun.Status.TERMINATED) {
                 return snapshot;
             }
             Thread.sleep(100);

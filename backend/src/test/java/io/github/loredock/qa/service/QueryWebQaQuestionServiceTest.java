@@ -6,12 +6,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import io.github.loredock.agent.model.enums.AgentResultType;
-import io.github.loredock.agent.model.enums.AgentRunStatus;
-import io.github.loredock.agent.model.snapshot.AgentRunSnapshot;
-import io.github.loredock.agent.model.snapshot.AgentScopeSnapshot;
-import io.github.loredock.agent.model.snapshot.AgentVersionSnapshot;
-import io.github.loredock.agent.service.AgentRunQueryService;
+import io.github.loredock.agent.api.AgentRun;
+import io.github.loredock.agent.api.AgentService;
 import io.github.loredock.project.api.ProjectScope;
 import io.github.loredock.project.api.ProjectService;
 import io.github.loredock.qa.converter.WebQaCursorCodec;
@@ -34,7 +30,7 @@ class QueryWebQaQuestionServiceTest {
     private static final Long BRANCH_ID = 4937811932239626243L;
     private static final Instant NOW = Instant.parse("2026-07-30T05:00:00Z");
     private ProjectService projects;
-    private AgentRunQueryService runs;
+    private AgentService agents;
     private WebQaQuestionDataService questions;
     private WebQaMessageDataService messages;
     private DefaultWebQaAssistantMessageMaterializer materializer;
@@ -43,12 +39,12 @@ class QueryWebQaQuestionServiceTest {
     @BeforeEach
     void setUp() {
         projects = mock(ProjectService.class);
-        runs = mock(AgentRunQueryService.class);
+        agents = mock(AgentService.class);
         questions = mock(WebQaQuestionDataService.class);
         messages = mock(WebQaMessageDataService.class);
         materializer = mock(DefaultWebQaAssistantMessageMaterializer.class);
         when(projects.resolveEnabledScope("atlas", null)).thenReturn(project());
-        service = new QueryWebQaQuestionService(projects, runs, questions, messages, materializer);
+        service = new QueryWebQaQuestionService(projects, agents, questions, messages, materializer);
     }
 
     /**
@@ -64,7 +60,7 @@ class QueryWebQaQuestionServiceTest {
         WebQaCursor after = new WebQaCursor(NOW.plusSeconds(1), 8000000000000000081L);
         when(questions.findHistory("member", PROJECT_ID, after, 3))
                 .thenReturn(List.of(first, second, extra));
-        when(runs.get(any(), org.mockito.ArgumentMatchers.eq("member"))).thenAnswer(invocation ->
+        when(agents.get(any(), org.mockito.ArgumentMatchers.eq("member"))).thenAnswer(invocation ->
                 run(invocation.getArgument(0)));
         when(messages.findByQuestionId(any())).thenReturn(List.of());
 
@@ -89,7 +85,7 @@ class QueryWebQaQuestionServiceTest {
         WebQaQuestionRecord question = question(1, NOW, 8000000000000000082L);
         when(questions.findVisibleById("member", PROJECT_ID, question.id()))
                 .thenReturn(Optional.of(question));
-        when(runs.get(question.runId(), "member")).thenReturn(run(question.runId()));
+        when(agents.get(question.runId(), "member")).thenReturn(run(question.runId()));
         when(messages.findByQuestionId(question.id())).thenReturn(List.of());
         when(materializer.materialize(any(), any())).thenThrow(new IllegalStateException("temporary projection"));
 
@@ -128,13 +124,11 @@ class QueryWebQaQuestionServiceTest {
                 1000L + ordinal, createdAt);
     }
 
-    private AgentRunSnapshot run(Long runId) {
-        return new AgentRunSnapshot(
-                runId, "member", "agent-key", "b".repeat(64), "project_qa", AgentRunStatus.COMPLETED,
-                AgentResultType.ANSWER, "可信回答", null, null,
-                new AgentScopeSnapshot(PROJECT_ID, "atlas", BRANCH_ID, "main", null, null, null,
-                        List.of("GLOBAL", "PROJECT", "BRANCH")),
-                new AgentVersionSnapshot("project_qa", "fake", "v1"),
-                4, 0, 0, null, null, NOW.minusSeconds(1), NOW.minusSeconds(1), NOW, List.of());
+    private AgentRun run(Long runId) {
+        return new AgentRun(
+                runId, AgentRun.Status.COMPLETED, AgentRun.ResultType.ANSWER, null,
+                "可信回答", null, null,
+                new AgentRun.Scope(PROJECT_ID, "atlas", BRANCH_ID, "main", null, null, null),
+                0, 0, NOW.minusSeconds(1), NOW.minusSeconds(1), NOW, List.of());
     }
 }

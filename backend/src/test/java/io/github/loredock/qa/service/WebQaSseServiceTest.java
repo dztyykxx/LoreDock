@@ -8,15 +8,12 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.loredock.agent.api.AgentRun;
+import io.github.loredock.agent.api.AgentService;
 import io.github.loredock.agent.mapper.AgentRunEventMapper;
 import io.github.loredock.agent.model.entity.AgentRunEventEntity;
 import io.github.loredock.agent.model.enums.AgentEventType;
-import io.github.loredock.agent.model.enums.AgentRunStatus;
-import io.github.loredock.agent.model.snapshot.AgentRunSnapshot;
-import io.github.loredock.agent.model.snapshot.AgentScopeSnapshot;
-import io.github.loredock.agent.model.snapshot.AgentVersionSnapshot;
 import io.github.loredock.agent.service.AgentEventService;
-import io.github.loredock.agent.service.AgentRunQueryService;
 import io.github.loredock.auth.service.SessionService;
 import io.github.loredock.qa.config.WebQaSseProperties;
 import io.github.loredock.qa.model.request.WebQaSseStreamRequest;
@@ -47,7 +44,7 @@ class WebQaSseServiceTest {
     void committedEventWakesLiveConnectionAndTerminalSnapshotClosesIt() throws Exception {
         AgentRunEventMapper mapper = mock(AgentRunEventMapper.class);
         AgentEventService eventStream = new AgentEventService(mapper, new ObjectMapper());
-        AgentRunQueryService runs = mock(AgentRunQueryService.class);
+        AgentService agents = mock(AgentService.class);
         QueryWebQaQuestionService access = mock(QueryWebQaQuestionService.class);
         SessionService sessions = mock(SessionService.class);
         SessionService.SessionLease lease = mock(SessionService.SessionLease.class);
@@ -57,13 +54,14 @@ class WebQaSseServiceTest {
             waiting.countDown();
             return true;
         });
-        when(access.authorize(any())).thenReturn(target(AgentRunStatus.RUNNING), target(AgentRunStatus.COMPLETED));
-        when(runs.list(any(), any(), any(Long.class), any(Integer.class))).thenReturn(List.of());
-        when(runs.lastSequence(RUN_ID, "member")).thenReturn(1L);
+        when(access.authorize(any())).thenReturn(target(AgentRun.Status.RUNNING), target(AgentRun.Status.COMPLETED));
+        when(agents.listEvents(any(), any(), any(Long.class), any(Integer.class))).thenReturn(List.of());
+        when(agents.lastEventSequence(RUN_ID, "member")).thenReturn(1L);
+        when(agents.subscribe(RUN_ID)).thenAnswer(ignored -> subscription(eventStream));
         when(mapper.appendReturning(any(), any(), any(), any())).thenReturn(AgentRunEventEntity.builder()
                 .id(1L).runId(RUN_ID).sequence(1L).eventType(AgentEventType.MODEL_STARTED.name())
                 .payload("{\"value\":\"model\"}").createdAt(NOW).build());
-        WebQaSseService service = service(runs, eventStream, sessions, access, materializer);
+        WebQaSseService service = service(agents, sessions, access, materializer);
         RecordingSink sink = new RecordingSink();
 
         try (var executor = Executors.newSingleThreadExecutor()) {
@@ -87,7 +85,7 @@ class WebQaSseServiceTest {
      */
     @Test
     void invalidSessionClosesBeforeReadingEvents() {
-        AgentRunQueryService runs = mock(AgentRunQueryService.class);
+        AgentService agents = mock(AgentService.class);
         AgentEventService eventStream = new AgentEventService(mock(AgentRunEventMapper.class), new ObjectMapper());
         QueryWebQaQuestionService access = mock(QueryWebQaQuestionService.class);
         SessionService sessions = mock(SessionService.class);
@@ -95,19 +93,19 @@ class WebQaSseServiceTest {
         when(sessions.isValid(lease, "member")).thenReturn(false);
         RecordingSink sink = new RecordingSink();
 
-        service(runs, eventStream, sessions, access, mock(DefaultWebQaAssistantMessageMaterializer.class))
+        when(agents.subscribe(RUN_ID)).thenAnswer(ignored -> subscription(eventStream));
+        service(agents, sessions, access, mock(DefaultWebQaAssistantMessageMaterializer.class))
                 .stream(request(lease), sink, Instant.now());
 
         assertThat(sink.closed).isTrue();
         assertThat(sink.events).isEmpty();
         verify(access, never()).authorize(any());
-        verify(runs, never()).list(any(), any(), any(Long.class), any(Integer.class));
+        verify(agents, never()).listEvents(any(), any(), any(Long.class), any(Integer.class));
         System.out.println("测试证据：场景=SSE会话失效，会话复核=false，读取事件=0，发送事件=0");
     }
 
     private WebQaSseService service(
-            AgentRunQueryService runs,
-            AgentEventService eventStream,
+            AgentService agents,
             SessionService sessions,
             QueryWebQaQuestionService access,
             DefaultWebQaAssistantMessageMaterializer materializer
@@ -115,7 +113,7 @@ class WebQaSseServiceTest {
         return new WebQaSseService(
                 new WebQaSseProperties(Duration.ofSeconds(5), Duration.ofMinutes(1),
                         20, 1, 1, 0, Duration.ofSeconds(1)),
-                mock(BoundedWebQaSseExecutor.class), Clock.systemUTC(), access, runs, eventStream,
+                mock(BoundedWebQaSseExecutor.class), Clock.systemUTC(), access, agents,
                 sessions, materializer);
     }
 
@@ -123,17 +121,30 @@ class WebQaSseServiceTest {
         return new WebQaSseStreamRequest("member", "atlas", QUESTION_ID, RUN_ID, 0, lease);
     }
 
-    private WebQaStreamTarget target(AgentRunStatus status) {
+    private WebQaStreamTarget target(AgentRun.Status status) {
         WebQaQuestionRecord question = new WebQaQuestionRecord(
                 QUESTION_ID, "member", "key", "a".repeat(64), 11L, "atlas", 12L, "main", RUN_ID, NOW);
-        AgentRunSnapshot run = new AgentRunSnapshot(
-                RUN_ID, "member", "agent-key", "b".repeat(64), "project_qa", status,
-                null, null, null, null,
-                new AgentScopeSnapshot(11L, "atlas", 12L, "main", null, null, null,
-                        List.of("GLOBAL", "PROJECT", "BRANCH")),
-                new AgentVersionSnapshot("project_qa", "fake-model", "prompt"),
-                3, 0, 0, null, null, NOW, null, status.terminal() ? NOW : null, List.of());
+        AgentRun run = new AgentRun(
+                RUN_ID, status, null, null, null, null, null,
+                new AgentRun.Scope(11L, "atlas", 12L, "main", null, null, null),
+                0, 0, NOW, null, status.terminal() ? NOW : null, List.of());
         return new WebQaStreamTarget(question, run);
+    }
+
+    private AgentService.Subscription subscription(AgentEventService eventStream) {
+        AgentEventService.EventSubscription delegate = eventStream.subscribe(RUN_ID);
+        return new AgentService.Subscription() {
+            @Override
+            public io.github.loredock.agent.api.AgentEvent poll(Duration timeout) throws InterruptedException {
+                var event = delegate.poll(timeout);
+                return event == null ? null : io.github.loredock.testsupport.AgentApiFixtures.event(event);
+            }
+
+            @Override
+            public void close() {
+                delegate.close();
+            }
+        };
     }
 
     private static final class RecordingSink implements WebQaSseSink {

@@ -1,8 +1,7 @@
 package io.github.loredock.qa.service;
 
-import io.github.loredock.agent.model.snapshot.AgentEventSnapshot;
-import io.github.loredock.agent.service.AgentEventService;
-import io.github.loredock.agent.service.AgentRunQueryService;
+import io.github.loredock.agent.api.AgentEvent;
+import io.github.loredock.agent.api.AgentService;
 import io.github.loredock.auth.service.SessionService;
 import io.github.loredock.qa.config.WebQaSseProperties;
 import io.github.loredock.qa.converter.WebQaSseEventMapper;
@@ -32,8 +31,7 @@ public class WebQaSseService {
     private final BoundedWebQaSseExecutor executor;
     private final Clock timeProvider;
     private final QueryWebQaQuestionService access;
-    private final AgentRunQueryService runs;
-    private final AgentEventService eventStream;
+    private final AgentService agents;
     private final SessionService sessions;
     private final DefaultWebQaAssistantMessageMaterializer materializer;
 
@@ -42,8 +40,7 @@ public class WebQaSseService {
      * @param executor 专用有界连接执行器
      * @param timeProvider UTC 时间源
      * @param access 每轮问答访问复核
-     * @param runs Agent 已提交事件与终态查询
-     * @param eventStream 当前进程提交后事件通知
+     * @param agents Agent 已提交事件、终态与当前进程通知契约
      * @param sessions 建连会话持续校验
      * @param materializer 终态消息投影
      */
@@ -52,8 +49,7 @@ public class WebQaSseService {
             BoundedWebQaSseExecutor executor,
             Clock timeProvider,
             QueryWebQaQuestionService access,
-            AgentRunQueryService runs,
-            AgentEventService eventStream,
+            AgentService agents,
             SessionService sessions,
             DefaultWebQaAssistantMessageMaterializer materializer
     ) {
@@ -61,8 +57,7 @@ public class WebQaSseService {
         this.executor = executor;
         this.timeProvider = timeProvider;
         this.access = access;
-        this.runs = runs;
-        this.eventStream = eventStream;
+        this.agents = agents;
         this.sessions = sessions;
         this.materializer = materializer;
     }
@@ -90,7 +85,7 @@ public class WebQaSseService {
         long cursor = request.afterSequence();
         int sentCount = 0;
         String closeReason = "completed";
-        try (var subscription = eventStream.subscribe(request.runId())) {
+        try (var subscription = agents.subscribe(request.runId())) {
             Instant deadline = openedAt.plus(properties.maxDuration());
             while (!sink.isClosed() && timeProvider.instant().isBefore(deadline)) {
                 WebQaStreamTarget target = authorizedTarget(request, sink);
@@ -116,7 +111,7 @@ public class WebQaSseService {
                 }
                 Duration wait = remaining.compareTo(properties.heartbeatInterval()) < 0
                         ? remaining : properties.heartbeatInterval();
-                AgentEventSnapshot event = subscription.poll(wait);
+                AgentEvent event = subscription.poll(wait);
                 if (event == null) {
                     sink.heartbeat();
                     continue;
@@ -177,10 +172,10 @@ public class WebQaSseService {
             throws IOException {
         long nextCursor = cursor;
         int sent = 0;
-        List<AgentEventSnapshot> page;
+        List<AgentEvent> page;
         do {
-            page = runs.list(request.runId(), request.operatorId(), nextCursor, properties.batchSize());
-            for (AgentEventSnapshot event : page) {
+            page = agents.listEvents(request.runId(), request.operatorId(), nextCursor, properties.batchSize());
+            for (AgentEvent event : page) {
                 if (!request.runId().equals(event.runId())) {
                     throw new IllegalArgumentException("SSE event run mismatch");
                 }
@@ -202,7 +197,7 @@ public class WebQaSseService {
             WebQaSseSink sink
     ) {
         if (!target.run().status().terminal()
-                || cursor < runs.lastSequence(request.runId(), request.operatorId())) {
+                || cursor < agents.lastEventSequence(request.runId(), request.operatorId())) {
             return false;
         }
         try {

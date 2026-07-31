@@ -3,10 +3,7 @@ package io.github.loredock.qa.model;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import io.github.loredock.agent.model.enums.AgentErrorCode;
-import io.github.loredock.agent.model.enums.AgentRefusalReason;
-import io.github.loredock.agent.model.enums.AgentResultType;
-import io.github.loredock.agent.model.enums.AgentRunStatus;
+import io.github.loredock.agent.api.AgentRun;
 import io.github.loredock.qa.converter.WebQaCursorCodec;
 import io.github.loredock.qa.model.enums.WebQaTrustState;
 import io.github.loredock.qa.model.snapshot.WebQaCursor;
@@ -21,23 +18,23 @@ class WebQaDomainTest {
     @Test
     void runFactsMapToFiveStableWebTrustStates() {
         assertThat(WebQaTrustState.from(
-                AgentRunStatus.COMPLETED, AgentResultType.ANSWER, null, null))
+                AgentRun.Status.COMPLETED, AgentRun.ResultType.ANSWER, null, null))
                 .isEqualTo(WebQaTrustState.RELIABLE_ANSWER);
         assertThat(WebQaTrustState.from(
-                AgentRunStatus.COMPLETED, AgentResultType.REFUSAL,
-                AgentRefusalReason.SOURCE_CONFLICT, null))
+                AgentRun.Status.COMPLETED, AgentRun.ResultType.REFUSAL,
+                AgentRun.RefusalReason.SOURCE_CONFLICT, null))
                 .isEqualTo(WebQaTrustState.SOURCE_CONFLICT);
         assertThat(WebQaTrustState.from(
-                AgentRunStatus.COMPLETED, AgentResultType.REFUSAL,
-                AgentRefusalReason.INSUFFICIENT_EVIDENCE, null))
+                AgentRun.Status.COMPLETED, AgentRun.ResultType.REFUSAL,
+                AgentRun.RefusalReason.INSUFFICIENT_EVIDENCE, null))
                 .isEqualTo(WebQaTrustState.INSUFFICIENT_EVIDENCE);
-        assertThat(WebQaTrustState.from(AgentRunStatus.RUNNING, null, null, null))
+        assertThat(WebQaTrustState.from(AgentRun.Status.RUNNING, null, null, null))
                 .isEqualTo(WebQaTrustState.IN_PROGRESS);
         assertThat(WebQaTrustState.from(
-                AgentRunStatus.FAILED, null, null, AgentErrorCode.AGENT_MODEL_UNAVAILABLE))
+                AgentRun.Status.FAILED, null, null, AgentRun.ErrorCode.AGENT_MODEL_UNAVAILABLE))
                 .isEqualTo(WebQaTrustState.FAILED);
         assertThat(WebQaTrustState.from(
-                AgentRunStatus.TERMINATED, null, null, AgentErrorCode.AGENT_RUN_TIMEOUT))
+                AgentRun.Status.TERMINATED, null, null, AgentRun.ErrorCode.AGENT_RUN_TIMEOUT))
                 .isEqualTo(WebQaTrustState.FAILED);
         System.out.println("测试证据：场景=Web可信状态映射，完成回答=RELIABLE_ANSWER，冲突/拒答/活动/失败均独立");
     }
@@ -48,10 +45,10 @@ class WebQaDomainTest {
     @Test
     void inconsistentTerminalFactsAreRejected() {
         assertThatThrownBy(() -> WebQaTrustState.from(
-                AgentRunStatus.COMPLETED, null, null, null))
+                AgentRun.Status.COMPLETED, null, null, null))
                 .isInstanceOf(IllegalStateException.class);
         assertThatThrownBy(() -> WebQaTrustState.from(
-                AgentRunStatus.FAILED, AgentResultType.ANSWER, null, null))
+                AgentRun.Status.FAILED, AgentRun.ResultType.ANSWER, null, null))
                 .isInstanceOf(IllegalStateException.class);
         System.out.println("测试证据：场景=不一致终态拒绝，缺失结果与失败携带答案均未映射");
     }

@@ -6,12 +6,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import io.github.loredock.agent.api.AgentService;
 import io.github.loredock.agent.model.command.AgentRunCreateData;
 import io.github.loredock.agent.model.snapshot.AgentScopeSnapshot;
 import io.github.loredock.agent.model.snapshot.AgentVersionSnapshot;
-import io.github.loredock.agent.service.AgentRunQueryService;
 import io.github.loredock.agent.service.AgentRunService;
-import io.github.loredock.agent.service.StartProjectQaRunService;
 import io.github.loredock.project.api.ProjectScope;
 import io.github.loredock.project.api.ProjectService;
 import io.github.loredock.qa.model.command.CreateWebQaQuestionCommand;
@@ -159,21 +158,20 @@ class WebQaPersistenceIT {
     }
 
     private CreateWebQaQuestionService service(
-            StartProjectQaRunService starts,
+            AgentService agents,
             WebQaMessageDataService messageRepository
     ) {
-        AgentRunQueryService runQueries = mock(AgentRunQueryService.class);
-        when(runQueries.get(any(), any())).thenAnswer(invocation -> runs.findById(invocation.getArgument(0))
+        when(agents.get(any(), any())).thenAnswer(invocation -> runs.findById(invocation.getArgument(0))
                 .filter(value -> value.operatorId().equals(invocation.getArgument(1)))
-                .orElseThrow());
+                .map(io.github.loredock.testsupport.AgentApiFixtures::run).orElseThrow());
         return new CreateWebQaQuestionService(
-                projects, starts, runQueries, questions, messageRepository, Clock.fixed(NOW, java.time.ZoneOffset.UTC));
+                projects, agents, questions, messageRepository, Clock.fixed(NOW, java.time.ZoneOffset.UTC));
     }
 
-    private StartProjectQaRunService startUseCase(CountDownLatch ready, CountDownLatch start) {
-        StartProjectQaRunService service = mock(StartProjectQaRunService.class);
+    private AgentService startUseCase(CountDownLatch ready, CountDownLatch start) {
+        AgentService service = mock(AgentService.class);
         when(service.start(any())).thenAnswer(invocation -> {
-            var command = (io.github.loredock.agent.model.command.StartProjectQaRunCommand) invocation.getArgument(0);
+            var command = (AgentService.StartRequest) invocation.getArgument(0);
             awaitBarrier(ready, start);
             ProjectScope project = projects.resolveEnabledScope(command.projectIdentifier(), command.branch());
             AgentScopeSnapshot scope = new AgentScopeSnapshot(
@@ -186,7 +184,7 @@ class WebQaPersistenceIT {
                     hash(project.projectIdentifier() + "\n" + project.branchName() + "\n" + command.question()),
                     "project_qa", hash(command.question()),
                     command.question().codePointCount(0, command.question().length()), scope, versions, NOW);
-            return runs.accept(data).snapshot();
+            return io.github.loredock.testsupport.AgentApiFixtures.run(runs.accept(data).snapshot());
         });
         return service;
     }

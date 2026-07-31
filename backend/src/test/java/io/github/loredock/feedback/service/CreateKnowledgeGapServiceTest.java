@@ -6,9 +6,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import io.github.loredock.agent.model.enums.AgentResultType;
-import io.github.loredock.agent.model.snapshot.AgentCitationSnapshot;
-import io.github.loredock.agent.model.snapshot.AgentRunSnapshot;
+import io.github.loredock.agent.api.AgentRun;
 import io.github.loredock.feedback.exception.KnowledgeGapIdempotencyConflictException;
 import io.github.loredock.feedback.model.command.CreateKnowledgeGapCommand;
 import io.github.loredock.feedback.model.enums.KnowledgeGapType;
@@ -64,11 +62,11 @@ class CreateKnowledgeGapServiceTest {
      */
     @Test
     void linkedQuestionCopiesOnlyServerFactsAndCitations() {
-        AgentRunSnapshot run = mock(AgentRunSnapshot.class);
-        AgentCitationSnapshot citation = mock(AgentCitationSnapshot.class);
+        AgentRun run = mock(AgentRun.class);
+        AgentRun.Citation citation = mock(AgentRun.Citation.class);
         when(citation.evidenceId()).thenReturn(EVIDENCE_ID);
         when(run.runId()).thenReturn(RUN_ID);
-        when(run.resultType()).thenReturn(AgentResultType.ANSWER);
+        when(run.resultType()).thenReturn(AgentRun.ResultType.ANSWER);
         when(run.errorCode()).thenReturn(null);
         when(run.citations()).thenReturn(List.of(citation));
         WebQaQuestionRecord question = new WebQaQuestionRecord(
@@ -78,7 +76,7 @@ class CreateKnowledgeGapServiceTest {
                 8000000000000000054L, QUESTION_ID, WebQaMessageRole.USER, "服务端真实问题", null, null, NOW);
         WebQaMessageRecord assistant = new WebQaMessageRecord(
                 8000000000000000055L, QUESTION_ID, WebQaMessageRole.ASSISTANT, "不得复制的完整答案",
-                AgentResultType.ANSWER, null, NOW);
+                AgentRun.ResultType.ANSWER, null, NOW);
         when(questions.detail(org.mockito.ArgumentMatchers.any()))
                 .thenReturn(new WebQaQuestionSnapshot(question, run, null, List.of(user, assistant)));
 
@@ -87,7 +85,7 @@ class CreateKnowledgeGapServiceTest {
 
         assertThat(result.feedback().question()).isEqualTo("服务端真实问题");
         assertThat(result.feedback().runId()).isEqualTo(RUN_ID);
-        assertThat(result.feedback().resultType()).isEqualTo(AgentResultType.ANSWER);
+        assertThat(result.feedback().resultType()).isEqualTo(AgentRun.ResultType.ANSWER);
         assertThat(result.citationEvidenceIds()).containsExactly(EVIDENCE_ID);
         assertThat(result.toString()).doesNotContain("不得复制的完整答案");
         System.out.printf("测试证据：场景=关联问答反馈，questionId=%s，runId=%s，引用数=%d，伪造问题采用=false%n",
@@ -99,7 +97,7 @@ class CreateKnowledgeGapServiceTest {
      */
     @Test
     void linkedQuestionFromDifferentBranchIsHidden() {
-        AgentRunSnapshot run = mock(AgentRunSnapshot.class);
+        AgentRun run = mock(AgentRun.class);
         when(run.runId()).thenReturn(RUN_ID);
         when(run.citations()).thenReturn(List.of());
         WebQaQuestionRecord question = new WebQaQuestionRecord(

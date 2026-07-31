@@ -1,9 +1,6 @@
 package io.github.loredock.qa.model.enums;
 
-import io.github.loredock.agent.model.enums.AgentErrorCode;
-import io.github.loredock.agent.model.enums.AgentRefusalReason;
-import io.github.loredock.agent.model.enums.AgentResultType;
-import io.github.loredock.agent.model.enums.AgentRunStatus;
+import io.github.loredock.agent.api.AgentRun;
 
 /** Web 页面依据持久化 Agent 事实展示的稳定可信状态。 */
 public enum WebQaTrustState {
@@ -22,10 +19,10 @@ public enum WebQaTrustState {
      * @throws IllegalStateException 运行事实组合不一致
      */
     public static WebQaTrustState from(
-            AgentRunStatus status,
-            AgentResultType resultType,
-            AgentRefusalReason refusalReason,
-            AgentErrorCode errorCode
+            AgentRun.Status status,
+            AgentRun.ResultType resultType,
+            AgentRun.RefusalReason refusalReason,
+            AgentRun.ErrorCode errorCode
     ) {
         if (status == null) {
             throw new IllegalStateException("agent run status is missing");
@@ -37,12 +34,12 @@ public enum WebQaTrustState {
             }
             case COMPLETED -> {
                 require(resultType != null && errorCode == null);
-                if (resultType == AgentResultType.ANSWER) {
+                if (resultType == AgentRun.ResultType.ANSWER) {
                     require(refusalReason == null);
                     yield RELIABLE_ANSWER;
                 }
                 require(refusalReason != null);
-                yield refusalReason == AgentRefusalReason.SOURCE_CONFLICT
+                yield refusalReason == AgentRun.RefusalReason.SOURCE_CONFLICT
                         ? SOURCE_CONFLICT : INSUFFICIENT_EVIDENCE;
             }
             case FAILED, TERMINATED -> {

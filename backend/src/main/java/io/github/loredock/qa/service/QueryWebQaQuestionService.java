@@ -1,8 +1,8 @@
 package io.github.loredock.qa.service;
 
-import io.github.loredock.agent.exception.AgentRunNotFoundException;
-import io.github.loredock.agent.model.snapshot.AgentRunSnapshot;
-import io.github.loredock.agent.service.AgentRunQueryService;
+import io.github.loredock.agent.api.AgentRun;
+import io.github.loredock.agent.api.AgentRunNotFoundException;
+import io.github.loredock.agent.api.AgentService;
 import io.github.loredock.project.api.ProjectScope;
 import io.github.loredock.project.api.ProjectService;
 import io.github.loredock.qa.converter.WebQaCursorCodec;
@@ -29,27 +29,27 @@ import org.springframework.stereotype.Service;
 public class QueryWebQaQuestionService {
     private static final int MAX_PAGE_SIZE = 100;
     private final ProjectService projects;
-    private final AgentRunQueryService runs;
+    private final AgentService agents;
     private final WebQaQuestionDataService questions;
     private final WebQaMessageDataService messages;
     private final DefaultWebQaAssistantMessageMaterializer materializer;
 
     /**
      * @param projects 启用项目访问复核
-     * @param runs Agent 终态与引用查询
+     * @param agents Agent 终态与引用查询契约
      * @param questions 问答身份仓储
      * @param messages 问答消息仓储
      * @param materializer 终态助手消息自愈投影器
      */
     public QueryWebQaQuestionService(
             ProjectService projects,
-            AgentRunQueryService runs,
+            AgentService agents,
             WebQaQuestionDataService questions,
             WebQaMessageDataService messages,
             DefaultWebQaAssistantMessageMaterializer materializer
     ) {
         this.projects = projects;
-        this.runs = runs;
+        this.agents = agents;
         this.questions = questions;
         this.messages = messages;
         this.materializer = materializer;
@@ -70,7 +70,7 @@ public class QueryWebQaQuestionService {
                 ? records.subList(0, command.limit()) : records;
         List<WebQaQuestionSnapshot> snapshots = new ArrayList<>(visible.size());
         for (WebQaQuestionRecord question : visible) {
-            AgentRunSnapshot run = runs.get(question.runId(), command.operatorId());
+            AgentRun run = agents.get(question.runId(), command.operatorId());
             snapshots.add(snapshot(question, run));
         }
         String nextCursor = hasMore && !visible.isEmpty()
@@ -85,7 +85,7 @@ public class QueryWebQaQuestionService {
     public WebQaQuestionSnapshot detail(QueryWebQaDetailCommand command) {
         WebQaStreamTarget target = authorize(command);
         WebQaQuestionRecord question = target.question();
-        AgentRunSnapshot run = target.run();
+        AgentRun run = target.run();
         WebQaQuestionSnapshot result = snapshot(question, run);
         log.info("web_qa detail queried traceId={} questionId={} runId={} project={} branch={} status={}",
                 traceId(), question.id(), run.runId(), question.projectIdentifier(), question.branch(), run.status());
@@ -101,16 +101,16 @@ public class QueryWebQaQuestionService {
         WebQaQuestionRecord question = questions.findVisibleById(
                         command.operatorId(), project.projectId(), command.questionId())
                 .orElseThrow(WebQaQuestionNotFoundException::new);
-        AgentRunSnapshot run;
+        AgentRun run;
         try {
-            run = runs.get(question.runId(), command.operatorId());
+            run = agents.get(question.runId(), command.operatorId());
         } catch (AgentRunNotFoundException exception) {
             throw new WebQaQuestionNotFoundException();
         }
         return new WebQaStreamTarget(question, run);
     }
 
-    private WebQaQuestionSnapshot snapshot(WebQaQuestionRecord question, AgentRunSnapshot run) {
+    private WebQaQuestionSnapshot snapshot(WebQaQuestionRecord question, AgentRun run) {
         try {
             materializer.materialize(question, run);
         } catch (RuntimeException exception) {

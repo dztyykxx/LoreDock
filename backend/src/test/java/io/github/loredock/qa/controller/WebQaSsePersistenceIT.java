@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import io.github.loredock.agent.api.AgentRun;
+import io.github.loredock.agent.api.AgentService;
 import io.github.loredock.agent.config.AgentRuntimeLimits;
 import io.github.loredock.agent.converter.ProjectQaResultConverter;
 import io.github.loredock.agent.model.command.AgentRunCreateData;
@@ -19,7 +21,6 @@ import io.github.loredock.agent.model.snapshot.AgentScopeSnapshot;
 import io.github.loredock.agent.model.snapshot.AgentVersionSnapshot;
 import io.github.loredock.agent.service.AgentEventService;
 import io.github.loredock.agent.service.AgentEvidenceService;
-import io.github.loredock.agent.service.AgentRunQueryService;
 import io.github.loredock.agent.service.AgentRunService;
 import io.github.loredock.agent.service.ProjectQaRunTaskExecutor;
 import io.github.loredock.auth.service.SessionService;
@@ -74,9 +75,8 @@ class WebQaSsePersistenceIT {
 
     @Autowired private ProjectService projects;
     @Autowired private AgentRunService runs;
-    @Autowired private AgentRunQueryService runQueries;
+    @Autowired private AgentService agents;
     @Autowired private AgentEventService eventRepository;
-    @Autowired private AgentRunQueryService eventQueries;
     @Autowired private AgentEvidenceService evidence;
     @Autowired private WebQaQuestionDataService questions;
     @Autowired private WebQaMessageDataService messages;
@@ -85,6 +85,7 @@ class WebQaSsePersistenceIT {
     @Autowired private Clock timeProvider;
     @Autowired private PlatformTransactionManager transactionManager;
     @Autowired private JdbcTemplate jdbcTemplate;
+    private io.github.loredock.agent.model.snapshot.AgentRunSnapshot acceptedRun;
 
     @DynamicPropertySource
     static void configure(DynamicPropertyRegistry registry) {
@@ -119,12 +120,11 @@ class WebQaSsePersistenceIT {
     @Test
     void persistedEventsResumeAfterDisconnectAndConvergeToTerminalDetail() throws IOException {
         long startedNanos = System.nanoTime();
-        io.github.loredock.agent.service.StartProjectQaRunService starts =
-                mock(io.github.loredock.agent.service.StartProjectQaRunService.class);
+        AgentService starts = mock(AgentService.class);
         when(starts.start(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation ->
                 acceptRun(invocation.getArgument(0)));
         CreateWebQaQuestionService creation = new CreateWebQaQuestionService(
-                projects, starts, runQueries, questions, messages, timeProvider);
+                projects, starts, questions, messages, timeProvider);
         WebQaQuestionSnapshot created = new TransactionTemplate(transactionManager).execute(
                 status -> creation.create(CreateWebQaQuestionCommand.of(
                         "member", "MEMBER", "sse-it-key", "atlas", "main", "为什么采用范围隔离？")));
@@ -137,8 +137,8 @@ class WebQaSsePersistenceIT {
         WebQaSseService streams = new WebQaSseService(
                 new WebQaSseProperties(Duration.ofSeconds(5), Duration.ofMinutes(1),
                         2, 1, 1, 0, Duration.ofSeconds(1)),
-                mock(BoundedWebQaSseExecutor.class), timeProvider, questionQueries, eventQueries,
-                eventRepository, sessions, materializer);
+                mock(BoundedWebQaSseExecutor.class), timeProvider, questionQueries, agents,
+                sessions, materializer);
         WebQaSseStreamRequest request = new WebQaSseStreamRequest(
                 "member", "atlas", created.question().id(), runId, 0, sessions.capture());
 
@@ -162,8 +162,8 @@ class WebQaSsePersistenceIT {
         assertThat(resumedConnection.events).extracting(event -> event.data().sequence()).isSorted();
         assertThat(resumedConnection.events.getLast().name()).isEqualTo("run.completed");
         assertThat(resumedConnection.closed).isTrue();
-        assertThat(detail.run().resultType()).isEqualTo(AgentResultType.ANSWER);
-        assertThat(detail.run().answerBasis()).isEqualTo(AnswerBasis.BUSINESS_RULE);
+        assertThat(detail.run().resultType()).isEqualTo(AgentRun.ResultType.ANSWER);
+        assertThat(detail.run().answerBasis()).isEqualTo(AgentRun.AnswerBasis.BUSINESS_RULE);
         assertThat(detail.run().citations()).hasSize(1);
         assertThat(detail.messages()).hasSize(2);
 
@@ -177,8 +177,8 @@ class WebQaSsePersistenceIT {
                 detail.run().status(), detail.run().citations().size(), elapsedMillis);
     }
 
-    private io.github.loredock.agent.model.snapshot.AgentRunSnapshot acceptRun(
-            io.github.loredock.agent.model.command.StartProjectQaRunCommand command
+    private AgentRun acceptRun(
+            AgentService.StartRequest command
     ) {
         ProjectScope project = projects.resolveEnabledScope(command.projectIdentifier(), command.branch());
         Instant acceptedAt = timeProvider.instant();
@@ -192,7 +192,8 @@ class WebQaSsePersistenceIT {
                         null, null, null, List.of("GLOBAL", "PROJECT", "BRANCH")),
                 new AgentVersionSnapshot("project_qa", "scripted-model", "project-qa-v1"),
                 acceptedAt);
-        return runs.accept(data).snapshot();
+        acceptedRun = runs.accept(data).snapshot();
+        return io.github.loredock.testsupport.AgentApiFixtures.run(acceptedRun);
     }
 
     private void executeScriptedModel(WebQaQuestionSnapshot created) {
@@ -214,7 +215,7 @@ class WebQaSsePersistenceIT {
                 new ProjectQaResultConverter(), timeProvider)
                 .execute(new AgentExecutionRequest(
                         runId, "为什么采用范围隔离？", "skill", "schema",
-                        created.run().scope(), created.run().versions(),
+                        acceptedRun.scope(), acceptedRun.versions(),
                         new AgentRuntimeLimits(8, 8, Duration.ofSeconds(30), 10, 2000, 24000, 8000, 200),
                         timeProvider.instant().plusSeconds(30)));
     }
