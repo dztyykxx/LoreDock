@@ -18,10 +18,10 @@
 
 ## 3. code 模块契约
 
-- [ ] 3.1 定义 `code.api.CodeQueryService`：统一活动快照解析、范围代码搜索与片段读取。
-- [ ] 3.2 为契约编写失败测试：活动快照唯一性、范围搜索过滤、片段路径/行边界、未索引语义。
-- [ ] 3.3 使 `ActiveCodeSnapshotQueryService`/`CodeSearchService`/`CodeSnippetService` 实现契约，迁移 agent 与 knowledge 的直接引用。
-- [ ] 3.4 合并 code 模块内部转发小类，删除无调用方代码；运行契约、HTTP 与架构测试。
+- [x] 3.1 定义 `code.api.CodeQueryService`：统一活动快照解析、范围代码搜索与片段读取。
+- [x] 3.2 为契约编写失败测试：活动快照唯一性、范围搜索过滤、片段路径/行边界、未索引语义。
+- [x] 3.3 使 `ActiveCodeSnapshotQueryService`/`CodeSearchService`/`CodeSnippetService` 实现契约，迁移 agent 与 knowledge 的直接引用。
+- [x] 3.4 合并 code 模块内部转发小类，删除无调用方代码；运行契约、HTTP 与架构测试。
 
 ## 4. agent 模块契约
 

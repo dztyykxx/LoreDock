@@ -39,16 +39,6 @@ class BackendMvcArchitectureTest {
             "WebQaSseSink");
     /** 阶段六渐进迁移的存量跨模块非 api 引用清单；只允许随模块重构清空，不允许新增条目。 */
     private static final List<String> KNOWN_CROSS_MODULE_VIOLATIONS = List.of(
-                "agent/service/ProjectQaToolService.java -> import io.github.loredock.code.model.enums.CodeSearchTarget",
-                "agent/service/ProjectQaToolService.java -> import io.github.loredock.code.model.enums.CodeSnapshotAvailability",
-                "agent/service/ProjectQaToolService.java -> import io.github.loredock.code.model.request.CodeSearchQuery",
-                "agent/service/ProjectQaToolService.java -> import io.github.loredock.code.model.request.CodeSnippetQuery",
-                "agent/service/ProjectQaToolService.java -> import io.github.loredock.code.model.result.ActiveCodeSnapshotView",
-                "agent/service/ProjectQaToolService.java -> import io.github.loredock.code.service.ActiveCodeSnapshotQueryService",
-                "agent/service/ProjectQaToolService.java -> import io.github.loredock.code.service.CodeSearchService",
-                "agent/service/ProjectQaToolService.java -> import io.github.loredock.code.service.CodeSnippetService",
-                "agent/service/StartProjectQaRunService.java -> import io.github.loredock.code.model.enums.CodeSnapshotAvailability",
-                "agent/service/StartProjectQaRunService.java -> import io.github.loredock.code.service.ActiveCodeSnapshotQueryService",
                 "code/model/response/CodeSnapshotJobResponse.java -> import io.github.loredock.job.model.enums.JobStatus",
                 "code/model/result/CodeSnapshotJobView.java -> import io.github.loredock.job.model.enums.JobStatus",
                 "code/service/AdminCodeSnapshotQueryService.java -> import io.github.loredock.job.model.snapshot.JobSnapshot",
@@ -100,8 +90,6 @@ class BackendMvcArchitectureTest {
                 "knowledge/service/importing/ObjectStorageImportCompensation.java -> import io.github.loredock.storage.service.ObjectStorage",
                 "knowledge/service/indexing/KnowledgeReindexJobHandler.java -> import io.github.loredock.job.service.JobExecutionContext",
                 "knowledge/service/indexing/KnowledgeReindexJobHandler.java -> import io.github.loredock.job.service.JobHandler",
-                "knowledge/service/search/KnowledgeSearchServiceImpl.java -> import io.github.loredock.code.model.enums.CodeSnapshotAvailability",
-                "knowledge/service/search/KnowledgeSearchServiceImpl.java -> import io.github.loredock.code.service.ActiveCodeSnapshotQueryService",
                 "qa/controller/WebQaController.java -> import io.github.loredock.agent.service.AgentRunQueryService",
                 "qa/controller/WebQaController.java -> import io.github.loredock.auth.model.AuthenticatedActor",
                 "qa/controller/WebQaController.java -> import io.github.loredock.auth.service.SessionService",

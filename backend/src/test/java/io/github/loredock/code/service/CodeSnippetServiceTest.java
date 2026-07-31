@@ -13,6 +13,7 @@ import io.github.loredock.code.model.response.CodeSnippetResponse;
 import io.github.loredock.code.model.result.ActiveCodeSnapshotDescriptor;
 import io.github.loredock.code.model.result.ResolvedCodeSnapshotScope;
 import io.github.loredock.code.service.index.LuceneCodeSnippetReader;
+import io.github.loredock.code.service.index.LuceneCodeIndexSearcher;
 import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -73,9 +74,9 @@ class CodeSnippetServiceTest {
                 "alpha", active.projectId(), "main", active.branchId(), Optional.of(active)));
         LuceneCodeSnippetReader index = mock(LuceneCodeSnippetReader.class);
         when(index.read(active, content == null ? ".env" : "src/A.java")).thenReturn(Optional.ofNullable(content));
-        return new Fixture(new CodeSnippetService(resolver, index));
+        return new Fixture(new CodeQueryServiceImpl(resolver, mock(LuceneCodeIndexSearcher.class), index));
     }
 
-    private record Fixture(CodeSnippetService service) {
+    private record Fixture(CodeQueryServiceImpl service) {
     }
 }

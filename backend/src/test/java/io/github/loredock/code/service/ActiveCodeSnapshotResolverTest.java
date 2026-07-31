@@ -9,6 +9,8 @@ import io.github.loredock.code.model.enums.CodeSnapshotAvailability;
 import io.github.loredock.code.model.enums.CodeSnapshotChangeHint;
 import io.github.loredock.code.model.result.ActiveCodeSnapshotDescriptor;
 import io.github.loredock.code.model.result.ActiveCodeSnapshotView;
+import io.github.loredock.code.service.index.LuceneCodeIndexSearcher;
+import io.github.loredock.code.service.index.LuceneCodeSnippetReader;
 import io.github.loredock.project.api.ProjectScope;
 import io.github.loredock.project.api.ProjectService;
 import java.time.Instant;
@@ -48,8 +50,9 @@ class ActiveCodeSnapshotResolverTest {
         ActiveCodeSnapshotDataService snapshots = mock(ActiveCodeSnapshotDataService.class);
         when(projects.resolveEnabledScope("alpha", null)).thenReturn(project("main"));
         when(snapshots.findActive(BRANCH_ID)).thenReturn(Optional.empty());
-        ActiveCodeSnapshotQueryService service = new ActiveCodeSnapshotQueryService(
-                new ActiveCodeSnapshotResolver(projects, snapshots));
+        CodeQueryServiceImpl service = new CodeQueryServiceImpl(
+                new ActiveCodeSnapshotResolver(projects, snapshots),
+                mock(LuceneCodeIndexSearcher.class), mock(LuceneCodeSnippetReader.class));
 
         ActiveCodeSnapshotView view = service.get("alpha", null);
 
@@ -72,8 +75,9 @@ class ActiveCodeSnapshotResolverTest {
         when(snapshots.findActive(BRANCH_ID)).thenReturn(Optional.of(new ActiveCodeSnapshotDescriptor(
                 PROJECT_ID, BRANCH_ID, snapshotId, 8000000000000000064L, "abcdef1", NOW, 7,
                 CodeSnapshotChangeHint.CHANGED)));
-        ActiveCodeSnapshotQueryService service = new ActiveCodeSnapshotQueryService(
-                new ActiveCodeSnapshotResolver(projects, snapshots));
+        CodeQueryServiceImpl service = new CodeQueryServiceImpl(
+                new ActiveCodeSnapshotResolver(projects, snapshots),
+                mock(LuceneCodeIndexSearcher.class), mock(LuceneCodeSnippetReader.class));
 
         ActiveCodeSnapshotView view = service.get("alpha", "main");
 

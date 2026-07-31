@@ -39,11 +39,9 @@ import io.github.loredock.code.model.result.CodeSearchResult;
 import io.github.loredock.code.model.result.CodeSnapshotAdminPage;
 import io.github.loredock.code.model.result.CodeSnapshotAdminView;
 import io.github.loredock.code.model.result.CodeSnapshotJobView;
-import io.github.loredock.code.service.ActiveCodeSnapshotQueryService;
 import io.github.loredock.code.service.AdminCodeSnapshotQueryService;
-import io.github.loredock.code.service.CodeSearchService;
+import io.github.loredock.code.service.CodeQueryServiceImpl;
 import io.github.loredock.code.service.CodeSnapshotUploadService;
-import io.github.loredock.code.service.CodeSnippetService;
 import io.github.loredock.job.model.enums.JobStatus;
 import io.github.loredock.platform.web.ApplicationException;
 import io.github.loredock.platform.web.ErrorCode;
@@ -110,20 +108,14 @@ class CodeSnapshotWebContractTest {
     private AdminCodeSnapshotQueryService queries;
 
     @MockitoBean
-    private ActiveCodeSnapshotQueryService activeSnapshots;
-
-    @MockitoBean
-    private CodeSearchService searches;
-
-    @MockitoBean
-    private CodeSnippetService snippets;
+    private CodeQueryServiceImpl codeQueries;
 
     @BeforeEach
     void resetSessionAndUseCases() {
         SaTokenDaoDefaultImpl sessions = new SaTokenDaoDefaultImpl();
         sessions.init();
         SaManager.setSaTokenDao(sessions);
-        reset(commands, queries, activeSnapshots, searches, snippets);
+        reset(commands, queries, codeQueries);
     }
 
     /**
@@ -304,7 +296,7 @@ class CodeSnapshotWebContractTest {
      */
     @Test
     void memberCanReadSafeActiveSnapshotStatus() throws Exception {
-        when(activeSnapshots.get("alpha", null)).thenReturn(new ActiveCodeSnapshotView(
+        when(codeQueries.get("alpha", null)).thenReturn(new ActiveCodeSnapshotView(
                 "alpha", "main", CodeSnapshotAvailability.INDEXED, SNAPSHOT_ID, "abcdef1", NOW,
                 7L, CodeSnapshotChangeHint.INITIAL));
 
@@ -327,7 +319,8 @@ class CodeSnapshotWebContractTest {
      */
     @Test
     void memberCanSearchActiveCodeWithSafeSourceMetadata() throws Exception {
-        when(searches.search(any())).thenReturn(new CodeSearchResponse(List.of(new CodeSearchResult(
+        when(codeQueries.search(any(io.github.loredock.code.model.request.CodeSearchQuery.class)))
+                .thenReturn(new CodeSearchResponse(List.of(new CodeSearchResult(
                 "alpha", "main", SNAPSHOT_ID, "abcdef1", NOW, "src/A.java", "class A {}", 2.5f, false))));
 
         mockMvc.perform(get("/api/projects/{identifier}/code-search", "alpha")
@@ -340,7 +333,7 @@ class CodeSnapshotWebContractTest {
                 .andExpect(jsonPath("$.items[0].snippet").value("class A {}"))
                 .andExpect(jsonPath("$.items[0].generationId").doesNotExist())
                 .andExpect(jsonPath("$.items[0].objectKey").doesNotExist());
-        verify(searches).search(new io.github.loredock.code.model.request.CodeSearchQuery(
+        verify(codeQueries).search(new io.github.loredock.code.model.request.CodeSearchQuery(
                 "alpha", null, "A:(*)", io.github.loredock.code.model.enums.CodeSearchTarget.ALL, "src", 5));
     }
 
@@ -349,7 +342,8 @@ class CodeSnapshotWebContractTest {
      */
     @Test
     void memberCanReadBoundedSnippetAndGetsStableRangeFailure() throws Exception {
-        when(snippets.read(any())).thenReturn(new CodeSnippetResponse(
+        when(codeQueries.read(any(io.github.loredock.code.model.request.CodeSnippetQuery.class)))
+                .thenReturn(new CodeSnippetResponse(
                 "alpha", "main", SNAPSHOT_ID, "abcdef1", NOW, "src/A.java",
                 2, 3, "two\nthree", true));
         Cookie member = loginCookie("member");
@@ -363,8 +357,9 @@ class CodeSnapshotWebContractTest {
                 .andExpect(jsonPath("$.generationId").doesNotExist())
                 .andExpect(jsonPath("$.objectKey").doesNotExist());
 
-        reset(snippets);
-        when(snippets.read(any())).thenThrow(new CodeSnippetRangeInvalidException());
+        reset(codeQueries);
+        when(codeQueries.read(any(io.github.loredock.code.model.request.CodeSnippetQuery.class)))
+                .thenThrow(new CodeSnippetRangeInvalidException());
         mockMvc.perform(get("/api/projects/{identifier}/code-snippets", "alpha")
                         .queryParam("path", "src/A.java").queryParam("startLine", "999")
                         .cookie(member))

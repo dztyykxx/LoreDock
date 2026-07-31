@@ -14,14 +14,13 @@ import io.github.loredock.agent.model.snapshot.EvidenceSourceMetadata;
 import io.github.loredock.agent.model.tool.CodeSearchToolRequest;
 import io.github.loredock.agent.model.tool.CodeSnippetToolRequest;
 import io.github.loredock.agent.model.tool.KnowledgeSearchToolRequest;
-import io.github.loredock.code.model.enums.CodeSearchTarget;
-import io.github.loredock.code.model.enums.CodeSnapshotAvailability;
-import io.github.loredock.code.model.request.CodeSearchQuery;
-import io.github.loredock.code.model.request.CodeSnippetQuery;
-import io.github.loredock.code.model.result.ActiveCodeSnapshotView;
-import io.github.loredock.code.service.ActiveCodeSnapshotQueryService;
-import io.github.loredock.code.service.CodeSearchService;
-import io.github.loredock.code.service.CodeSnippetService;
+import io.github.loredock.code.api.CodeExcerpt;
+import io.github.loredock.code.api.CodeExcerptQuery;
+import io.github.loredock.code.api.CodeMatches;
+import io.github.loredock.code.api.CodeQuery;
+import io.github.loredock.code.api.CodeQueryService;
+import io.github.loredock.code.api.ActiveCodeState;
+import io.github.loredock.code.api.CodeSnapshotVersionChangedException;
 import io.github.loredock.knowledge.api.KnowledgeMatch;
 import io.github.loredock.knowledge.api.KnowledgeMatches;
 import io.github.loredock.knowledge.api.KnowledgeQuery;
@@ -46,9 +45,7 @@ public class ProjectQaToolService {
     private static final int MAX_SNIPPET_LINES = 200;
     private final AgentRunService runs;
     private final KnowledgeSearchService knowledge;
-    private final CodeSearchService codeSearch;
-    private final CodeSnippetService snippets;
-    private final ActiveCodeSnapshotQueryService codeSnapshots;
+    private final CodeQueryService code;
     private final AgentProperties configuration;
     private final AgentEvidenceService evidence;
     private final AgentEventService events;
@@ -57,9 +54,7 @@ public class ProjectQaToolService {
     /**
      * @param runs 运行固定范围事实
      * @param knowledge 已有三层已发布知识混合检索
-     * @param codeSearch 已有活动快照代码搜索
-     * @param snippets 已有活动快照片段读取
-     * @param codeSnapshots 活动代码快照状态
+     * @param code 活动代码快照、搜索与片段统一契约
      * @param configuration 服务端工具上限和最低相关度
      * @param evidence 运行证据即时持久化端口
      * @param events 已提交公开事件端口
@@ -68,9 +63,7 @@ public class ProjectQaToolService {
     public ProjectQaToolService(
             AgentRunService runs,
             KnowledgeSearchService knowledge,
-            CodeSearchService codeSearch,
-            CodeSnippetService snippets,
-            ActiveCodeSnapshotQueryService codeSnapshots,
+            CodeQueryService code,
             AgentProperties configuration,
             AgentEvidenceService evidence,
             AgentEventService events,
@@ -78,9 +71,7 @@ public class ProjectQaToolService {
     ) {
         this.runs = runs;
         this.knowledge = knowledge;
-        this.codeSearch = codeSearch;
-        this.snippets = snippets;
-        this.codeSnapshots = codeSnapshots;
+        this.code = code;
         this.configuration = configuration;
         this.evidence = evidence;
         this.events = events;
@@ -136,9 +127,14 @@ public class ProjectQaToolService {
             return empty("code_search", run);
         }
         int limit = boundedLimit(request.limit());
-        var response = codeSearch.search(new CodeSearchQuery(
-                run.scope().projectIdentifier(), run.scope().branch(), request.query(), CodeSearchTarget.ALL,
-                request.pathPrefix(), limit));
+        CodeMatches response;
+        try {
+            response = code.search(new CodeQuery(
+                    run.scope().projectIdentifier(), run.scope().branch(), request.query(), CodeQuery.Target.ALL,
+                    request.pathPrefix(), limit, run.scope().snapshotId(), run.scope().commit()));
+        } catch (CodeSnapshotVersionChangedException exception) {
+            throw versionChanged();
+        }
         requireCodeVersion(run);
         List<EvidenceContent> values = response.items().stream().map(value -> {
             requireCodeSource(run, value.snapshotId(), value.commit(), value.projectIdentifier(), value.branch());
@@ -165,9 +161,14 @@ public class ProjectQaToolService {
             return empty("code_snippet_read", run);
         }
         int lineCount = request.lineCount() == null ? 80 : Math.min(request.lineCount(), MAX_SNIPPET_LINES);
-        var response = snippets.read(new CodeSnippetQuery(
-                run.scope().projectIdentifier(), run.scope().branch(), request.repositoryPath(),
-                request.startLine(), lineCount));
+        CodeExcerpt response;
+        try {
+            response = code.read(new CodeExcerptQuery(
+                    run.scope().projectIdentifier(), run.scope().branch(), request.repositoryPath(),
+                    request.startLine(), lineCount, run.scope().snapshotId(), run.scope().commit()));
+        } catch (CodeSnapshotVersionChangedException exception) {
+            throw versionChanged();
+        }
         requireCodeVersion(run);
         requireCodeSource(run, response.snapshotId(), response.commit(),
                 response.projectIdentifier(), response.branch());
@@ -213,10 +214,10 @@ public class ProjectQaToolService {
     }
 
     private void requireCodeVersion(AgentRunSnapshot run) {
-        ActiveCodeSnapshotView active = codeSnapshots.get(
+        ActiveCodeState active = code.getActiveSnapshot(
                 run.scope().projectIdentifier(), run.scope().branch());
-        Long snapshotId = active.status() == CodeSnapshotAvailability.INDEXED ? active.snapshotId() : null;
-        String commit = active.status() == CodeSnapshotAvailability.INDEXED ? active.commit() : null;
+        Long snapshotId = active.status() == ActiveCodeState.Status.INDEXED ? active.snapshotId() : null;
+        String commit = active.status() == ActiveCodeState.Status.INDEXED ? active.commit() : null;
         if (!Objects.equals(run.scope().snapshotId(), snapshotId)
                 || !Objects.equals(run.scope().commit(), commit)) {
             throw versionChanged();

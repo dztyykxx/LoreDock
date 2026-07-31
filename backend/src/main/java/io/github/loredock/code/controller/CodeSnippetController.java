@@ -2,7 +2,7 @@ package io.github.loredock.code.controller;
 
 import io.github.loredock.code.model.request.CodeSnippetQuery;
 import io.github.loredock.code.model.response.CodeSnippetResponse;
-import io.github.loredock.code.service.CodeSnippetService;
+import io.github.loredock.code.service.CodeQueryServiceImpl;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -12,10 +12,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class CodeSnippetController {
 
-    private final CodeSnippetService snippets;
+    private final CodeQueryServiceImpl snippets;
 
     /** @param snippets 固定活动范围和有限行读取用例 */
-    public CodeSnippetController(CodeSnippetService snippets) {
+    public CodeSnippetController(CodeQueryServiceImpl snippets) {
         this.snippets = snippets;
     }
 

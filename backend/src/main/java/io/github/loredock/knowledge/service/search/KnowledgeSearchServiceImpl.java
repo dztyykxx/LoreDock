@@ -1,7 +1,7 @@
 package io.github.loredock.knowledge.service.search;
 
-import io.github.loredock.code.model.enums.CodeSnapshotAvailability;
-import io.github.loredock.code.service.ActiveCodeSnapshotQueryService;
+import io.github.loredock.code.api.CodeQueryService;
+import io.github.loredock.code.api.ActiveCodeState;
 import io.github.loredock.knowledge.api.KnowledgeMatch;
 import io.github.loredock.knowledge.api.KnowledgeMatches;
 import io.github.loredock.knowledge.api.KnowledgeQuery;
@@ -63,7 +63,7 @@ public class KnowledgeSearchServiceImpl implements io.github.loredock.knowledge.
     private final KnowledgeCandidateDataService semantics;
     private final KnowledgeEmbeddingService embedding;
     private final KnowledgeSearchEligibilityService eligibility;
-    private final ActiveCodeSnapshotQueryService codeSnapshots;
+    private final CodeQueryService codeSnapshots;
     private final ReciprocalRankFusion fusion;
 
     /**
@@ -83,7 +83,7 @@ public class KnowledgeSearchServiceImpl implements io.github.loredock.knowledge.
             KnowledgeCandidateDataService semantics,
             KnowledgeEmbeddingService embedding,
             KnowledgeSearchEligibilityService eligibility,
-            ActiveCodeSnapshotQueryService codeSnapshots,
+            CodeQueryService codeSnapshots,
             ReciprocalRankFusion fusion
     ) {
         this.scopes = scopes;
@@ -295,8 +295,8 @@ public class KnowledgeSearchServiceImpl implements io.github.loredock.knowledge.
         if (scope.contextType() == KnowledgeBrowseContextType.GLOBAL) {
             return List.of();
         }
-        return codeSnapshots.get(scope.projectIdentifier(), scope.branch()).status()
-                == CodeSnapshotAvailability.NOT_INDEXED
+        return codeSnapshots.getActiveSnapshot(scope.projectIdentifier(), scope.branch()).status()
+                == ActiveCodeState.Status.NOT_INDEXED
                 ? List.of(KnowledgeSearchWarning.CODE_SNAPSHOT_NOT_INDEXED) : List.of();
     }
 

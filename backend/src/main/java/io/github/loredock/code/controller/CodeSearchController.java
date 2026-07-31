@@ -3,7 +3,7 @@ package io.github.loredock.code.controller;
 import io.github.loredock.code.model.enums.CodeSearchTarget;
 import io.github.loredock.code.model.request.CodeSearchQuery;
 import io.github.loredock.code.model.response.CodeSearchResponse;
-import io.github.loredock.code.service.CodeSearchService;
+import io.github.loredock.code.service.CodeQueryServiceImpl;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -13,10 +13,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class CodeSearchController {
 
-    private final CodeSearchService searches;
+    private final CodeQueryServiceImpl searches;
 
     /** @param searches 固定活动范围且服务端构造 Lucene 查询的用例 */
-    public CodeSearchController(CodeSearchService searches) {
+    public CodeSearchController(CodeQueryServiceImpl searches) {
         this.searches = searches;
     }
 

@@ -14,9 +14,8 @@ import static org.mockito.Mockito.when;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
-import io.github.loredock.code.model.enums.CodeSnapshotAvailability;
-import io.github.loredock.code.model.result.ActiveCodeSnapshotView;
-import io.github.loredock.code.service.ActiveCodeSnapshotQueryService;
+import io.github.loredock.code.api.CodeQueryService;
+import io.github.loredock.code.api.ActiveCodeState;
 import io.github.loredock.knowledge.exception.KnowledgeEmbeddingUnavailableException;
 import io.github.loredock.knowledge.exception.KnowledgeIndexUnavailableException;
 import io.github.loredock.knowledge.model.DocumentSource;
@@ -68,7 +67,7 @@ class KnowledgeSearchServiceTest {
     private KnowledgeCandidateDataService semantics;
     private KnowledgeEmbeddingService embedding;
     private KnowledgeSearchEligibilityService eligibility;
-    private ActiveCodeSnapshotQueryService codeSnapshots;
+    private CodeQueryService codeSnapshots;
     private KnowledgeSearchServiceImpl service;
 
     @BeforeEach
@@ -79,7 +78,7 @@ class KnowledgeSearchServiceTest {
         semantics = mock(KnowledgeCandidateDataService.class);
         embedding = mock(KnowledgeEmbeddingService.class);
         eligibility = mock(KnowledgeSearchEligibilityService.class);
-        codeSnapshots = mock(ActiveCodeSnapshotQueryService.class);
+        codeSnapshots = mock(CodeQueryService.class);
         service = new KnowledgeSearchServiceImpl(scopes, generations, keywords, semantics, embedding,
                 eligibility, codeSnapshots, new ReciprocalRankFusion());
         when(scopes.resolveBrowse(KnowledgeBrowseContextType.PROJECT, "project-a", null))
@@ -95,8 +94,8 @@ class KnowledgeSearchServiceTest {
             Collection<Long> candidateIds = invocation.getArgument(0);
             return List.copyOf(candidateIds);
         });
-        when(codeSnapshots.get("project-a", "main")).thenReturn(new ActiveCodeSnapshotView(
-                "project-a", "main", CodeSnapshotAvailability.NOT_INDEXED,
+        when(codeSnapshots.getActiveSnapshot("project-a", "main")).thenReturn(new ActiveCodeState(
+                "project-a", "main", ActiveCodeState.Status.NOT_INDEXED,
                 null, null, null, null, null));
     }
 

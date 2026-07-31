@@ -22,16 +22,12 @@ import io.github.loredock.agent.model.snapshot.AgentVersionSnapshot;
 import io.github.loredock.agent.model.tool.CodeSearchToolRequest;
 import io.github.loredock.agent.model.tool.CodeSnippetToolRequest;
 import io.github.loredock.agent.model.tool.KnowledgeSearchToolRequest;
-import io.github.loredock.code.model.enums.CodeSnapshotAvailability;
-import io.github.loredock.code.model.request.CodeSearchQuery;
-import io.github.loredock.code.model.request.CodeSnippetQuery;
-import io.github.loredock.code.model.response.CodeSearchResponse;
-import io.github.loredock.code.model.response.CodeSnippetResponse;
-import io.github.loredock.code.model.result.ActiveCodeSnapshotView;
-import io.github.loredock.code.model.result.CodeSearchResult;
-import io.github.loredock.code.service.ActiveCodeSnapshotQueryService;
-import io.github.loredock.code.service.CodeSearchService;
-import io.github.loredock.code.service.CodeSnippetService;
+import io.github.loredock.code.api.CodeExcerpt;
+import io.github.loredock.code.api.CodeExcerptQuery;
+import io.github.loredock.code.api.CodeMatches;
+import io.github.loredock.code.api.CodeQuery;
+import io.github.loredock.code.api.CodeQueryService;
+import io.github.loredock.code.api.ActiveCodeState;
 import io.github.loredock.knowledge.api.KnowledgeMatch;
 import io.github.loredock.knowledge.api.KnowledgeMatches;
 import io.github.loredock.knowledge.api.KnowledgeQuery;
@@ -55,9 +51,7 @@ class ProjectQaToolServiceTest {
     private static final Instant NOW = Instant.parse("2026-07-30T03:00:00Z");
     private AgentRunService runs;
     private KnowledgeSearchService knowledge;
-    private CodeSearchService codeSearch;
-    private CodeSnippetService snippets;
-    private ActiveCodeSnapshotQueryService codeSnapshots;
+    private CodeQueryService code;
     private AgentProperties configuration;
     private AgentEvidenceService evidence;
     private AgentEventService events;
@@ -68,9 +62,7 @@ class ProjectQaToolServiceTest {
     void setUp() {
         runs = mock(AgentRunService.class);
         knowledge = mock(KnowledgeSearchService.class);
-        codeSearch = mock(CodeSearchService.class);
-        snippets = mock(CodeSnippetService.class);
-        codeSnapshots = mock(ActiveCodeSnapshotQueryService.class);
+        code = mock(CodeQueryService.class);
         configuration = mock(AgentProperties.class);
         evidence = mock(AgentEvidenceService.class);
         events = mock(AgentEventService.class);
@@ -80,12 +72,12 @@ class ProjectQaToolServiceTest {
                 new AgentRuntimeLimits(8, 8, Duration.ofSeconds(30), 2, 120, 360, 8000, 200));
         when(configuration.minimumRelevance()).thenReturn(0.4);
         when(knowledge.isActiveIndexVersion(GENERATION_ID)).thenReturn(true);
-        when(codeSnapshots.get("atlas", "main")).thenReturn(active(SNAPSHOT_ID, "abcdef1234567"));
+        when(code.getActiveSnapshot("atlas", "main")).thenReturn(active(SNAPSHOT_ID, "abcdef1234567"));
         when(timeProvider.instant()).thenReturn(NOW);
         // 真实实现会回填数据库生成 ID；单测用原列表模拟同序回填，避免空返回破坏上下文重建。
         when(evidence.saveAll(eq(RUN_ID), any())).thenAnswer(invocation -> invocation.getArgument(1));
-        service = new ProjectQaToolService(runs, knowledge, codeSearch, snippets,
-                codeSnapshots, configuration, evidence, events, timeProvider);
+        service = new ProjectQaToolService(
+                runs, knowledge, code, configuration, evidence, events, timeProvider);
     }
 
     /**
@@ -153,9 +145,9 @@ class ProjectQaToolServiceTest {
         assertVersionChanged(() -> service.knowledgeSearch(RUN_ID, new KnowledgeSearchToolRequest("规则", 1)));
         verify(knowledge, never()).search(any());
 
-        when(codeSnapshots.get("atlas", "main")).thenReturn(active(8000000000000000093L, "fffffff"));
+        when(code.getActiveSnapshot("atlas", "main")).thenReturn(active(8000000000000000093L, "fffffff"));
         assertVersionChanged(() -> service.codeSearch(RUN_ID, new CodeSearchToolRequest("Service", null, 1)));
-        verify(codeSearch, never()).search(any());
+        verify(code, never()).search(any());
         System.out.println("测试证据：场景=证据版本切换，知识与代码均在索引访问前返回AGENT_EVIDENCE_VERSION_CHANGED");
     }
 
@@ -164,10 +156,10 @@ class ProjectQaToolServiceTest {
      */
     @Test
     void codeToolsPinSnapshotAndExposeOnlyRepositoryRelativeBoundedContent() {
-        when(codeSearch.search(any())).thenReturn(new CodeSearchResponse(List.of(new CodeSearchResult(
+        when(code.search(any())).thenReturn(new CodeMatches(List.of(new CodeMatches.Match(
                 "atlas", "main", SNAPSHOT_ID, "abcdef1234567", NOW, "src/ReviewService.java",
                 "class ReviewService {}", 0.9f, false))));
-        when(snippets.read(any())).thenReturn(new CodeSnippetResponse(
+        when(code.read(any())).thenReturn(new CodeExcerpt(
                 "atlas", "main", SNAPSHOT_ID, "abcdef1234567", NOW, "src/ReviewService.java",
                 10, 40, "代码".repeat(100), true));
 
@@ -176,13 +168,13 @@ class ProjectQaToolServiceTest {
         AgentToolResult snippetResult = service.codeSnippetRead(
                 RUN_ID, new CodeSnippetToolRequest("src/ReviewService.java", 10, 999));
 
-        ArgumentCaptor<CodeSearchQuery> search = ArgumentCaptor.forClass(CodeSearchQuery.class);
-        verify(codeSearch).search(search.capture());
+        ArgumentCaptor<CodeQuery> search = ArgumentCaptor.forClass(CodeQuery.class);
+        verify(code).search(search.capture());
         assertThat(search.getValue().projectIdentifier()).isEqualTo("atlas");
         assertThat(search.getValue().branch()).isEqualTo("main");
         assertThat(search.getValue().limit()).isEqualTo(2);
-        ArgumentCaptor<CodeSnippetQuery> snippet = ArgumentCaptor.forClass(CodeSnippetQuery.class);
-        verify(snippets).read(snippet.capture());
+        ArgumentCaptor<CodeExcerptQuery> snippet = ArgumentCaptor.forClass(CodeExcerptQuery.class);
+        verify(code).read(snippet.capture());
         assertThat(snippet.getValue().projectIdentifier()).isEqualTo("atlas");
         assertThat(snippet.getValue().branch()).isEqualTo("main");
         assertThat(snippet.getValue().lineCount()).isEqualTo(200);
@@ -210,7 +202,7 @@ class ProjectQaToolServiceTest {
         assertScopeViolation(() -> service.knowledgeSearch(
                 RUN_ID, new KnowledgeSearchToolRequest("规则", 1)));
 
-        when(codeSearch.search(any())).thenReturn(new CodeSearchResponse(List.of(new CodeSearchResult(
+        when(code.search(any())).thenReturn(new CodeMatches(List.of(new CodeMatches.Match(
                 "other", "main", SNAPSHOT_ID, "abcdef1234567", NOW,
                 "src/Other.java", "class Other {}", 1.0f, false))));
         assertScopeViolation(() -> service.codeSearch(
@@ -238,9 +230,9 @@ class ProjectQaToolServiceTest {
                 10, 0, 0, null, null, NOW, NOW, null, List.of());
     }
 
-    private ActiveCodeSnapshotView active(Long id, String commit) {
-        return new ActiveCodeSnapshotView(
-                "atlas", "main", CodeSnapshotAvailability.INDEXED, id, commit, NOW, 10L, null);
+    private ActiveCodeState active(Long id, String commit) {
+        return new ActiveCodeState(
+                "atlas", "main", ActiveCodeState.Status.INDEXED, id, commit, NOW, 10L, null);
     }
 
     private KnowledgeMatch knowledgeResult(

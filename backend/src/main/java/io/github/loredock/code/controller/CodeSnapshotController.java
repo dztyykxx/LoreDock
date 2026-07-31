@@ -2,7 +2,7 @@ package io.github.loredock.code.controller;
 
 import io.github.loredock.code.model.response.ActiveCodeSnapshotResponse;
 import io.github.loredock.code.model.result.ActiveCodeSnapshotView;
-import io.github.loredock.code.service.ActiveCodeSnapshotQueryService;
+import io.github.loredock.code.service.CodeQueryServiceImpl;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -12,10 +12,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class CodeSnapshotController {
 
-    private final ActiveCodeSnapshotQueryService snapshots;
+    private final CodeQueryServiceImpl snapshots;
 
     /** @param snapshots 已启用项目的活动快照状态用例 */
-    public CodeSnapshotController(ActiveCodeSnapshotQueryService snapshots) {
+    public CodeSnapshotController(CodeQueryServiceImpl snapshots) {
         this.snapshots = snapshots;
     }
 

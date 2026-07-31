@@ -18,9 +18,8 @@ import io.github.loredock.agent.model.result.AgentRunAcceptanceResult;
 import io.github.loredock.agent.model.snapshot.AgentRunSnapshot;
 import io.github.loredock.agent.scheduler.BoundedAgentRunScheduler;
 import io.github.loredock.agent.skill.AgentDefinition;
-import io.github.loredock.code.model.enums.CodeSnapshotAvailability;
-import io.github.loredock.code.model.result.ActiveCodeSnapshotView;
-import io.github.loredock.code.service.ActiveCodeSnapshotQueryService;
+import io.github.loredock.code.api.CodeQueryService;
+import io.github.loredock.code.api.ActiveCodeState;
 import io.github.loredock.knowledge.api.KnowledgeSearchService;
 import io.github.loredock.project.api.ProjectScope;
 import io.github.loredock.project.api.ProjectService;
@@ -44,7 +43,7 @@ class StartProjectQaRunServiceTest {
     private AgentProperties configuration;
     private AgentDefinitionProvider definitions;
     private ProjectService projects;
-    private ActiveCodeSnapshotQueryService code;
+    private CodeQueryService code;
     private KnowledgeSearchService knowledge;
     private AgentRunService runs;
     private BoundedAgentRunScheduler scheduler;
@@ -58,7 +57,7 @@ class StartProjectQaRunServiceTest {
         configuration = configuration(true, true, "model-v1");
         definitions = mock(AgentDefinitionProvider.class);
         projects = mock(ProjectService.class);
-        code = mock(ActiveCodeSnapshotQueryService.class);
+        code = mock(CodeQueryService.class);
         knowledge = mock(KnowledgeSearchService.class);
         runs = mock(AgentRunService.class);
         acceptedData = new AtomicReference<>();
@@ -74,8 +73,8 @@ class StartProjectQaRunServiceTest {
         when(runs.findByOperatorAndIdempotencyKey(any(), any())).thenReturn(Optional.empty());
         when(definitions.find("project_qa")).thenReturn(Optional.of(definition()));
         when(projects.resolveEnabledScope(any(), any())).thenReturn(project("main"));
-        when(code.get(any(), any())).thenReturn(new ActiveCodeSnapshotView(
-                "atlas", "main", CodeSnapshotAvailability.INDEXED, SNAPSHOT_ID, "abcdef1234567",
+        when(code.getActiveSnapshot(any(), any())).thenReturn(new ActiveCodeState(
+                "atlas", "main", ActiveCodeState.Status.INDEXED, SNAPSHOT_ID, "abcdef1234567",
                 NOW, 12L, null));
         when(knowledge.findActiveIndexVersionId()).thenReturn(Optional.of(GENERATION_ID));
         when(runs.accept(any())).thenAnswer(invocation -> {
