@@ -83,7 +83,7 @@ class KnowledgeDocumentLifecycleServiceIT {
 
     @BeforeEach
     void clearDocuments() {
-        jdbcTemplate.update("delete from knowledge_document_tag");
+        // 标签已字段化进 knowledge_document，不再有独立标签表；只清理文档主表即可。
         jdbcTemplate.update("delete from knowledge_document");
     }
 

@@ -12,6 +12,7 @@ import io.github.loredock.job.scheduler.JobRecovery;
 import io.github.loredock.persistence.MybatisMapperFactory;
 import io.github.loredock.platform.persistence.AuditMetadataFactory;
 import io.github.loredock.platform.web.SensitiveDataRedactor;
+import io.github.loredock.support.TestIds;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Duration;
@@ -278,7 +279,7 @@ class PersistentBackgroundJobServiceIT {
 
     private BackgroundJob runningJob(Instant heartbeatAt, String instanceId) {
         BackgroundJob job = BackgroundJob.pending(
-                8000000000000000004L, "RECOVERY_TEST", null, heartbeatAt
+                TestIds.next(), "RECOVERY_TEST", null, heartbeatAt
         );
         job.start(heartbeatAt, instanceId);
         return job;

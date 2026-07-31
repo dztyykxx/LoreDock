@@ -260,12 +260,15 @@ class CodeSnapshotUploadServiceIT {
     private static final class TestObjectStorage implements ObjectStorage {
         private final JdbcTemplate jdbc;
         private boolean failDelete;
+        private final java.util.concurrent.atomic.AtomicLong keySequence =
+                new java.util.concurrent.atomic.AtomicLong(8000000000000000157L);
 
         private TestObjectStorage(JdbcTemplate jdbc) { this.jdbc = jdbc; }
 
         @Override public StoredObject put(InputStream input, ObjectMetadata metadata) {
             try { input.readAllBytes(); } catch (Exception exception) { throw new IllegalStateException(exception); }
-            String key = Long.toString(8000000000000000157L);
+            // 每次上传生成唯一对象键，避免同测试内两次上传共用固定键触发唯一约束。
+            String key = Long.toString(keySequence.getAndIncrement());
             jdbc.update("""
                     insert into stored_object(object_key, status, original_filename, content_type, size_bytes,
                         sha256, created_at, updated_at, created_by, updated_by)

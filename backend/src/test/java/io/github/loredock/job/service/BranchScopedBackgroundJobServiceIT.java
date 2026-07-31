@@ -12,6 +12,7 @@ import io.github.loredock.platform.persistence.AuditMetadataFactory;
 import io.github.loredock.platform.web.ApplicationException;
 import io.github.loredock.platform.web.ErrorCode;
 import io.github.loredock.platform.web.SensitiveDataRedactor;
+import io.github.loredock.support.TestIds;
 import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Duration;
@@ -193,7 +194,7 @@ class BranchScopedBackgroundJobServiceIT {
     }
 
     private Scope seedScope(String prefix, String branchName) {
-        Long projectId = 8000000000000000001L;
+        Long projectId = TestIds.next();
         jdbc.update("""
                 insert into project_space(id, identifier, name, description, technology_stack, status,
                     created_at, updated_at, created_by, updated_by)
@@ -203,8 +204,9 @@ class BranchScopedBackgroundJobServiceIT {
     }
 
     private Scope seedBranch(Long projectId, String branchName, String objectKey) {
-        Long branchId = 8000000000000000002L;
-        Long snapshotId = 8000000000000000003L;
+        // 分支与快照使用进程内唯一 ID，避免同测试内多次 seed 共用固定主键。
+        Long branchId = TestIds.next();
+        Long snapshotId = TestIds.next();
         jdbc.update("""
                 insert into project_branch(id, project_id, name, created_at, updated_at, created_by, updated_by)
                 values (?, ?, ?, ?, ?, 'test', 'test')

@@ -23,7 +23,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
-class DefaultWebQaAssistantMessageMaterializerTest {
+class WebQaAssistantMessageMaterializerTest {
     private static final Long QUESTION_ID = 2034004871959281666L;
     private static final Long RUN_ID = 2034004871959281667L;
     private static final Instant NOW = Instant.parse("2026-07-30T04:00:00Z");

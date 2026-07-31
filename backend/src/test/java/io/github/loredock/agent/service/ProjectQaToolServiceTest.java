@@ -3,6 +3,7 @@ package io.github.loredock.agent.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -93,6 +94,8 @@ class ProjectQaToolServiceTest {
         when(generations.findActive()).thenReturn(Optional.of(generation(GENERATION_ID)));
         when(codeSnapshots.get("atlas", "main")).thenReturn(active(SNAPSHOT_ID, "abcdef1234567"));
         when(timeProvider.instant()).thenReturn(NOW);
+        // 真实实现会回填数据库生成 ID；单测用原列表模拟同序回填，避免空返回破坏上下文重建。
+        when(evidence.saveAll(eq(RUN_ID), any())).thenAnswer(invocation -> invocation.getArgument(1));
         service = new ProjectQaToolService(runs, knowledge, generations, codeSearch, snippets,
                 codeSnapshots, configuration, evidence, events, timeProvider);
     }

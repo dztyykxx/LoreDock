@@ -39,7 +39,7 @@ import org.testcontainers.utility.DockerImageName;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @Testcontainers
-class KnowledgeDocumentDataServiceIT {
+class KnowledgeDocumentRepositoryIT {
 
     private static final String BCRYPT_HASH =
             "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
@@ -82,7 +82,6 @@ class KnowledgeDocumentDataServiceIT {
 
     @BeforeEach
     void resetDatabase() {
-        jdbcTemplate.update("delete from knowledge_index_document");
         jdbcTemplate.update("delete from knowledge_index_generation");
         jdbcTemplate.update("delete from knowledge_import_batch");
         jdbcTemplate.update("delete from knowledge_document");

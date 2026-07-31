@@ -37,6 +37,154 @@ class BackendMvcArchitectureTest {
     private static final Set<String> ALLOWED_BOUNDARY_INTERFACES = Set.of(
             "AgentDefinitionProvider", "AgentRuntime", "JobExecutionContext", "JobHandler", "ObjectStorage",
             "WebQaSseSink");
+    /** 阶段六渐进迁移的存量跨模块非 api 引用清单；只允许随模块重构清空，不允许新增条目。 */
+    private static final List<String> KNOWN_CROSS_MODULE_VIOLATIONS = List.of(
+                "agent/service/AgentRunQueryService.java -> import io.github.loredock.project.service.ProjectApplicationService",
+                "agent/service/ProjectQaToolService.java -> import io.github.loredock.code.model.enums.CodeSearchTarget",
+                "agent/service/ProjectQaToolService.java -> import io.github.loredock.code.model.enums.CodeSnapshotAvailability",
+                "agent/service/ProjectQaToolService.java -> import io.github.loredock.code.model.request.CodeSearchQuery",
+                "agent/service/ProjectQaToolService.java -> import io.github.loredock.code.model.request.CodeSnippetQuery",
+                "agent/service/ProjectQaToolService.java -> import io.github.loredock.code.model.result.ActiveCodeSnapshotView",
+                "agent/service/ProjectQaToolService.java -> import io.github.loredock.code.service.ActiveCodeSnapshotQueryService",
+                "agent/service/ProjectQaToolService.java -> import io.github.loredock.code.service.CodeSearchService",
+                "agent/service/ProjectQaToolService.java -> import io.github.loredock.code.service.CodeSnippetService",
+                "agent/service/ProjectQaToolService.java -> import io.github.loredock.knowledge.model.enums.KnowledgeBrowseContextType",
+                "agent/service/ProjectQaToolService.java -> import io.github.loredock.knowledge.model.enums.KnowledgeSearchMode",
+                "agent/service/ProjectQaToolService.java -> import io.github.loredock.knowledge.model.request.KnowledgeSearchFilters",
+                "agent/service/ProjectQaToolService.java -> import io.github.loredock.knowledge.model.request.KnowledgeSearchQuery",
+                "agent/service/ProjectQaToolService.java -> import io.github.loredock.knowledge.model.result.KnowledgeSearchResult",
+                "agent/service/ProjectQaToolService.java -> import io.github.loredock.knowledge.service.KnowledgeSearchIndexDataService",
+                "agent/service/ProjectQaToolService.java -> import io.github.loredock.knowledge.service.search.KnowledgeSearchService",
+                "agent/service/StartProjectQaRunService.java -> import io.github.loredock.code.model.enums.CodeSnapshotAvailability",
+                "agent/service/StartProjectQaRunService.java -> import io.github.loredock.code.service.ActiveCodeSnapshotQueryService",
+                "agent/service/StartProjectQaRunService.java -> import io.github.loredock.knowledge.service.KnowledgeSearchIndexDataService",
+                "agent/service/StartProjectQaRunService.java -> import io.github.loredock.project.model.result.BranchView",
+                "agent/service/StartProjectQaRunService.java -> import io.github.loredock.project.model.result.ProjectDetailView",
+                "agent/service/StartProjectQaRunService.java -> import io.github.loredock.project.service.ProjectApplicationService",
+                "code/model/response/CodeSnapshotJobResponse.java -> import io.github.loredock.job.model.enums.JobStatus",
+                "code/model/result/CodeSnapshotJobView.java -> import io.github.loredock.job.model.enums.JobStatus",
+                "code/service/ActiveCodeSnapshotResolver.java -> import io.github.loredock.project.exception.BranchNotFoundException",
+                "code/service/ActiveCodeSnapshotResolver.java -> import io.github.loredock.project.model.result.ProjectDetailView",
+                "code/service/ActiveCodeSnapshotResolver.java -> import io.github.loredock.project.service.ProjectApplicationService",
+                "code/service/AdminCodeSnapshotQueryService.java -> import io.github.loredock.job.model.snapshot.JobSnapshot",
+                "code/service/AdminCodeSnapshotQueryService.java -> import io.github.loredock.job.service.PersistentBackgroundJobService",
+                "code/service/CodeSnapshotBuildJobHandler.java -> import io.github.loredock.job.service.JobExecutionContext",
+                "code/service/CodeSnapshotBuildJobHandler.java -> import io.github.loredock.job.service.JobHandler",
+                "code/service/CodeSnapshotGenerationBuilder.java -> import io.github.loredock.job.service.JobExecutionContext",
+                "code/service/CodeSnapshotRecoveryService.java -> import io.github.loredock.job.service.PersistentBackgroundJobService",
+                "code/service/CodeSnapshotRegistrationService.java -> import io.github.loredock.job.model.request.JobRequest",
+                "code/service/CodeSnapshotRegistrationService.java -> import io.github.loredock.job.model.snapshot.JobSnapshot",
+                "code/service/CodeSnapshotRegistrationService.java -> import io.github.loredock.job.service.PersistentBackgroundJobService",
+                "code/service/CodeSnapshotRegistrationService.java -> import io.github.loredock.project.exception.BranchNotFoundException",
+                "code/service/CodeSnapshotRegistrationService.java -> import io.github.loredock.project.model.enums.ProjectStatus",
+                "code/service/CodeSnapshotRegistrationService.java -> import io.github.loredock.project.model.result.AdminProjectDetailView",
+                "code/service/CodeSnapshotRegistrationService.java -> import io.github.loredock.project.service.ProjectApplicationService",
+                "code/service/CodeSnapshotReindexJobHandler.java -> import io.github.loredock.job.service.JobExecutionContext",
+                "code/service/CodeSnapshotReindexJobHandler.java -> import io.github.loredock.job.service.JobHandler",
+                "code/service/CodeSnapshotUploadService.java -> import io.github.loredock.storage.model.result.ObjectMetadata",
+                "code/service/CodeSnapshotUploadService.java -> import io.github.loredock.storage.model.result.StoredObject",
+                "code/service/CodeSnapshotUploadService.java -> import io.github.loredock.storage.service.ObjectStorage",
+                "code/service/archive/CommonsCompressCodeArchiveReader.java -> import io.github.loredock.storage.service.ObjectStorage",
+                "code/service/storage/ObjectStorageCodeSnapshotCompensation.java -> import io.github.loredock.storage.service.ObjectStorage",
+                "feedback/controller/AdminKnowledgeGapController.java -> import io.github.loredock.auth.model.AuthenticatedActor",
+                "feedback/controller/AdminKnowledgeGapController.java -> import io.github.loredock.auth.service.SessionService",
+                "feedback/controller/KnowledgeGapController.java -> import io.github.loredock.auth.model.AuthenticatedActor",
+                "feedback/controller/KnowledgeGapController.java -> import io.github.loredock.auth.service.SessionService",
+                "feedback/model/response/KnowledgeGapFeedbackResponse.java -> import io.github.loredock.agent.model.enums.AgentErrorCode",
+                "feedback/model/response/KnowledgeGapFeedbackResponse.java -> import io.github.loredock.agent.model.enums.AgentRefusalReason",
+                "feedback/model/response/KnowledgeGapFeedbackResponse.java -> import io.github.loredock.agent.model.enums.AgentResultType",
+                "feedback/model/result/KnowledgeGapFeedbackRecord.java -> import io.github.loredock.agent.model.enums.AgentErrorCode",
+                "feedback/model/result/KnowledgeGapFeedbackRecord.java -> import io.github.loredock.agent.model.enums.AgentRefusalReason",
+                "feedback/model/result/KnowledgeGapFeedbackRecord.java -> import io.github.loredock.agent.model.enums.AgentResultType",
+                "feedback/service/CreateKnowledgeGapService.java -> import io.github.loredock.agent.model.snapshot.AgentRunSnapshot",
+                "feedback/service/CreateKnowledgeGapService.java -> import io.github.loredock.project.model.result.BranchView",
+                "feedback/service/CreateKnowledgeGapService.java -> import io.github.loredock.project.model.result.ProjectDetailView",
+                "feedback/service/CreateKnowledgeGapService.java -> import io.github.loredock.project.service.ProjectApplicationService",
+                "feedback/service/CreateKnowledgeGapService.java -> import io.github.loredock.qa.exception.WebQaQuestionNotFoundException",
+                "feedback/service/CreateKnowledgeGapService.java -> import io.github.loredock.qa.model.command.QueryWebQaDetailCommand",
+                "feedback/service/CreateKnowledgeGapService.java -> import io.github.loredock.qa.model.enums.WebQaMessageRole",
+                "feedback/service/CreateKnowledgeGapService.java -> import io.github.loredock.qa.model.result.WebQaMessageRecord",
+                "feedback/service/CreateKnowledgeGapService.java -> import io.github.loredock.qa.model.snapshot.WebQaQuestionSnapshot",
+                "feedback/service/CreateKnowledgeGapService.java -> import io.github.loredock.qa.service.QueryWebQaQuestionService",
+                "feedback/service/KnowledgeGapDataService.java -> import io.github.loredock.agent.model.enums.AgentErrorCode",
+                "feedback/service/KnowledgeGapDataService.java -> import io.github.loredock.agent.model.enums.AgentRefusalReason",
+                "feedback/service/KnowledgeGapDataService.java -> import io.github.loredock.agent.model.enums.AgentResultType",
+                "knowledge/model/response/KnowledgeIndexJobResponse.java -> import io.github.loredock.job.model.enums.JobStatus",
+                "knowledge/model/result/KnowledgeIndexJobView.java -> import io.github.loredock.job.model.enums.JobStatus",
+                "knowledge/service/KnowledgeIndexJobService.java -> import io.github.loredock.job.model.enums.JobStatus",
+                "knowledge/service/KnowledgeIndexJobService.java -> import io.github.loredock.job.model.request.JobRequest",
+                "knowledge/service/KnowledgeIndexJobService.java -> import io.github.loredock.job.model.snapshot.JobSnapshot",
+                "knowledge/service/KnowledgeIndexJobService.java -> import io.github.loredock.job.service.PersistentBackgroundJobService",
+                "knowledge/service/importing/KnowledgeDocumentImportService.java -> import io.github.loredock.storage.model.result.ObjectMetadata",
+                "knowledge/service/importing/KnowledgeDocumentImportService.java -> import io.github.loredock.storage.model.result.StoredObject",
+                "knowledge/service/importing/KnowledgeDocumentImportService.java -> import io.github.loredock.storage.service.ObjectStorage",
+                "knowledge/service/importing/KnowledgeZipArchiveService.java -> import io.github.loredock.storage.service.ObjectStorage",
+                "knowledge/service/importing/ObjectStorageImportCompensation.java -> import io.github.loredock.storage.service.ObjectStorage",
+                "knowledge/service/indexing/KnowledgeReindexJobHandler.java -> import io.github.loredock.job.service.JobExecutionContext",
+                "knowledge/service/indexing/KnowledgeReindexJobHandler.java -> import io.github.loredock.job.service.JobHandler",
+                "knowledge/service/project/ProjectKnowledgeScopeResolver.java -> import io.github.loredock.project.exception.BranchNotFoundException",
+                "knowledge/service/project/ProjectKnowledgeScopeResolver.java -> import io.github.loredock.project.model.result.AdminProjectDetailView",
+                "knowledge/service/project/ProjectKnowledgeScopeResolver.java -> import io.github.loredock.project.model.result.AdminProjectSummaryView",
+                "knowledge/service/project/ProjectKnowledgeScopeResolver.java -> import io.github.loredock.project.model.result.BranchView",
+                "knowledge/service/project/ProjectKnowledgeScopeResolver.java -> import io.github.loredock.project.model.result.ProjectDetailView",
+                "knowledge/service/project/ProjectKnowledgeScopeResolver.java -> import io.github.loredock.project.service.ProjectApplicationService",
+                "knowledge/service/search/KnowledgeSearchService.java -> import io.github.loredock.code.model.enums.CodeSnapshotAvailability",
+                "knowledge/service/search/KnowledgeSearchService.java -> import io.github.loredock.code.service.ActiveCodeSnapshotQueryService",
+                "qa/controller/WebQaController.java -> import io.github.loredock.agent.service.AgentRunQueryService",
+                "qa/controller/WebQaController.java -> import io.github.loredock.auth.model.AuthenticatedActor",
+                "qa/controller/WebQaController.java -> import io.github.loredock.auth.service.SessionService",
+                "qa/controller/WebQaSseController.java -> import io.github.loredock.auth.model.AuthenticatedActor",
+                "qa/controller/WebQaSseController.java -> import io.github.loredock.auth.service.SessionService",
+                "qa/converter/WebQaFailureMessageMapper.java -> import io.github.loredock.agent.model.enums.AgentErrorCode",
+                "qa/converter/WebQaFailureMessageMapper.java -> import io.github.loredock.agent.model.enums.AgentRunStatus",
+                "qa/converter/WebQaHttpMapper.java -> import io.github.loredock.agent.model.snapshot.AgentCitationSnapshot",
+                "qa/converter/WebQaHttpMapper.java -> import io.github.loredock.agent.model.snapshot.EvidenceSourceMetadata",
+                "qa/converter/WebQaSseEventMapper.java -> import io.github.loredock.agent.model.enums.AgentErrorCode",
+                "qa/converter/WebQaSseEventMapper.java -> import io.github.loredock.agent.model.enums.AgentResultType",
+                "qa/converter/WebQaSseEventMapper.java -> import io.github.loredock.agent.model.snapshot.AgentEventSnapshot",
+                "qa/model/enums/WebQaTrustState.java -> import io.github.loredock.agent.model.enums.AgentErrorCode",
+                "qa/model/enums/WebQaTrustState.java -> import io.github.loredock.agent.model.enums.AgentRefusalReason",
+                "qa/model/enums/WebQaTrustState.java -> import io.github.loredock.agent.model.enums.AgentResultType",
+                "qa/model/enums/WebQaTrustState.java -> import io.github.loredock.agent.model.enums.AgentRunStatus",
+                "qa/model/request/WebQaSseStreamRequest.java -> import io.github.loredock.auth.service.SessionService",
+                "qa/model/response/WebQaCitationResponse.java -> import io.github.loredock.agent.model.enums.EvidenceSourceType",
+                "qa/model/response/WebQaMessageResponse.java -> import io.github.loredock.agent.model.enums.AgentRefusalReason",
+                "qa/model/response/WebQaMessageResponse.java -> import io.github.loredock.agent.model.enums.AgentResultType",
+                "qa/model/response/WebQaQuestionResponse.java -> import io.github.loredock.agent.model.enums.AgentErrorCode",
+                "qa/model/response/WebQaQuestionResponse.java -> import io.github.loredock.agent.model.enums.AgentRefusalReason",
+                "qa/model/response/WebQaQuestionResponse.java -> import io.github.loredock.agent.model.enums.AgentResultType",
+                "qa/model/response/WebQaQuestionResponse.java -> import io.github.loredock.agent.model.enums.AgentRunStatus",
+                "qa/model/response/WebQaQuestionResponse.java -> import io.github.loredock.agent.model.enums.AnswerBasis",
+                "qa/model/result/WebQaMessageRecord.java -> import io.github.loredock.agent.model.enums.AgentRefusalReason",
+                "qa/model/result/WebQaMessageRecord.java -> import io.github.loredock.agent.model.enums.AgentResultType",
+                "qa/model/result/WebQaStreamTarget.java -> import io.github.loredock.agent.model.snapshot.AgentRunSnapshot",
+                "qa/model/snapshot/WebQaQuestionSnapshot.java -> import io.github.loredock.agent.model.snapshot.AgentRunSnapshot",
+                "qa/model/snapshot/WebQaSseEventV1.java -> import io.github.loredock.agent.model.enums.AgentErrorCode",
+                "qa/model/snapshot/WebQaSseEventV1.java -> import io.github.loredock.agent.model.enums.AgentResultType",
+                "qa/service/CreateWebQaQuestionService.java -> import io.github.loredock.agent.exception.AgentRequestException",
+                "qa/service/CreateWebQaQuestionService.java -> import io.github.loredock.agent.model.command.StartProjectQaRunCommand",
+                "qa/service/CreateWebQaQuestionService.java -> import io.github.loredock.agent.model.enums.AgentErrorCode",
+                "qa/service/CreateWebQaQuestionService.java -> import io.github.loredock.agent.model.snapshot.AgentRunSnapshot",
+                "qa/service/CreateWebQaQuestionService.java -> import io.github.loredock.agent.service.AgentRunQueryService",
+                "qa/service/CreateWebQaQuestionService.java -> import io.github.loredock.agent.service.StartProjectQaRunService",
+                "qa/service/CreateWebQaQuestionService.java -> import io.github.loredock.project.model.result.ProjectDetailView",
+                "qa/service/CreateWebQaQuestionService.java -> import io.github.loredock.project.service.ProjectApplicationService",
+                "qa/service/DefaultWebQaAssistantMessageMaterializer.java -> import io.github.loredock.agent.model.enums.AgentResultType",
+                "qa/service/DefaultWebQaAssistantMessageMaterializer.java -> import io.github.loredock.agent.model.enums.AgentRunStatus",
+                "qa/service/DefaultWebQaAssistantMessageMaterializer.java -> import io.github.loredock.agent.model.snapshot.AgentRunSnapshot",
+                "qa/service/QueryWebQaQuestionService.java -> import io.github.loredock.agent.exception.AgentRunNotFoundException",
+                "qa/service/QueryWebQaQuestionService.java -> import io.github.loredock.agent.model.snapshot.AgentRunSnapshot",
+                "qa/service/QueryWebQaQuestionService.java -> import io.github.loredock.agent.service.AgentRunQueryService",
+                "qa/service/QueryWebQaQuestionService.java -> import io.github.loredock.project.model.result.ProjectDetailView",
+                "qa/service/QueryWebQaQuestionService.java -> import io.github.loredock.project.service.ProjectApplicationService",
+                "qa/service/WebQaMessageDataService.java -> import io.github.loredock.agent.model.enums.AgentRefusalReason",
+                "qa/service/WebQaMessageDataService.java -> import io.github.loredock.agent.model.enums.AgentResultType",
+                "qa/service/WebQaSseService.java -> import io.github.loredock.agent.model.snapshot.AgentEventSnapshot",
+                "qa/service/WebQaSseService.java -> import io.github.loredock.agent.service.AgentEventService",
+                "qa/service/WebQaSseService.java -> import io.github.loredock.agent.service.AgentRunQueryService",
+                "qa/service/WebQaSseService.java -> import io.github.loredock.auth.service.SessionService"
+    );
+
     private static final Pattern IMPORT_PATTERN = Pattern.compile(
             "(?m)^import io\\.github\\.loredock\\.([a-z0-9]+)(?:\\.([A-Za-z0-9_.]+))?;");
     private static final Pattern PUBLIC_INTERFACE_PATTERN = Pattern.compile(
@@ -277,6 +425,44 @@ class BackendMvcArchitectureTest {
 
         printEvidence("待删除单实现接口", violations);
         assertThat(violations).as("项目接口必须对应真实替换边界").isEmpty();
+    }
+
+    /**
+     * 业务目的：跨模块代码只能引用对方模块 api 契约包，禁止引用 service/mapper/model/内部 DTO 与过程模型。
+     * 存量违规以迁移清单快照登记，新增违规立即失败；阶段六按模块修复后必须同步从清单移除，不允许扩大清单合法化旧架构。
+     */
+    @Test
+    void crossModuleCodeOnlyReferencesOtherModuleApi() throws IOException {
+        List<String> violations = new ArrayList<>();
+        for (Path source : javaSources()) {
+            Path relative = SOURCE_ROOT.relativize(source);
+            if (relative.getNameCount() < 2 || !BUSINESS_MODULES.contains(relative.getName(0).toString())) {
+                continue;
+            }
+            String module = normalizeModule(relative.getName(0).toString());
+            Matcher matcher = IMPORT_PATTERN.matcher(Files.readString(source));
+            while (matcher.find()) {
+                String rawImportedModule = matcher.group(1);
+                if (!BUSINESS_MODULES.contains(rawImportedModule)) {
+                    continue;
+                }
+                String importedModule = normalizeModule(matcher.group(1));
+                String importedPath = matcher.group(2) == null ? "" : matcher.group(2);
+                if (!module.equals(importedModule) && !importedPath.startsWith("api.")) {
+                    violations.add(relative + " -> " + matcher.group().replace(";", ""));
+                }
+            }
+        }
+        List<String> known = KNOWN_CROSS_MODULE_VIOLATIONS;
+        List<String> unexpected = violations.stream().filter(item -> !known.contains(item)).sorted().toList();
+        List<String> fixedButNotRemoved = known.stream().filter(item -> !violations.contains(item)).sorted().toList();
+
+        System.out.println("架构证据：类型=跨模块非api引用，存量清单=" + known.size()
+                + "，当前检测=" + violations.size()
+                + "，新增违规=" + unexpected
+                + "，已修复待移除=" + fixedButNotRemoved);
+        assertThat(unexpected).as("跨模块新增引用必须指向对方 api 契约包").isEmpty();
+        assertThat(fixedButNotRemoved).as("已迁移完成的存量违规必须同步从迁移清单移除").isEmpty();
     }
 
     private List<Path> javaSources() throws IOException {

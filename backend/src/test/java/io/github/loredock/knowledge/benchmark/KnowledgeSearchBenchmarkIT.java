@@ -324,10 +324,7 @@ class KnowledgeSearchBenchmarkIT {
 
     private void resetDatabase() {
         jdbcTemplate.update("delete from knowledge_search_chunk");
-        jdbcTemplate.update("delete from knowledge_search_generation");
-        jdbcTemplate.update("delete from knowledge_index_document");
         jdbcTemplate.update("delete from knowledge_index_generation");
-        jdbcTemplate.update("delete from knowledge_document_tag");
         jdbcTemplate.update("delete from knowledge_document");
         jdbcTemplate.update("delete from background_job");
         jdbcTemplate.update("delete from project_branch");
@@ -361,22 +358,24 @@ class KnowledgeSearchBenchmarkIT {
                     ? Timestamp.from(FIXTURE_TIME.plusSeconds(60)) : null;
             jdbcTemplate.update("""
                     insert into knowledge_document(id, format, title, body, directory_path, scope_type,
-                        project_id, branch_id, source_type, status, revision, published_at, published_by,
+                        tags, project_id, branch_id, source_type, status, revision, published_at, published_by,
                         archived_at, archived_by, created_at, updated_at, created_by, updated_by)
-                    values (?, ?, ?, ?, 'benchmark', ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, 'benchmark', 'benchmark')
+                    values (?, ?, ?, ?, 'benchmark', ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?, 'benchmark', 'benchmark')
                     """, document.id(), document.format().name(), document.title(),
                     KnowledgeSearchBenchmarkFixture.readText(document.file()), document.scope().type().name(),
-                    projectId, branchId, document.sourceType().name(), document.status().name(), publishedAt,
+                    tagsJson(document.tags()), projectId, branchId, document.sourceType().name(),
+                    document.status().name(), publishedAt,
                     publishedAt == null ? null : "benchmark-reviewer", archivedAt,
                     archivedAt == null ? null : "benchmark-reviewer", Timestamp.from(FIXTURE_TIME),
                     Timestamp.from(archivedAt == null ? FIXTURE_TIME : FIXTURE_TIME.plusSeconds(60)));
-            for (String tag : document.tags()) {
-                jdbcTemplate.update("""
-                        insert into knowledge_document_tag(document_id, normalized_name, display_name)
-                        values (?, ?, ?)
-                        """, document.id(), tag.toLowerCase(java.util.Locale.ROOT), tag);
-            }
         }
+    }
+
+    private String tagsJson(List<String> tags) {
+        return "[" + tags.stream()
+                .map(tag -> "{\"displayName\":\"" + tag + "\",\"normalizedName\":\""
+                        + tag.toLowerCase(java.util.Locale.ROOT) + "\"}")
+                .collect(java.util.stream.Collectors.joining(",")) + "]";
     }
 
     private Long projectId(String identifier) {

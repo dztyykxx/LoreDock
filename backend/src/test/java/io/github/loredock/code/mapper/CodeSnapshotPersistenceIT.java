@@ -150,7 +150,7 @@ class CodeSnapshotPersistenceIT {
                 insert into project_space(id, identifier, name, description, technology_stack, status,
                     created_at, updated_at, created_by, updated_by)
                 values (?, ?, 'Mapping', '', '', 'ENABLED', ?, ?, 'tester', 'tester')
-                """, projectId, "mapping-" + projectId.toString().substring(0, 8),
+                """, projectId, "mapping-" + projectId,
                 Timestamp.from(NOW), Timestamp.from(NOW));
         jdbc.update("""
                 insert into project_branch(id, project_id, name, created_at, updated_at, created_by, updated_by)

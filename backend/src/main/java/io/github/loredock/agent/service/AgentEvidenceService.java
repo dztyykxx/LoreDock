@@ -11,6 +11,7 @@ import io.github.loredock.agent.model.result.AgentEvidence;
 import io.github.loredock.agent.model.snapshot.AgentCitationSnapshot;
 import io.github.loredock.agent.model.snapshot.EvidenceSourceMetadata;
 import java.time.Clock;
+import java.util.ArrayList;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -40,16 +41,24 @@ public class AgentEvidenceService {
         this.objectMapper = objectMapper;
     }
 
+    /**
+     * 持久化本次工具调用的来源元数据，并返回带数据库生成 ID 的证据。
+     *
+     * @param runId 当前运行标识
+     * @param values 工具返回的来源证据（ID 尚未分配）
+     * @return 与输入同序、已携带真实证据 ID 的持久化证据
+     */
     @Transactional
-    public void saveAll(Long runId, List<AgentEvidence> values) {
+    public List<AgentEvidence> saveAll(Long runId, List<AgentEvidence> values) {
         int sequence = evidence.selectCount(new LambdaQueryWrapper<AgentEvidenceEntity>()
                 .eq(AgentEvidenceEntity::getRunId, runId)).intValue();
+        List<AgentEvidence> saved = new ArrayList<>(values.size());
         for (AgentEvidence value : values) {
             if (!runId.equals(value.runId())) {
                 throw new IllegalArgumentException("evidence run mismatch");
             }
             sequence++;
-            evidence.insert(AgentEvidenceEntity.builder()
+            AgentEvidenceEntity entity = AgentEvidenceEntity.builder()
                     .id(value.id()).runId(runId).evidenceKey("E" + sequence)
                     .sourceType(value.sourceType().name()).retained(value.retained())
                     .cited(false).citationOrder(null).relevance(value.relevance())
@@ -57,9 +66,12 @@ public class AgentEvidenceService {
                     .projectIdentifier(value.projectIdentifier()).branchName(value.branch())
                     .commitHash(value.commit()).repositoryPath(value.repositoryPath()).title(value.title())
                     .sourceUpdatedAt(value.sourceUpdatedAt()).metadata(metadataJson(value.sourceMetadata()))
-                    .createdAt(timeProvider.instant()).build());
+                    .createdAt(timeProvider.instant()).build();
+            evidence.insert(entity);
+            saved.add(domain(entity));
         }
         log.info("agent_evidence persisted runId={} evidenceCount={}", runId, values.size());
+        return List.copyOf(saved);
     }
 
     @Transactional(readOnly = true)

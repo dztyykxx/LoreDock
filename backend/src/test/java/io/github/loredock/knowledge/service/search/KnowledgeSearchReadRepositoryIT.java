@@ -72,10 +72,7 @@ class KnowledgeSearchReadRepositoryIT {
     @BeforeEach
     void resetDatabase() {
         jdbcTemplate.update("delete from knowledge_search_chunk");
-        jdbcTemplate.update("delete from knowledge_search_generation");
-        jdbcTemplate.update("delete from knowledge_index_document");
         jdbcTemplate.update("delete from knowledge_index_generation");
-        jdbcTemplate.update("delete from knowledge_document_tag");
         jdbcTemplate.update("delete from knowledge_document");
         jdbcTemplate.update("delete from background_job");
         jdbcTemplate.update("delete from project_branch");
@@ -88,10 +85,10 @@ class KnowledgeSearchReadRepositoryIT {
     }
 
     /**
-     * 业务目的：搜索只能读取同时 ACTIVE 且拥有完整 V5 元数据的 generation，旧 ACTIVE 缺少搜索元数据时必须视为尚不可搜索。
+     * 业务目的：搜索只能读取当前 ACTIVE 且元数据完整的 generation；generation 不再是 ACTIVE 时必须立即不可搜索。
      */
     @Test
-    void activeReaderRequiresAtomicActiveGenerationAndSearchMetadata() {
+    void activeReaderOnlyReadsCurrentActiveGeneration() {
         seedGeneration();
 
         Optional<ActiveKnowledgeSearchGeneration> active = generations.findActive();
@@ -99,9 +96,10 @@ class KnowledgeSearchReadRepositoryIT {
         assertThat(active).contains(new ActiveKnowledgeSearchGeneration(
                 GENERATION_ID, "BAAI/bge-small-zh-v1.5", "b".repeat(64), 512,
                 "cjk-v1", "rrf-v1", 3, 4, NOW));
-        jdbcTemplate.update("delete from knowledge_search_generation where generation_id=?", GENERATION_ID);
+        // V5 起搜索元数据与 generation 合并为单表，撤下 ACTIVE 即视为失去可搜索资格。
+        jdbcTemplate.update("update knowledge_index_generation set status = 'RETIRED' where id = ?", GENERATION_ID);
         assertThat(generations.findActive()).isEmpty();
-        System.out.printf("测试证据：场景=活动搜索generation读取，完整generation=%s，删除V5元数据后可搜索=false%n",
+        System.out.printf("测试证据：场景=活动搜索generation读取，完整generation=%s，撤下ACTIVE后可搜索=false%n",
                 active.orElseThrow().generationId());
     }
 
@@ -165,14 +163,11 @@ class KnowledgeSearchReadRepositoryIT {
                 values (?, 'KNOWLEDGE_REINDEX', 'SUCCEEDED', 100, ?, ?, 'test', 'test')
                 """, jobId, Timestamp.from(NOW), Timestamp.from(NOW));
         jdbcTemplate.update("""
-                insert into knowledge_index_generation(id, job_id, status, document_count, created_at, activated_at)
-                values (?, ?, 'ACTIVE', 3, ?, ?)
-                """, GENERATION_ID, jobId, Timestamp.from(NOW), Timestamp.from(NOW));
-        jdbcTemplate.update("""
-                insert into knowledge_search_generation(generation_id, model_id, model_checksum, vector_dimension,
-                    chunk_strategy_version, fusion_config_version, document_count, chunk_count, created_at)
-                values (?, 'BAAI/bge-small-zh-v1.5', ?, 512, 'cjk-v1', 'rrf-v1', 3, 4, ?)
-                """, GENERATION_ID, "b".repeat(64), Timestamp.from(NOW));
+                insert into knowledge_index_generation(id, job_id, status, model_id, model_checksum,
+                    vector_dimension, chunk_strategy_version, fusion_config_version,
+                    document_count, chunk_count, created_at, activated_at)
+                values (?, ?, 'ACTIVE', 'BAAI/bge-small-zh-v1.5', ?, 512, 'cjk-v1', 'rrf-v1', 3, 4, ?, ?)
+                """, GENERATION_ID, jobId, "b".repeat(64), Timestamp.from(NOW), Timestamp.from(NOW));
     }
 
     private void seedProject(Long id, String identifier) {

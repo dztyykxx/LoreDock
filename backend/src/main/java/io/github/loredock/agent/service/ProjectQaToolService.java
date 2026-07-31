@@ -120,7 +120,7 @@ public class ProjectQaToolService {
             values.add(new EvidenceContent(knowledgeEvidence(run, result, relevant), result.snippet(), relevant,
                     "title=" + safeLine(result.title())));
         }
-        AgentToolResult result = boundedContext(values);
+        AgentToolResult result = boundedContext(runId, values);
         log.info("agent_tool completed runId={} tool=knowledge_search project={} branch={} generationId={} "
                         + "resultCount={} evidenceCount={} trimmedCharacters={}",
                 runId, run.scope().projectIdentifier(), run.scope().branch(), response.generationId(),
@@ -149,7 +149,7 @@ public class ProjectQaToolService {
             AgentEvidence evidence = codeEvidence(run, value.path(), value.indexedAt(), clamp(value.score()));
             return new EvidenceContent(evidence, value.snippet(), true, "path=" + safeLine(value.path()));
         }).toList();
-        AgentToolResult result = boundedContext(values);
+        AgentToolResult result = boundedContext(runId, values);
         log.info("agent_tool completed runId={} tool=code_search project={} branch={} snapshotId={} commit={} "
                         + "resultCount={} evidenceCount={} trimmedCharacters={}",
                 runId, run.scope().projectIdentifier(), run.scope().branch(), run.scope().snapshotId(),
@@ -176,7 +176,7 @@ public class ProjectQaToolService {
         requireCodeSource(run, response.snapshotId(), response.commit(),
                 response.projectIdentifier(), response.branch());
         AgentEvidence evidence = codeEvidence(run, response.path(), response.indexedAt(), 1.0);
-        AgentToolResult result = boundedContext(List.of(new EvidenceContent(
+        AgentToolResult result = boundedContext(runId, List.of(new EvidenceContent(
                 evidence, response.content(), true,
                 "path=" + safeLine(response.path()) + " lines=" + response.startLine() + "-" + response.endLine())));
         log.info("agent_tool completed runId={} tool=code_snippet_read project={} branch={} snapshotId={} commit={} "
@@ -201,8 +201,8 @@ public class ProjectQaToolService {
             Supplier<AgentToolResult> action
     ) {
         AgentToolResult result = action.get();
-        // 工具内部步骤由框架观察和日志承担；数据库只保存有限来源与对外有意义的来源发现事件。
-        evidence.saveAll(runId, result.evidence());
+        // 工具内部步骤由框架观察和日志承担；证据落库在 boundedContext 内完成，
+        // 这里只追加对外有意义的来源发现事件。
         if (result.resultCount() > 0) {
             events.append(runId, AgentEventType.SOURCE_FOUND,
                     toolName + " count=" + result.resultCount(), timeProvider.instant());
@@ -273,34 +273,48 @@ public class ProjectQaToolService {
                 run.scope().commit(), path, null, indexedAt);
     }
 
-    private AgentToolResult boundedContext(List<EvidenceContent> input) {
+    private AgentToolResult boundedContext(Long runId, List<EvidenceContent> input) {
         AgentRuntimeLimits limits = configuration.runtimeLimits();
         int contextLimit = limits.maxContextCharacters();
         int snippetLimit = limits.maxSnippetCharacters();
-        StringBuilder context = new StringBuilder();
-        List<AgentEvidence> evidence = new ArrayList<>();
+        List<EvidenceContent> drafts = new ArrayList<>(input.size());
+        List<AgentEvidence> pending = new ArrayList<>(input.size());
         int trimmed = 0;
         int retainedCount = 0;
+        StringBuilder provisional = new StringBuilder();
         for (EvidenceContent item : input) {
             String original = item.content() == null ? "" : item.content();
             String snippet = truncate(original, snippetLimit);
             trimmed += codePoints(original) - codePoints(snippet);
-            boolean retain = item.candidate() && retainedCount < limits.maxResultsPerTool();
-            String block = block(item.evidence().id(), item.header(), snippet);
-            if (retain && codePoints(context.toString()) + codePoints(block) <= contextLimit) {
-                context.append(block);
+            // 先用占位 ID 估算块长决定是否保留，保持与旧行为一致的裁剪边界；
+            // 真实证据 ID 在落库后替换进上下文，模型才能引用真实来源。
+            String placeholder = block(null, item.header(), snippet);
+            boolean retain = item.candidate() && retainedCount < limits.maxResultsPerTool()
+                    && codePoints(provisional.toString()) + codePoints(placeholder) <= contextLimit;
+            if (retain) {
+                provisional.append(placeholder);
                 retainedCount++;
             } else {
                 retain = false;
                 trimmed += codePoints(snippet);
             }
             AgentEvidence value = item.evidence();
-            evidence.add(new AgentEvidence(value.id(), value.runId(), value.sourceType(), retain,
+            pending.add(new AgentEvidence(value.id(), value.runId(), value.sourceType(), retain,
                     value.relevance(), value.documentId(), value.snapshotId(), value.projectIdentifier(),
                     value.branch(), value.commit(), value.repositoryPath(), value.title(), value.sourceUpdatedAt(),
                     value.sourceMetadata()));
+            drafts.add(new EvidenceContent(value, snippet, retain, item.header()));
         }
-        return new AgentToolResult(context.toString(), evidence, retainedCount, trimmed);
+        // 先落库取得数据库生成的证据 ID，再以真实 ID 重建模型上下文，保证模型可以引用真实证据。
+        List<AgentEvidence> saved = evidence.saveAll(runId, pending);
+        StringBuilder context = new StringBuilder();
+        for (int index = 0; index < saved.size(); index++) {
+            AgentEvidence value = saved.get(index);
+            if (value.retained()) {
+                context.append(block(value.id(), drafts.get(index).header(), drafts.get(index).content()));
+            }
+        }
+        return new AgentToolResult(context.toString(), saved, retainedCount, trimmed);
     }
 
     private String block(Long evidenceId, String header, String content) {

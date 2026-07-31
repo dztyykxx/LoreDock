@@ -112,10 +112,7 @@ class KnowledgeSearchWebE2EIT {
         when(embedding.embedQuery(any())).thenReturn(new KnowledgeEmbeddingVector(axisVector(0)));
 
         jdbcTemplate.update("delete from knowledge_search_chunk");
-        jdbcTemplate.update("delete from knowledge_search_generation");
-        jdbcTemplate.update("delete from knowledge_index_document");
         jdbcTemplate.update("delete from knowledge_index_generation");
-        jdbcTemplate.update("delete from knowledge_document_tag");
         jdbcTemplate.update("delete from knowledge_document");
         jdbcTemplate.update("delete from background_job");
         jdbcTemplate.update("delete from code_index_generation");
@@ -187,10 +184,11 @@ class KnowledgeSearchWebE2EIT {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
 
-        jdbcTemplate.update("delete from knowledge_search_generation where generation_id=?", GENERATION_ID);
+        // V5 起搜索元数据与 generation 合并为单表，撤下 ACTIVE 模拟“无可用索引”。
+        jdbcTemplate.update("update knowledge_index_generation set status = 'RETIRED' where id = ?", GENERATION_ID);
         search(member, "KEYWORD", 10).andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("KNOWLEDGE_INDEX_UNAVAILABLE"));
-        seedSearchGenerationMetadata();
+        jdbcTemplate.update("update knowledge_index_generation set status = 'ACTIVE' where id = ?", GENERATION_ID);
         doThrow(new KnowledgeEmbeddingUnavailableException()).when(embedding).describeModel();
         search(member, "SEMANTIC", 10).andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("KNOWLEDGE_EMBEDDING_UNAVAILABLE"));
@@ -259,18 +257,11 @@ class KnowledgeSearchWebE2EIT {
                 values (?, 'KNOWLEDGE_REINDEX', 'SUCCEEDED', 100, ?, ?, 'test', 'test')
                 """, jobId, Timestamp.from(NOW), Timestamp.from(NOW));
         jdbcTemplate.update("""
-                insert into knowledge_index_generation(id, job_id, status, document_count, created_at, activated_at)
-                values (?, ?, 'ACTIVE', 5, ?, ?)
-                """, GENERATION_ID, jobId, Timestamp.from(NOW), Timestamp.from(NOW));
-        seedSearchGenerationMetadata();
-    }
-
-    private void seedSearchGenerationMetadata() {
-        jdbcTemplate.update("""
-                insert into knowledge_search_generation(generation_id, model_id, model_checksum, vector_dimension,
-                    chunk_strategy_version, fusion_config_version, document_count, chunk_count, created_at)
-                values (?, 'BAAI/bge-small-zh-v1.5', ?, 512, 'cjk-v1', 'rrf-v1', 5, 5, ?)
-                """, GENERATION_ID, "b".repeat(64), Timestamp.from(NOW));
+                insert into knowledge_index_generation(id, job_id, status, model_id, model_checksum,
+                    vector_dimension, chunk_strategy_version, fusion_config_version,
+                    document_count, chunk_count, created_at, activated_at)
+                values (?, ?, 'ACTIVE', 'BAAI/bge-small-zh-v1.5', ?, 512, 'cjk-v1', 'rrf-v1', 5, 5, ?, ?)
+                """, GENERATION_ID, jobId, "b".repeat(64), Timestamp.from(NOW), Timestamp.from(NOW));
     }
 
     private void seedProject(Long id, String identifier) {
@@ -305,21 +296,17 @@ class KnowledgeSearchWebE2EIT {
                     ?, ?, 'test', 'test')
                 """, id, title, content, scopeType, projectId, branchId,
                 Timestamp.from(NOW), Timestamp.from(NOW), Timestamp.from(NOW));
-        jdbcTemplate.update("""
-                insert into knowledge_index_document(generation_id, document_id, source_revision, format,
-                    title, body, directory_path, tags, scope_type, project_id, branch_id, source_type,
-                    source_updated_at)
-                values (?, ?, 1, 'MARKDOWN', ?, ?, '', '["恢复"]'::jsonb, ?, ?, ?, 'MANUAL', ?)
-                """, GENERATION_ID, id, title, content, scopeType, projectId, branchId, Timestamp.from(NOW));
+        // V5 起索引投影不再保留独立 knowledge_index_document 表，分块已携带标题、正文与范围字段。
         jdbcTemplate.update("""
                 insert into knowledge_search_chunk(generation_id, document_id, chunk_no, start_offset, end_offset,
-                    content, title_terms, tag_terms, content_terms, search_vector, embedding, scope_type,
-                    project_id, branch_id, format, source_type, normalized_tags, source_updated_at)
-                values (?, ?, 0, 0, ?, ?, ?, '恢复', ?,
+                    content, source_revision, title, tags, title_terms, tag_terms, content_terms, search_vector,
+                    embedding, scope_type, project_id, branch_id, format, source_type, normalized_tags,
+                    source_updated_at)
+                values (?, ?, 0, 0, ?, ?, 1, ?, '["恢复"]'::jsonb, ?, '恢复', ?,
                     setweight(to_tsvector('simple', ?), 'A') || setweight(to_tsvector('simple', '恢复'), 'B') ||
                     setweight(to_tsvector('simple', ?), 'C'), cast(? as vector), ?, ?, ?, 'MARKDOWN', 'MANUAL',
                     ?, ?)
-                """, GENERATION_ID, id, content.codePointCount(0, content.length()), content,
+                """, GENERATION_ID, id, content.codePointCount(0, content.length()), content, title,
                 title.replace("", " ").strip(), content.replace("", " ").strip(),
                 title.replace("", " ").strip(), content.replace("", " ").strip(), vectorLiteral(vector),
                 scopeType, projectId, branchId, new String[]{"恢复"}, Timestamp.from(NOW));
