@@ -8,13 +8,12 @@ import io.github.loredock.code.model.result.CodeSnapshotGenerationResult;
 import io.github.loredock.code.model.result.CodeSnapshotRecord;
 import io.github.loredock.code.model.result.CodeSnapshotReindexActivation;
 import io.github.loredock.code.service.index.LuceneIndexHandleRegistry;
-import io.github.loredock.job.service.JobExecutionContext;
-import io.github.loredock.job.service.JobHandler;
+import io.github.loredock.job.api.JobService;
 import org.springframework.stereotype.Component;
 
 /** 活动快照重建处理器；任何失败只终结新 generation，不改变当前活动查询入口。 */
 @Component
-public class CodeSnapshotReindexJobHandler implements JobHandler {
+public class CodeSnapshotReindexJobHandler implements JobService.Handler {
 
     private final CodeSnapshotDataService snapshots;
     private final CodeSnapshotLifecycleService lifecycle;
@@ -40,7 +39,7 @@ public class CodeSnapshotReindexJobHandler implements JobHandler {
     }
 
     @Override
-    public void execute(JobExecutionContext context) {
+    public void execute(JobService.ExecutionContext context) {
         CodeSnapshotRecord snapshot = requireActive(context);
         Long generationId = lifecycle.insertBuilding(snapshot.id(), context.jobId());
         try {
@@ -60,7 +59,7 @@ public class CodeSnapshotReindexJobHandler implements JobHandler {
         }
     }
 
-    private CodeSnapshotRecord requireActive(JobExecutionContext context) {
+    private CodeSnapshotRecord requireActive(JobService.ExecutionContext context) {
         CodeSnapshotRecord snapshot = snapshots.findById(context.snapshotId())
                 .orElseThrow(CodeSnapshotNotFoundException::new);
         if (snapshot.status() != CodeSnapshotStatus.ACTIVE

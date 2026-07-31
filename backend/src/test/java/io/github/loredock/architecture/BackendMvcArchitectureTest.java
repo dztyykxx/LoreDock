@@ -35,35 +35,14 @@ class BackendMvcArchitectureTest {
             "exception", "scheduler", "converter", "skill");
     private static final Set<String> PLATFORM_PACKAGES = Set.of("config", "persistence", "time", "web");
     private static final Set<String> ALLOWED_BOUNDARY_INTERFACES = Set.of(
-            "AgentDefinitionProvider", "AgentRuntime", "JobExecutionContext", "JobHandler", "ObjectStorage",
+            "AgentDefinitionProvider", "AgentRuntime", "ObjectStorage",
             "WebQaSseSink");
     /** 阶段六渐进迁移的存量跨模块非 api 引用清单；只允许随模块重构清空，不允许新增条目。 */
     private static final List<String> KNOWN_CROSS_MODULE_VIOLATIONS = List.of(
-                "code/model/response/CodeSnapshotJobResponse.java -> import io.github.loredock.job.model.enums.JobStatus",
-                "code/model/result/CodeSnapshotJobView.java -> import io.github.loredock.job.model.enums.JobStatus",
-                "code/service/AdminCodeSnapshotQueryService.java -> import io.github.loredock.job.model.snapshot.JobSnapshot",
-                "code/service/AdminCodeSnapshotQueryService.java -> import io.github.loredock.job.service.PersistentBackgroundJobService",
-                "code/service/CodeSnapshotBuildJobHandler.java -> import io.github.loredock.job.service.JobExecutionContext",
-                "code/service/CodeSnapshotBuildJobHandler.java -> import io.github.loredock.job.service.JobHandler",
-                "code/service/CodeSnapshotGenerationBuilder.java -> import io.github.loredock.job.service.JobExecutionContext",
-                "code/service/CodeSnapshotRecoveryService.java -> import io.github.loredock.job.service.PersistentBackgroundJobService",
-                "code/service/CodeSnapshotRegistrationService.java -> import io.github.loredock.job.model.request.JobRequest",
-                "code/service/CodeSnapshotRegistrationService.java -> import io.github.loredock.job.model.snapshot.JobSnapshot",
-                "code/service/CodeSnapshotRegistrationService.java -> import io.github.loredock.job.service.PersistentBackgroundJobService",
-                "code/service/CodeSnapshotReindexJobHandler.java -> import io.github.loredock.job.service.JobExecutionContext",
-                "code/service/CodeSnapshotReindexJobHandler.java -> import io.github.loredock.job.service.JobHandler",
                 "feedback/controller/AdminKnowledgeGapController.java -> import io.github.loredock.auth.model.AuthenticatedActor",
                 "feedback/controller/AdminKnowledgeGapController.java -> import io.github.loredock.auth.service.SessionService",
                 "feedback/controller/KnowledgeGapController.java -> import io.github.loredock.auth.model.AuthenticatedActor",
                 "feedback/controller/KnowledgeGapController.java -> import io.github.loredock.auth.service.SessionService",
-                "knowledge/model/response/KnowledgeIndexJobResponse.java -> import io.github.loredock.job.model.enums.JobStatus",
-                "knowledge/model/result/KnowledgeIndexJobView.java -> import io.github.loredock.job.model.enums.JobStatus",
-                "knowledge/service/KnowledgeIndexJobService.java -> import io.github.loredock.job.model.enums.JobStatus",
-                "knowledge/service/KnowledgeIndexJobService.java -> import io.github.loredock.job.model.request.JobRequest",
-                "knowledge/service/KnowledgeIndexJobService.java -> import io.github.loredock.job.model.snapshot.JobSnapshot",
-                "knowledge/service/KnowledgeIndexJobService.java -> import io.github.loredock.job.service.PersistentBackgroundJobService",
-                "knowledge/service/indexing/KnowledgeReindexJobHandler.java -> import io.github.loredock.job.service.JobExecutionContext",
-                "knowledge/service/indexing/KnowledgeReindexJobHandler.java -> import io.github.loredock.job.service.JobHandler",
                 "qa/controller/WebQaController.java -> import io.github.loredock.auth.model.AuthenticatedActor",
                 "qa/controller/WebQaController.java -> import io.github.loredock.auth.service.SessionService",
                 "qa/controller/WebQaSseController.java -> import io.github.loredock.auth.model.AuthenticatedActor",

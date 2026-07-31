@@ -6,15 +6,14 @@ import io.github.loredock.code.model.result.CodeSnapshotBuildActivation;
 import io.github.loredock.code.model.result.CodeSnapshotGenerationResult;
 import io.github.loredock.code.model.result.CodeSnapshotRecord;
 import io.github.loredock.code.service.index.LuceneIndexHandleRegistry;
-import io.github.loredock.job.service.JobExecutionContext;
-import io.github.loredock.job.service.JobHandler;
+import io.github.loredock.job.api.JobService;
 import org.springframework.stereotype.Component;
 
 /**
  * 代码快照构建处理器：ZIP 全包校验后逐文件选择，发布独立 generation，最后用短事务切换活动入口。
  */
 @Component
-public class CodeSnapshotBuildJobHandler implements JobHandler {
+public class CodeSnapshotBuildJobHandler implements JobService.Handler {
 
     private final CodeSnapshotDataService snapshots;
     private final CodeSnapshotLifecycleService lifecycle;
@@ -45,7 +44,7 @@ public class CodeSnapshotBuildJobHandler implements JobHandler {
     }
 
     @Override
-    public void execute(JobExecutionContext context) {
+    public void execute(JobService.ExecutionContext context) {
         CodeSnapshotRecord snapshot = requireCandidate(context);
         Long generationId = lifecycle.insertBuilding(snapshot.id(), context.jobId());
         try {
@@ -66,7 +65,7 @@ public class CodeSnapshotBuildJobHandler implements JobHandler {
         }
     }
 
-    private CodeSnapshotRecord requireCandidate(JobExecutionContext context) {
+    private CodeSnapshotRecord requireCandidate(JobService.ExecutionContext context) {
         CodeSnapshotRecord snapshot = snapshots.findById(context.snapshotId())
                 .orElseThrow(() -> new IllegalArgumentException("code snapshot job scope is missing"));
         if (snapshot.status() != CodeSnapshotStatus.CANDIDATE

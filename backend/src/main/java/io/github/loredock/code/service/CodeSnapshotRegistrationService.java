@@ -7,9 +7,7 @@ import io.github.loredock.code.exception.ProjectDisabledException;
 import io.github.loredock.code.model.enums.CodeSnapshotStatus;
 import io.github.loredock.code.model.result.CodeSnapshotJobView;
 import io.github.loredock.code.model.result.CodeSnapshotRecord;
-import io.github.loredock.job.model.request.JobRequest;
-import io.github.loredock.job.model.snapshot.JobSnapshot;
-import io.github.loredock.job.service.PersistentBackgroundJobService;
+import io.github.loredock.job.api.JobService;
 import io.github.loredock.platform.persistence.AuditMetadata;
 import io.github.loredock.platform.persistence.AuditMetadataFactory;
 import io.github.loredock.project.api.ProjectScope;
@@ -28,7 +26,7 @@ public class CodeSnapshotRegistrationService {
 
     private final ProjectService projects;
     private final CodeSnapshotDataService snapshots;
-    private final PersistentBackgroundJobService jobs;
+    private final JobService jobs;
     private final AuditMetadataFactory auditFactory;
     private final TransactionTemplate transaction;
 
@@ -36,7 +34,7 @@ public class CodeSnapshotRegistrationService {
     public CodeSnapshotRegistrationService(
             ProjectService projects,
             CodeSnapshotDataService snapshots,
-            PersistentBackgroundJobService jobs,
+            JobService jobs,
             AuditMetadataFactory auditFactory,
             PlatformTransactionManager transactionManager
     ) {
@@ -82,9 +80,9 @@ public class CodeSnapshotRegistrationService {
         Long snapshotId = snapshots.insertCandidate(new CodeSnapshotRecord(
                 null, projectId, branchId, commit, objectKey, CodeSnapshotStatus.CANDIDATE,
                 null, 0, 0, null, audit));
-        Long jobId = jobs.submitExclusiveByBranch(new JobRequest(
+        Long jobId = jobs.submitExclusiveByBranch(new JobService.Request(
                 CodeSnapshotJobTypes.CODE_SNAPSHOT_BUILD, objectKey, projectId, branchId, snapshotId));
-        JobSnapshot job = jobs.find(jobId).orElseThrow();
+        JobService.Snapshot job = jobs.find(jobId).orElseThrow();
         return new CodeSnapshotJobView(
                 snapshotId, jobId, projectId, branchId, commit, job.status(), job.progress(),
                 0, 0, audit.createdAt(), job.finishedAt(), null, null);
@@ -100,10 +98,10 @@ public class CodeSnapshotRegistrationService {
         if (!project.enabled()) {
             throw new ProjectDisabledException();
         }
-        Long jobId = jobs.submitExclusiveByBranch(new JobRequest(
+        Long jobId = jobs.submitExclusiveByBranch(new JobService.Request(
                 CodeSnapshotJobTypes.CODE_SNAPSHOT_REINDEX, snapshot.inputObjectKey(), snapshot.projectId(),
                 snapshot.branchId(), snapshot.id()));
-        JobSnapshot job = jobs.find(jobId).orElseThrow();
+        JobService.Snapshot job = jobs.find(jobId).orElseThrow();
         return new CodeSnapshotJobView(
                 snapshot.id(), jobId, snapshot.projectId(), snapshot.branchId(), snapshot.commit(),
                 job.status(), job.progress(), snapshot.indexedFileCount(), snapshot.ignoredFileCount(),

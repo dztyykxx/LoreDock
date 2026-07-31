@@ -10,9 +10,7 @@ import io.github.loredock.code.exception.CodeSnapshotJobNotFoundException;
 import io.github.loredock.code.model.enums.CodeSnapshotStatus;
 import io.github.loredock.code.model.result.CodeSnapshotJobView;
 import io.github.loredock.code.model.result.CodeSnapshotRecord;
-import io.github.loredock.job.model.enums.JobStatus;
-import io.github.loredock.job.model.snapshot.JobSnapshot;
-import io.github.loredock.job.service.PersistentBackgroundJobService;
+import io.github.loredock.job.api.JobService;
 import io.github.loredock.platform.persistence.AuditMetadata;
 import java.time.Instant;
 import java.util.Optional;
@@ -32,7 +30,7 @@ class AdminCodeSnapshotQueryServiceTest {
     @Test
     void nonCodeJobIsHiddenAsNotFound() {
         CodeSnapshotDataService snapshots = mock(CodeSnapshotDataService.class);
-        PersistentBackgroundJobService jobs = mock(PersistentBackgroundJobService.class);
+        JobService jobs = mock(JobService.class);
         when(jobs.find(JOB_ID)).thenReturn(Optional.of(job("KNOWLEDGE_REINDEX")));
 
         AdminCodeSnapshotQueryService service = new AdminCodeSnapshotQueryService(snapshots, jobs);
@@ -47,7 +45,7 @@ class AdminCodeSnapshotQueryServiceTest {
     @Test
     void codeJobCombinesSanitizedTaskAndSnapshotMetadata() {
         CodeSnapshotDataService snapshots = mock(CodeSnapshotDataService.class);
-        PersistentBackgroundJobService jobs = mock(PersistentBackgroundJobService.class);
+        JobService jobs = mock(JobService.class);
         when(jobs.find(JOB_ID)).thenReturn(Optional.of(job(CodeSnapshotJobTypes.CODE_SNAPSHOT_BUILD)));
         when(snapshots.findById(SNAPSHOT_ID)).thenReturn(Optional.of(snapshot()));
 
@@ -61,11 +59,11 @@ class AdminCodeSnapshotQueryServiceTest {
         assertThat(view.failureCode()).isEqualTo("CODE_SNAPSHOT_ARCHIVE_INVALID");
     }
 
-    private JobSnapshot job(String type) {
-        return new JobSnapshot(
-                JOB_ID, type, JobStatus.FAILED, 65, "objects/private-key", PROJECT_ID, BRANCH_ID, SNAPSHOT_ID,
-                NOW, NOW.plusSeconds(5), NOW.plusSeconds(4), "instance", "CODE_SNAPSHOT_ARCHIVE_INVALID",
-                "归档结构不安全");
+    private JobService.Snapshot job(String type) {
+        return new JobService.Snapshot(
+                JOB_ID, type, JobService.Status.FAILED, 65, PROJECT_ID, BRANCH_ID, SNAPSHOT_ID,
+                NOW, NOW.plusSeconds(5), NOW.plusSeconds(4),
+                "CODE_SNAPSHOT_ARCHIVE_INVALID", "归档结构不安全");
     }
 
     private CodeSnapshotRecord snapshot() {

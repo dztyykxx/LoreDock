@@ -1,9 +1,6 @@
 package io.github.loredock.knowledge.service;
 
-import io.github.loredock.job.model.enums.JobStatus;
-import io.github.loredock.job.model.request.JobRequest;
-import io.github.loredock.job.model.snapshot.JobSnapshot;
-import io.github.loredock.job.service.PersistentBackgroundJobService;
+import io.github.loredock.job.api.JobService;
 import io.github.loredock.knowledge.config.KnowledgeIndexJobTypes;
 import io.github.loredock.knowledge.exception.KnowledgeIndexJobNotFoundException;
 import io.github.loredock.knowledge.model.result.KnowledgeIndexJobView;
@@ -13,23 +10,23 @@ import org.springframework.stereotype.Service;
 @Service
 public class KnowledgeIndexJobService {
 
-    private final PersistentBackgroundJobService jobs;
+    private final JobService jobs;
 
     /** @param jobs 持久化后台任务端口 */
-    public KnowledgeIndexJobService(PersistentBackgroundJobService jobs) {
+    public KnowledgeIndexJobService(JobService jobs) {
         this.jobs = jobs;
     }
 
     public KnowledgeIndexJobView submit() {
-        Long jobId = jobs.submitSingleFlight(new JobRequest(KnowledgeIndexJobTypes.KNOWLEDGE_REINDEX, null));
+        Long jobId = jobs.submitSingleFlight(new JobService.Request(KnowledgeIndexJobTypes.KNOWLEDGE_REINDEX, null));
         return get(jobId);
     }
 
     public KnowledgeIndexJobView get(Long jobId) {
-        JobSnapshot snapshot = jobs.find(jobId)
+        JobService.Snapshot snapshot = jobs.find(jobId)
                 .filter(job -> KnowledgeIndexJobTypes.KNOWLEDGE_REINDEX.equals(job.type()))
                 .orElseThrow(KnowledgeIndexJobNotFoundException::new);
-        String failure = snapshot.status() == JobStatus.FAILED ? snapshot.errorMessage() : null;
+        String failure = snapshot.status() == JobService.Status.FAILED ? snapshot.errorMessage() : null;
         return new KnowledgeIndexJobView(
                 snapshot.id(), snapshot.status(), snapshot.progress(),
                 snapshot.startedAt(), snapshot.finishedAt(), failure);

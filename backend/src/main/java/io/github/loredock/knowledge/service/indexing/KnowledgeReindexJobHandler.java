@@ -1,14 +1,13 @@
 package io.github.loredock.knowledge.service.indexing;
 
-import io.github.loredock.job.service.JobExecutionContext;
-import io.github.loredock.job.service.JobHandler;
+import io.github.loredock.job.api.JobService;
 import io.github.loredock.knowledge.config.KnowledgeIndexJobTypes;
 import io.github.loredock.knowledge.service.KnowledgeIndexRebuildService;
 import org.springframework.stereotype.Component;
 
 /** KNOWLEDGE_REINDEX 后台处理器；协调分阶段投影、离线 Embedding、检索构建和任务进度，不吞掉重建异常。 */
 @Component
-public class KnowledgeReindexJobHandler implements JobHandler {
+public class KnowledgeReindexJobHandler implements JobService.Handler {
 
     private final KnowledgeIndexRebuildService rebuilder;
 
@@ -23,7 +22,7 @@ public class KnowledgeReindexJobHandler implements JobHandler {
     }
 
     @Override
-    public void execute(JobExecutionContext context) {
+    public void execute(JobService.ExecutionContext context) {
         context.updateProgress(5);
         context.heartbeat();
         rebuilder.rebuild(context.jobId(), new KnowledgeIndexRebuildService.Progress(

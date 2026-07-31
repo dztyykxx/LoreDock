@@ -15,9 +15,9 @@ import io.github.loredock.code.model.result.CodeSnapshotUpload;
 import io.github.loredock.code.service.archive.CodeSnapshotUploadValidator;
 import io.github.loredock.code.service.storage.ObjectStorageCodeSnapshotCompensation;
 import io.github.loredock.job.config.JobProperties;
+import io.github.loredock.job.api.JobService;
 import io.github.loredock.job.mapper.BackgroundJobMapper;
 import io.github.loredock.job.service.JobFailureClassifier;
-import io.github.loredock.job.service.JobHandler;
 import io.github.loredock.job.service.PersistentBackgroundJobService;
 import io.github.loredock.persistence.MybatisMapperFactory;
 import io.github.loredock.platform.persistence.AuditMetadataFactory;
@@ -205,9 +205,9 @@ class CodeSnapshotUploadServiceIT {
     }
 
     private PersistentBackgroundJobService jobs(CountDownLatch releaseLatch) {
-        JobHandler handler = new JobHandler() {
+        JobService.Handler handler = new JobService.Handler() {
             @Override public String type() { return CodeSnapshotJobTypes.CODE_SNAPSHOT_BUILD; }
-            @Override public void execute(io.github.loredock.job.service.JobExecutionContext context) {
+            @Override public void execute(JobService.ExecutionContext context) {
                 try {
                     releaseLatch.await(5, TimeUnit.SECONDS);
                 } catch (InterruptedException exception) {

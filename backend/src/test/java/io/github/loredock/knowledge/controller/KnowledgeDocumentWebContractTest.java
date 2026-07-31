@@ -24,7 +24,7 @@ import io.github.loredock.auth.config.IdentityWebConfiguration;
 import io.github.loredock.auth.controller.AuthController;
 import io.github.loredock.auth.service.AccountService;
 import io.github.loredock.auth.service.SessionService;
-import io.github.loredock.job.model.enums.JobStatus;
+import io.github.loredock.job.api.JobService;
 import io.github.loredock.knowledge.converter.KnowledgeDocumentImportHttpContract;
 import io.github.loredock.knowledge.converter.KnowledgeIndexJobHttpContract;
 import io.github.loredock.knowledge.exception.DocumentReplacementConflictException;
@@ -464,7 +464,7 @@ class KnowledgeDocumentWebContractTest {
     void adminSubmitsKnowledgeReindexWithAcceptedSingleFlightView() throws Exception {
         Long jobId = 3349842972707284583L;
         KnowledgeIndexJobView pending = new KnowledgeIndexJobView(
-                jobId, JobStatus.PENDING, 0, null, null, null);
+                jobId, JobService.Status.PENDING, 0, null, null, null);
         when(indexJobs.submit()).thenReturn(pending);
 
         Cookie admin = loginCookie("admin");
@@ -484,11 +484,11 @@ class KnowledgeDocumentWebContractTest {
     void adminReadsAllKnowledgeIndexJobStatesWithSafeFailureSummary() throws Exception {
         Long jobId = 3349842972707284583L;
         when(indexJobs.get(jobId))
-                .thenReturn(new KnowledgeIndexJobView(jobId, JobStatus.PENDING, 0, null, null, null))
-                .thenReturn(new KnowledgeIndexJobView(jobId, JobStatus.RUNNING, 55, NOW, null, null))
-                .thenReturn(new KnowledgeIndexJobView(jobId, JobStatus.SUCCEEDED, 100, NOW, NOW, null))
+                .thenReturn(new KnowledgeIndexJobView(jobId, JobService.Status.PENDING, 0, null, null, null))
+                .thenReturn(new KnowledgeIndexJobView(jobId, JobService.Status.RUNNING, 55, NOW, null, null))
+                .thenReturn(new KnowledgeIndexJobView(jobId, JobService.Status.SUCCEEDED, 100, NOW, NOW, null))
                 .thenReturn(new KnowledgeIndexJobView(
-                        jobId, JobStatus.FAILED, 55, NOW, NOW, "数据库操作失败 [REDACTED]"));
+                        jobId, JobService.Status.FAILED, 55, NOW, NOW, "数据库操作失败 [REDACTED]"));
         Cookie admin = loginCookie("admin");
 
         for (String expected : List.of("PENDING", "RUNNING", "SUCCEEDED")) {

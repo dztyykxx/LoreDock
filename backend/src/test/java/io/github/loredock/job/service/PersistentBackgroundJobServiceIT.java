@@ -2,11 +2,11 @@ package io.github.loredock.job.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.loredock.job.api.JobService;
 import io.github.loredock.job.config.JobProperties;
 import io.github.loredock.job.mapper.BackgroundJobMapper;
 import io.github.loredock.job.model.BackgroundJob;
 import io.github.loredock.job.model.enums.JobStatus;
-import io.github.loredock.job.model.request.JobRequest;
 import io.github.loredock.job.model.snapshot.JobSnapshot;
 import io.github.loredock.job.scheduler.JobRecovery;
 import io.github.loredock.persistence.MybatisMapperFactory;
@@ -89,17 +89,17 @@ class PersistentBackgroundJobServiceIT {
                 })
         );
 
-        var failedId = service.submit(new JobRequest("FAIL", null));
-        var succeededId = service.submit(new JobRequest("SUCCESS", null));
+        var failedId = service.submit(new JobService.Request("FAIL", null));
+        var succeededId = service.submit(new JobService.Request("SUCCESS", null));
 
         assertThat(jdbcTemplate.queryForObject(
                 "select count(*) from background_job where id in (?, ?)", Integer.class, failedId, succeededId))
                 .isEqualTo(2);
         Awaitility.await().atMost(Duration.ofSeconds(5)).untilAsserted(() -> {
-            assertThat(service.find(failedId).orElseThrow().status()).isEqualTo(JobStatus.FAILED);
-            assertThat(service.find(succeededId).orElseThrow().status()).isEqualTo(JobStatus.SUCCEEDED);
+            assertThat(service.find(failedId).orElseThrow().status()).isEqualTo(JobService.Status.FAILED);
+            assertThat(service.find(succeededId).orElseThrow().status()).isEqualTo(JobService.Status.SUCCEEDED);
         });
-        JobSnapshot failure = service.find(failedId).orElseThrow();
+        JobService.Snapshot failure = service.find(failedId).orElseThrow();
         assertThat(failure.errorCode()).isEqualTo("UNEXPECTED_ERROR");
         assertThat(failure.errorMessage()).doesNotContain("secret-value").contains("[REDACTED]");
         assertThat(service.find(succeededId).orElseThrow().progress()).isEqualTo(100);
@@ -120,14 +120,14 @@ class PersistentBackgroundJobServiceIT {
                 }),
                 handler("SUCCESS", context -> { })
         );
-        service.submit(new JobRequest("BLOCK", null));
+        service.submit(new JobService.Request("BLOCK", null));
         assertThat(started.await(3, TimeUnit.SECONDS)).isTrue();
 
-        var rejectedId = service.submit(new JobRequest("SUCCESS", null));
+        var rejectedId = service.submit(new JobService.Request("SUCCESS", null));
 
         Awaitility.await().atMost(Duration.ofSeconds(3)).untilAsserted(() -> {
-            JobSnapshot rejected = service.find(rejectedId).orElseThrow();
-            assertThat(rejected.status()).isEqualTo(JobStatus.FAILED);
+            JobService.Snapshot rejected = service.find(rejectedId).orElseThrow();
+            assertThat(rejected.status()).isEqualTo(JobService.Status.FAILED);
             assertThat(rejected.errorCode()).isEqualTo("CAPACITY_EXCEEDED");
         });
         release.countDown();
@@ -149,11 +149,11 @@ class PersistentBackgroundJobServiceIT {
                     await(release);
                 })
         );
-        var jobId = service.submit(new JobRequest("PROGRESS", null));
+        var jobId = service.submit(new JobService.Request("PROGRESS", null));
         assertThat(progressWritten.await(3, TimeUnit.SECONDS)).isTrue();
 
-        JobSnapshot running = service.find(jobId).orElseThrow();
-        assertThat(running.status()).isEqualTo(JobStatus.RUNNING);
+        JobService.Snapshot running = service.find(jobId).orElseThrow();
+        assertThat(running.status()).isEqualTo(JobService.Status.RUNNING);
         assertThat(running.progress()).isEqualTo(55);
         assertThat(running.heartbeatAt()).isNotNull();
 
@@ -161,7 +161,7 @@ class PersistentBackgroundJobServiceIT {
         release.countDown();
 
         Awaitility.await().atMost(Duration.ofSeconds(3)).untilAsserted(() ->
-                assertThat(service.find(jobId).orElseThrow().status()).isEqualTo(JobStatus.CANCELLED));
+                assertThat(service.find(jobId).orElseThrow().status()).isEqualTo(JobService.Status.CANCELLED));
     }
 
     /**
@@ -201,24 +201,24 @@ class PersistentBackgroundJobServiceIT {
         CountDownLatch started = new CountDownLatch(4);
         CountDownLatch release = new CountDownLatch(1);
         AtomicBoolean persistedBeforeExecution = new AtomicBoolean(true);
-        JobHandler typeA = handler("TYPE_A", context -> {
+        JobService.Handler typeA = handler("TYPE_A", context -> {
             persistedBeforeExecution.compareAndSet(true, jdbcTemplate.queryForObject(
                     "select count(*) > 0 from background_job where id = ?",
                     Boolean.class, context.jobId()));
             started.countDown();
             await(release);
         });
-        JobHandler typeB = handler("TYPE_B", context -> {
+        JobService.Handler typeB = handler("TYPE_B", context -> {
             started.countDown();
             await(release);
         });
         PersistentBackgroundJobService service = service(properties(4, 4), typeA, typeB);
 
-        var shared = service.submitSingleFlight(new JobRequest("TYPE_A", null));
-        var reused = service.submitSingleFlight(new JobRequest("TYPE_A", null));
-        var otherType = service.submitSingleFlight(new JobRequest("TYPE_B", null));
-        var defaultFirst = service.submit(new JobRequest("TYPE_A", null));
-        var defaultSecond = service.submit(new JobRequest("TYPE_A", null));
+        var shared = service.submitSingleFlight(new JobService.Request("TYPE_A", null));
+        var reused = service.submitSingleFlight(new JobService.Request("TYPE_A", null));
+        var otherType = service.submitSingleFlight(new JobService.Request("TYPE_B", null));
+        var defaultFirst = service.submit(new JobService.Request("TYPE_A", null));
+        var defaultSecond = service.submit(new JobService.Request("TYPE_A", null));
 
         assertThat(reused).isEqualTo(shared);
         assertThat(otherType).isNotEqualTo(shared);
@@ -228,18 +228,18 @@ class PersistentBackgroundJobServiceIT {
                 .min(java.util.Comparator.naturalOrder())
                 .orElseThrow();
         assertThat(service.findActiveByType("TYPE_A")).isPresent()
-                .get().extracting(JobSnapshot::id).isEqualTo(stableFirst);
+                .get().extracting(JobService.Snapshot::id).isEqualTo(stableFirst);
         assertThat(persistedBeforeExecution).isTrue();
         assertThat(started.await(3, TimeUnit.SECONDS)).isTrue();
         release.countDown();
         Awaitility.await().atMost(Duration.ofSeconds(5)).untilAsserted(() ->
-                assertThat(service.find(shared).orElseThrow().status()).isEqualTo(JobStatus.SUCCEEDED));
+                assertThat(service.find(shared).orElseThrow().status()).isEqualTo(JobService.Status.SUCCEEDED));
 
-        var afterTerminal = service.submitSingleFlight(new JobRequest("TYPE_A", null));
+        var afterTerminal = service.submitSingleFlight(new JobService.Request("TYPE_A", null));
         assertThat(afterTerminal).isNotEqualTo(shared);
     }
 
-    private PersistentBackgroundJobService service(JobProperties properties, JobHandler... handlers) {
+    private PersistentBackgroundJobService service(JobProperties properties, JobService.Handler... handlers) {
         var auditFactory = new AuditMetadataFactory(Clock.fixed(NOW, java.time.ZoneOffset.UTC), () -> "SYSTEM");
         PersistentBackgroundJobService service = new PersistentBackgroundJobService(
                 backgroundJobMapper,
@@ -285,15 +285,15 @@ class PersistentBackgroundJobServiceIT {
         return job;
     }
 
-    private JobHandler handler(String type, Consumer<JobExecutionContext> work) {
-        return new JobHandler() {
+    private JobService.Handler handler(String type, Consumer<JobService.ExecutionContext> work) {
+        return new JobService.Handler() {
             @Override
             public String type() {
                 return type;
             }
 
             @Override
-            public void execute(JobExecutionContext context) {
+            public void execute(JobService.ExecutionContext context) {
                 work.accept(context);
             }
         };

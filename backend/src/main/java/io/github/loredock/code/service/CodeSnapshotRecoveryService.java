@@ -7,7 +7,7 @@ import io.github.loredock.code.model.entity.CodeIndexGenerationEntity;
 import io.github.loredock.code.model.entity.CodeSnapshotEntity;
 import io.github.loredock.code.model.enums.CodeIndexGenerationStatus;
 import io.github.loredock.code.model.enums.CodeSnapshotStatus;
-import io.github.loredock.job.service.PersistentBackgroundJobService;
+import io.github.loredock.job.api.JobService;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -28,7 +28,7 @@ public class CodeSnapshotRecoveryService {
     public CodeSnapshotRecoveryService(
             CodeSnapshotMapper snapshots,
             CodeIndexGenerationMapper generations,
-            PersistentBackgroundJobService jobs
+            JobService jobs
     ) {
         this(snapshots, generations, jobs::isMissingOrTerminal);
     }

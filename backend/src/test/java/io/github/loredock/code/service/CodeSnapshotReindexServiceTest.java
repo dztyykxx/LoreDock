@@ -15,7 +15,7 @@ import io.github.loredock.code.model.result.CodeSnapshotJobView;
 import io.github.loredock.code.model.result.CodeSnapshotRecord;
 import io.github.loredock.code.service.archive.CodeSnapshotUploadValidator;
 import io.github.loredock.code.service.storage.ObjectStorageCodeSnapshotCompensation;
-import io.github.loredock.job.model.enums.JobStatus;
+import io.github.loredock.job.api.JobService;
 import io.github.loredock.platform.persistence.AuditMetadata;
 import io.github.loredock.storage.api.ObjectStorage;
 import java.time.Instant;
@@ -43,7 +43,7 @@ class CodeSnapshotReindexServiceTest {
 
         assertThat(result.snapshotId()).isEqualTo(SNAPSHOT_ID);
         assertThat(result.commit()).isEqualTo("abcdef1");
-        assertThat(result.status()).isEqualTo(JobStatus.PENDING);
+        assertThat(result.status()).isEqualTo(JobService.Status.PENDING);
     }
 
     /**
@@ -100,6 +100,6 @@ class CodeSnapshotReindexServiceTest {
         CodeSnapshotRecord snapshot = snapshot(CodeSnapshotStatus.ACTIVE);
         return new CodeSnapshotJobView(
                 SNAPSHOT_ID, 8000000000000000079L, snapshot.projectId(), snapshot.branchId(), "abcdef1",
-                JobStatus.PENDING, 0, 3, 1, NOW, null, null, null);
+                JobService.Status.PENDING, 0, 3, 1, NOW, null, null, null);
     }
 }

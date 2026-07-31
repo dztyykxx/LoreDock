@@ -6,8 +6,7 @@ import io.github.loredock.code.model.request.AdminCodeSnapshotQuery;
 import io.github.loredock.code.model.result.CodeSnapshotAdminPage;
 import io.github.loredock.code.model.result.CodeSnapshotJobView;
 import io.github.loredock.code.model.result.CodeSnapshotRecord;
-import io.github.loredock.job.model.snapshot.JobSnapshot;
-import io.github.loredock.job.service.PersistentBackgroundJobService;
+import io.github.loredock.job.api.JobService;
 import java.util.Set;
 import org.springframework.stereotype.Service;
 
@@ -21,13 +20,13 @@ public class AdminCodeSnapshotQueryService {
             CodeSnapshotJobTypes.CODE_SNAPSHOT_BUILD, CodeSnapshotJobTypes.CODE_SNAPSHOT_REINDEX);
 
     private final CodeSnapshotDataService snapshots;
-    private final PersistentBackgroundJobService jobs;
+    private final JobService jobs;
 
     /**
      * @param snapshots 快照持久化端口
      * @param jobs 后台任务查询端口
      */
-    public AdminCodeSnapshotQueryService(CodeSnapshotDataService snapshots, PersistentBackgroundJobService jobs) {
+    public AdminCodeSnapshotQueryService(CodeSnapshotDataService snapshots, JobService jobs) {
         this.snapshots = snapshots;
         this.jobs = jobs;
     }
@@ -38,7 +37,7 @@ public class AdminCodeSnapshotQueryService {
     }
 
     public CodeSnapshotJobView getJob(Long jobId) {
-        JobSnapshot job = jobs.find(jobId)
+        JobService.Snapshot job = jobs.find(jobId)
                 .filter(candidate -> CODE_JOB_TYPES.contains(candidate.type()))
                 .filter(candidate -> candidate.snapshotId() != null)
                 .orElseThrow(CodeSnapshotJobNotFoundException::new);

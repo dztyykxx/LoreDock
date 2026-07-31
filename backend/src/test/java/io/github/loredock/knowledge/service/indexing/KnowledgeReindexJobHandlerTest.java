@@ -6,7 +6,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import io.github.loredock.job.service.JobExecutionContext;
+import io.github.loredock.job.api.JobService;
 import io.github.loredock.knowledge.model.result.KnowledgeIndexRebuildResult;
 import io.github.loredock.knowledge.service.KnowledgeIndexRebuildService;
 import java.util.ArrayList;
@@ -31,7 +31,7 @@ class KnowledgeReindexJobHandlerTest {
         });
         KnowledgeReindexJobHandler handler = new KnowledgeReindexJobHandler(rebuildService);
 
-        handler.execute(new JobExecutionContext() {
+        handler.execute(new JobService.ExecutionContext() {
             @Override
             public Long jobId() {
                 return jobId;

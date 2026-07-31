@@ -16,7 +16,7 @@ import io.github.loredock.code.model.result.PublishedCodeGeneration;
 import io.github.loredock.code.service.archive.CommonsCompressCodeArchiveReader;
 import io.github.loredock.code.service.archive.DefaultCodeFileSelector;
 import io.github.loredock.code.service.index.FilesystemCodeGenerationPublisher;
-import io.github.loredock.job.service.JobExecutionContext;
+import io.github.loredock.job.api.JobService;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import org.junit.jupiter.api.Test;
@@ -90,7 +90,7 @@ class CodeSnapshotGenerationBuilderTest {
                 CodeSnapshotStatus.CANDIDATE, null, 0, 0, null, null);
     }
 
-    private static final class RecordingContext implements JobExecutionContext {
+    private static final class RecordingContext implements JobService.ExecutionContext {
         private final Long jobId = 8000000000000000069L;
 
         @Override

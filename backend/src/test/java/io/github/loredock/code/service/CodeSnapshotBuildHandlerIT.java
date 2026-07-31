@@ -22,7 +22,7 @@ import io.github.loredock.code.service.index.FilesystemCodeGenerationPublisher;
 import io.github.loredock.code.service.index.LuceneIndexHandleRegistry;
 import io.github.loredock.job.mapper.BackgroundJobMapper;
 import io.github.loredock.job.model.enums.JobStatus;
-import io.github.loredock.job.service.JobExecutionContext;
+import io.github.loredock.job.api.JobService;
 import io.github.loredock.persistence.MybatisMapperFactory;
 import io.github.loredock.support.TestIds;
 import java.io.ByteArrayInputStream;
@@ -386,7 +386,7 @@ class CodeSnapshotBuildHandlerIT {
     private record Fixture(Long projectId, Long branchId, Long snapshotId, Long jobId, String objectKey) {
     }
 
-    private static final class RecordingContext implements JobExecutionContext {
+    private static final class RecordingContext implements JobService.ExecutionContext {
         private final Fixture fixture;
         private int progress;
         private int heartbeats;

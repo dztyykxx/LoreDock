@@ -3,10 +3,9 @@ package io.github.loredock.job.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.loredock.job.api.JobService;
 import io.github.loredock.job.config.JobProperties;
 import io.github.loredock.job.mapper.BackgroundJobMapper;
-import io.github.loredock.job.model.enums.JobStatus;
-import io.github.loredock.job.model.request.JobRequest;
 import io.github.loredock.persistence.MybatisMapperFactory;
 import io.github.loredock.platform.persistence.AuditMetadataFactory;
 import io.github.loredock.platform.web.ApplicationException;
@@ -147,11 +146,11 @@ class BranchScopedBackgroundJobServiceIT {
 
         Awaitility.await().atMost(Duration.ofSeconds(3)).untilAsserted(() -> {
             assertThat(executed.getCount()).isZero();
-            assertThat(service.find(jobId.get()).orElseThrow().status()).isEqualTo(JobStatus.SUCCEEDED);
+            assertThat(service.find(jobId.get()).orElseThrow().status()).isEqualTo(JobService.Status.SUCCEEDED);
         });
     }
 
-    private PersistentBackgroundJobService service(JobHandler... handlers) {
+    private PersistentBackgroundJobService service(JobService.Handler... handlers) {
         PersistentBackgroundJobService service = new PersistentBackgroundJobService(
                 mapper, List.of(handlers),
                 new JobProperties(2, 2, 4, Duration.ofSeconds(2), Duration.ofMinutes(5)),
@@ -161,11 +160,11 @@ class BranchScopedBackgroundJobServiceIT {
         return service;
     }
 
-    private JobRequest request(String type, Scope scope) {
-        return new JobRequest(type, scope.objectKey(), scope.projectId(), scope.branchId(), scope.snapshotId());
+    private JobService.Request request(String type, Scope scope) {
+        return new JobService.Request(type, scope.objectKey(), scope.projectId(), scope.branchId(), scope.snapshotId());
     }
 
-    private JobHandler blockingHandler(String type, CountDownLatch started, CountDownLatch release) {
+    private JobService.Handler blockingHandler(String type, CountDownLatch started, CountDownLatch release) {
         return handler(type, context -> {
             started.countDown();
             try {
@@ -179,15 +178,18 @@ class BranchScopedBackgroundJobServiceIT {
         });
     }
 
-    private JobHandler handler(String type, java.util.function.Consumer<JobExecutionContext> work) {
-        return new JobHandler() {
+    private JobService.Handler handler(
+            String type,
+            java.util.function.Consumer<JobService.ExecutionContext> work
+    ) {
+        return new JobService.Handler() {
             @Override
             public String type() {
                 return type;
             }
 
             @Override
-            public void execute(JobExecutionContext context) {
+            public void execute(JobService.ExecutionContext context) {
                 work.accept(context);
             }
         };

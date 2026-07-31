@@ -1,12 +1,12 @@
 package io.github.loredock.job.service;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import io.github.loredock.job.api.JobService;
 import io.github.loredock.job.config.JobProperties;
 import io.github.loredock.job.mapper.BackgroundJobMapper;
 import io.github.loredock.job.model.BackgroundJob;
 import io.github.loredock.job.model.entity.BackgroundJobEntity;
 import io.github.loredock.job.model.enums.JobStatus;
-import io.github.loredock.job.model.request.JobRequest;
 import io.github.loredock.job.model.result.JobFailure;
 import io.github.loredock.job.model.snapshot.JobSnapshot;
 import io.github.loredock.platform.persistence.AuditMetadata;
@@ -43,13 +43,13 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
  * PostgreSQL 持久记录配合有界线程池的单实例任务服务。每次状态变更通过仓储短事务完成，工作本身不持有数据库事务。
  */
 @Service
-public class PersistentBackgroundJobService implements AutoCloseable {
+public class PersistentBackgroundJobService implements JobService, AutoCloseable {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(PersistentBackgroundJobService.class);
     private static final String JOB_MDC_KEY = "jobId";
 
     private final BackgroundJobMapper jobs;
-    private final Map<String, JobHandler> handlers;
+    private final Map<String, JobService.Handler> handlers;
     private final ThreadPoolExecutor executor;
     private final Duration shutdownAwait;
     private final Clock timeProvider;
@@ -72,7 +72,7 @@ public class PersistentBackgroundJobService implements AutoCloseable {
      */
     public PersistentBackgroundJobService(
             BackgroundJobMapper jobs,
-            List<JobHandler> handlers,
+            List<JobService.Handler> handlers,
             JobProperties properties,
             Clock timeProvider,
             @Qualifier("auditActorSupplier") Supplier<String> actorProvider,
@@ -97,12 +97,14 @@ public class PersistentBackgroundJobService implements AutoCloseable {
         );
     }
 
-    public Long submit(JobRequest request) {
+    @Override
+    public Long submit(JobService.Request request) {
         validateRequest(request);
         return submitNew(request);
     }
 
-    public Long submitSingleFlight(JobRequest request) {
+    @Override
+    public Long submitSingleFlight(JobService.Request request) {
         validateRequest(request);
         // MVP 明确为单实例部署：JVM 锁把“查活动任务—插入新任务”串行化，不宣称提供分布式互斥。
         synchronized (singleFlightLock) {
@@ -112,7 +114,8 @@ public class PersistentBackgroundJobService implements AutoCloseable {
         }
     }
 
-    public Long submitExclusiveByBranch(JobRequest request) {
+    @Override
+    public Long submitExclusiveByBranch(JobService.Request request) {
         validateRequest(request);
         if (request.projectId() == null || request.branchId() == null || request.snapshotId() == null) {
             throw new IllegalArgumentException("分支排他任务必须包含项目、分支和快照范围");
@@ -120,7 +123,7 @@ public class PersistentBackgroundJobService implements AutoCloseable {
         return submitNew(request);
     }
 
-    private Long submitNew(JobRequest request) {
+    private Long submitNew(JobService.Request request) {
         // 必须先提交数据库记录，执行器中的任何路径才能通过任务 ID 留下可追踪结果。
         Long jobId;
         try {
@@ -138,7 +141,7 @@ public class PersistentBackgroundJobService implements AutoCloseable {
         return jobId;
     }
 
-    private void scheduleAfterCommit(Long jobId, JobHandler handler) {
+    private void scheduleAfterCommit(Long jobId, JobService.Handler handler) {
         if (TransactionSynchronizationManager.isActualTransactionActive()
                 && TransactionSynchronizationManager.isSynchronizationActive()) {
             // 候选快照与任务可能由调用方同事务登记；只有提交成功后处理器才能安全读取它们。
@@ -153,7 +156,7 @@ public class PersistentBackgroundJobService implements AutoCloseable {
         schedule(jobId, handler);
     }
 
-    private void schedule(Long jobId, JobHandler handler) {
+    private void schedule(Long jobId, JobService.Handler handler) {
         try {
             executor.execute(() -> execute(jobId, handler));
         } catch (RejectedExecutionException exception) {
@@ -161,18 +164,20 @@ public class PersistentBackgroundJobService implements AutoCloseable {
         }
     }
 
-    private void validateRequest(JobRequest request) {
+    private void validateRequest(JobService.Request request) {
         if (request == null || request.type() == null || !handlers.containsKey(request.type())) {
             throw new ApplicationException(ErrorCode.UNSUPPORTED_JOB_TYPE, "任务类型未注册");
         }
     }
 
-    public Optional<JobSnapshot> find(Long jobId) {
-        return findJob(jobId).map(BackgroundJob::snapshot);
+    @Override
+    public Optional<JobService.Snapshot> find(Long jobId) {
+        return findJob(jobId).map(BackgroundJob::snapshot).map(this::toApi);
     }
 
-    public Optional<JobSnapshot> findActiveByType(String type) {
-        return findActiveJob(type).map(BackgroundJob::snapshot);
+    @Override
+    public Optional<JobService.Snapshot> findActiveByType(String type) {
+        return findActiveJob(type).map(BackgroundJob::snapshot).map(this::toApi);
     }
 
     /**
@@ -181,6 +186,7 @@ public class PersistentBackgroundJobService implements AutoCloseable {
      * @param jobId 后台任务标识
      * @return 不存在或处于成功、失败、取消终态时为 {@code true}
      */
+    @Override
     public boolean isMissingOrTerminal(Long jobId) {
         return find(jobId).map(snapshot -> switch (snapshot.status()) {
             case SUCCEEDED, FAILED, CANCELLED -> true;
@@ -188,6 +194,7 @@ public class PersistentBackgroundJobService implements AutoCloseable {
         }).orElse(true);
     }
 
+    @Override
     public void cancel(Long jobId) {
         findJob(jobId).ifPresent(job -> {
             if (job.snapshot().status() != JobStatus.RUNNING) {
@@ -215,7 +222,7 @@ public class PersistentBackgroundJobService implements AutoCloseable {
         }
     }
 
-    private void execute(Long jobId, JobHandler handler) {
+    private void execute(Long jobId, JobService.Handler handler) {
         MDC.put(JOB_MDC_KEY, jobId.toString());
         try {
             BackgroundJob job = findJob(jobId).orElseThrow();
@@ -268,7 +275,7 @@ public class PersistentBackgroundJobService implements AutoCloseable {
         });
     }
 
-    private Long insertPending(JobRequest request, AuditMetadata audit) {
+    private Long insertPending(JobService.Request request, AuditMetadata audit) {
         BackgroundJobEntity entity = BackgroundJobEntity.builder()
                 .jobType(request.type()).status(JobStatus.PENDING.name()).progress(0)
                 .inputObjectKey(request.inputObjectKey()).projectId(request.projectId())
@@ -317,10 +324,18 @@ public class PersistentBackgroundJobService implements AutoCloseable {
                 entity.getErrorCode(), entity.getErrorMessage()));
     }
 
-    private Map<String, JobHandler> indexHandlers(List<JobHandler> handlerList) {
-        Map<String, JobHandler> indexed = new HashMap<>();
-        for (JobHandler handler : handlerList) {
-            JobHandler previous = indexed.put(handler.type(), handler);
+    private JobService.Snapshot toApi(JobSnapshot snapshot) {
+        return new JobService.Snapshot(
+                snapshot.id(), snapshot.type(), JobService.Status.valueOf(snapshot.status().name()),
+                snapshot.progress(), snapshot.projectId(), snapshot.branchId(), snapshot.snapshotId(),
+                snapshot.startedAt(), snapshot.finishedAt(), snapshot.heartbeatAt(),
+                snapshot.errorCode(), snapshot.errorMessage());
+    }
+
+    private Map<String, JobService.Handler> indexHandlers(List<JobService.Handler> handlerList) {
+        Map<String, JobService.Handler> indexed = new HashMap<>();
+        for (JobService.Handler handler : handlerList) {
+            JobService.Handler previous = indexed.put(handler.type(), handler);
             if (previous != null) {
                 throw new IllegalStateException("任务类型重复注册: " + handler.type());
             }
@@ -350,7 +365,7 @@ public class PersistentBackgroundJobService implements AutoCloseable {
         };
     }
 
-    private final class ExecutionContext implements JobExecutionContext {
+    private final class ExecutionContext implements JobService.ExecutionContext {
         private final Long jobId;
         private final String inputObjectKey;
         private final Long projectId;

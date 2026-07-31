@@ -9,7 +9,7 @@ import io.github.loredock.code.model.result.PublishedCodeGeneration;
 import io.github.loredock.code.service.archive.CommonsCompressCodeArchiveReader;
 import io.github.loredock.code.service.archive.DefaultCodeFileSelector;
 import io.github.loredock.code.service.index.FilesystemCodeGenerationPublisher;
-import io.github.loredock.job.service.JobExecutionContext;
+import io.github.loredock.job.api.JobService;
 import java.util.List;
 import java.util.Locale;
 import org.springframework.stereotype.Service;
@@ -39,7 +39,7 @@ public class CodeSnapshotGenerationBuilder {
 
     /** 发布固定范围的新 generation，返回索引与忽略计数。 */
     public CodeSnapshotGenerationResult build(
-            JobExecutionContext context,
+            JobService.ExecutionContext context,
             CodeSnapshotRecord snapshot,
             Long generationId
     ) {

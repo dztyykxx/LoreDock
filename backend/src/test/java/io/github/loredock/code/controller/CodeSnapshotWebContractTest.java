@@ -42,7 +42,7 @@ import io.github.loredock.code.model.result.CodeSnapshotJobView;
 import io.github.loredock.code.service.AdminCodeSnapshotQueryService;
 import io.github.loredock.code.service.CodeQueryServiceImpl;
 import io.github.loredock.code.service.CodeSnapshotUploadService;
-import io.github.loredock.job.model.enums.JobStatus;
+import io.github.loredock.job.api.JobService;
 import io.github.loredock.platform.web.ApplicationException;
 import io.github.loredock.platform.web.ErrorCode;
 import io.github.loredock.platform.web.GlobalExceptionHandler;
@@ -135,7 +135,7 @@ class CodeSnapshotWebContractTest {
      */
     @Test
     void adminUploadReturnsAcceptedSafeJobView() throws Exception {
-        when(commands.upload(any())).thenReturn(jobView(JobStatus.PENDING, null, null));
+        when(commands.upload(any())).thenReturn(jobView(JobService.Status.PENDING, null, null));
 
         mockMvc.perform(uploadRequest(loginCookie("admin")))
                 .andExpect(status().isAccepted())
@@ -244,7 +244,7 @@ class CodeSnapshotWebContractTest {
     @Test
     void adminCanPollCompleteSanitizedJobStatus() throws Exception {
         when(queries.getJob(JOB_ID)).thenReturn(jobView(
-                JobStatus.FAILED, "CODE_SNAPSHOT_ARCHIVE_INVALID", "归档结构不安全"));
+                JobService.Status.FAILED, "CODE_SNAPSHOT_ARCHIVE_INVALID", "归档结构不安全"));
 
         mockMvc.perform(get(CodeSnapshotHttpContract.ADMIN_JOB_PATH + "/{jobId}", JOB_ID)
                         .cookie(loginCookie("admin")))
@@ -277,7 +277,7 @@ class CodeSnapshotWebContractTest {
      */
     @Test
     void reindexReturnsAcceptedForAdminAndRejectsMember() throws Exception {
-        when(commands.reindex(SNAPSHOT_ID)).thenReturn(jobView(JobStatus.PENDING, null, null));
+        when(commands.reindex(SNAPSHOT_ID)).thenReturn(jobView(JobService.Status.PENDING, null, null));
         mockMvc.perform(post(CodeSnapshotHttpContract.ADMIN_SNAPSHOT_PATH + "/{snapshotId}/reindex", SNAPSHOT_ID)
                         .cookie(loginCookie("admin")))
                 .andExpect(status().isAccepted())
@@ -380,10 +380,11 @@ class CodeSnapshotWebContractTest {
         return cookie == null ? request : request.cookie(cookie);
     }
 
-    private CodeSnapshotJobView jobView(JobStatus status, String failureCode, String failureSummary) {
+    private CodeSnapshotJobView jobView(JobService.Status status, String failureCode, String failureSummary) {
         return new CodeSnapshotJobView(
-                SNAPSHOT_ID, JOB_ID, PROJECT_ID, BRANCH_ID, "abcdef1", status, status == JobStatus.PENDING ? 0 : 70,
-                7, 2, NOW, status == JobStatus.FAILED ? NOW.plusSeconds(5) : null,
+                SNAPSHOT_ID, JOB_ID, PROJECT_ID, BRANCH_ID, "abcdef1", status,
+                status == JobService.Status.PENDING ? 0 : 70,
+                7, 2, NOW, status == JobService.Status.FAILED ? NOW.plusSeconds(5) : null,
                 failureCode, failureSummary);
     }
 
