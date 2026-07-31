@@ -12,10 +12,8 @@ import io.github.loredock.job.model.snapshot.JobSnapshot;
 import io.github.loredock.job.service.PersistentBackgroundJobService;
 import io.github.loredock.platform.persistence.AuditMetadata;
 import io.github.loredock.platform.persistence.AuditMetadataFactory;
-import io.github.loredock.project.exception.BranchNotFoundException;
-import io.github.loredock.project.model.enums.ProjectStatus;
-import io.github.loredock.project.model.result.AdminProjectDetailView;
-import io.github.loredock.project.service.ProjectApplicationService;
+import io.github.loredock.project.api.ProjectScope;
+import io.github.loredock.project.api.ProjectService;
 import java.util.Objects;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -28,7 +26,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 @Service
 public class CodeSnapshotRegistrationService {
 
-    private final ProjectApplicationService projects;
+    private final ProjectService projects;
     private final CodeSnapshotDataService snapshots;
     private final PersistentBackgroundJobService jobs;
     private final AuditMetadataFactory auditFactory;
@@ -36,7 +34,7 @@ public class CodeSnapshotRegistrationService {
 
     /** 创建上传登记事务服务。 */
     public CodeSnapshotRegistrationService(
-            ProjectApplicationService projects,
+            ProjectService projects,
             CodeSnapshotDataService snapshots,
             PersistentBackgroundJobService jobs,
             AuditMetadataFactory auditFactory,
@@ -76,13 +74,9 @@ public class CodeSnapshotRegistrationService {
     private CodeSnapshotJobView registerInTransaction(
             Long projectId, Long branchId, String commit, String objectKey
     ) {
-        AdminProjectDetailView project = projects.getProject(projectId);
-        if (project.status() == ProjectStatus.DISABLED) {
+        ProjectScope project = projects.resolveScope(projectId, branchId);
+        if (!project.enabled()) {
             throw new ProjectDisabledException();
-        }
-        boolean ownedBranch = project.branches().stream().anyMatch(branch -> branch.id().equals(branchId));
-        if (!ownedBranch) {
-            throw new BranchNotFoundException();
         }
         AuditMetadata audit = auditFactory.created();
         Long snapshotId = snapshots.insertCandidate(new CodeSnapshotRecord(
@@ -102,8 +96,8 @@ public class CodeSnapshotRegistrationService {
         if (snapshot.status() != CodeSnapshotStatus.ACTIVE) {
             throw new CodeSnapshotNotActiveException();
         }
-        AdminProjectDetailView project = projects.getProject(snapshot.projectId());
-        if (project.status() == ProjectStatus.DISABLED) {
+        ProjectScope project = projects.resolveScope(snapshot.projectId(), snapshot.branchId());
+        if (!project.enabled()) {
             throw new ProjectDisabledException();
         }
         Long jobId = jobs.submitExclusiveByBranch(new JobRequest(

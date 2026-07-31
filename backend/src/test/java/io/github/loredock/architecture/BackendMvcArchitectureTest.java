@@ -31,7 +31,7 @@ class BackendMvcArchitectureTest {
             "agent", "auth", "code", "feedback", "identity", "job",
             "knowledge", "knowledgegap", "project", "qa", "storage");
     private static final Set<String> MODULE_PACKAGES = Set.of(
-            "controller", "service", "mapper", "model", "config",
+            "api", "controller", "service", "mapper", "model", "config",
             "exception", "scheduler", "converter", "skill");
     private static final Set<String> PLATFORM_PACKAGES = Set.of("config", "persistence", "time", "web");
     private static final Set<String> ALLOWED_BOUNDARY_INTERFACES = Set.of(
@@ -39,7 +39,6 @@ class BackendMvcArchitectureTest {
             "WebQaSseSink");
     /** 阶段六渐进迁移的存量跨模块非 api 引用清单；只允许随模块重构清空，不允许新增条目。 */
     private static final List<String> KNOWN_CROSS_MODULE_VIOLATIONS = List.of(
-                "agent/service/AgentRunQueryService.java -> import io.github.loredock.project.service.ProjectApplicationService",
                 "agent/service/ProjectQaToolService.java -> import io.github.loredock.code.model.enums.CodeSearchTarget",
                 "agent/service/ProjectQaToolService.java -> import io.github.loredock.code.model.enums.CodeSnapshotAvailability",
                 "agent/service/ProjectQaToolService.java -> import io.github.loredock.code.model.request.CodeSearchQuery",
@@ -58,14 +57,8 @@ class BackendMvcArchitectureTest {
                 "agent/service/StartProjectQaRunService.java -> import io.github.loredock.code.model.enums.CodeSnapshotAvailability",
                 "agent/service/StartProjectQaRunService.java -> import io.github.loredock.code.service.ActiveCodeSnapshotQueryService",
                 "agent/service/StartProjectQaRunService.java -> import io.github.loredock.knowledge.service.KnowledgeSearchIndexDataService",
-                "agent/service/StartProjectQaRunService.java -> import io.github.loredock.project.model.result.BranchView",
-                "agent/service/StartProjectQaRunService.java -> import io.github.loredock.project.model.result.ProjectDetailView",
-                "agent/service/StartProjectQaRunService.java -> import io.github.loredock.project.service.ProjectApplicationService",
                 "code/model/response/CodeSnapshotJobResponse.java -> import io.github.loredock.job.model.enums.JobStatus",
                 "code/model/result/CodeSnapshotJobView.java -> import io.github.loredock.job.model.enums.JobStatus",
-                "code/service/ActiveCodeSnapshotResolver.java -> import io.github.loredock.project.exception.BranchNotFoundException",
-                "code/service/ActiveCodeSnapshotResolver.java -> import io.github.loredock.project.model.result.ProjectDetailView",
-                "code/service/ActiveCodeSnapshotResolver.java -> import io.github.loredock.project.service.ProjectApplicationService",
                 "code/service/AdminCodeSnapshotQueryService.java -> import io.github.loredock.job.model.snapshot.JobSnapshot",
                 "code/service/AdminCodeSnapshotQueryService.java -> import io.github.loredock.job.service.PersistentBackgroundJobService",
                 "code/service/CodeSnapshotBuildJobHandler.java -> import io.github.loredock.job.service.JobExecutionContext",
@@ -75,10 +68,6 @@ class BackendMvcArchitectureTest {
                 "code/service/CodeSnapshotRegistrationService.java -> import io.github.loredock.job.model.request.JobRequest",
                 "code/service/CodeSnapshotRegistrationService.java -> import io.github.loredock.job.model.snapshot.JobSnapshot",
                 "code/service/CodeSnapshotRegistrationService.java -> import io.github.loredock.job.service.PersistentBackgroundJobService",
-                "code/service/CodeSnapshotRegistrationService.java -> import io.github.loredock.project.exception.BranchNotFoundException",
-                "code/service/CodeSnapshotRegistrationService.java -> import io.github.loredock.project.model.enums.ProjectStatus",
-                "code/service/CodeSnapshotRegistrationService.java -> import io.github.loredock.project.model.result.AdminProjectDetailView",
-                "code/service/CodeSnapshotRegistrationService.java -> import io.github.loredock.project.service.ProjectApplicationService",
                 "code/service/CodeSnapshotReindexJobHandler.java -> import io.github.loredock.job.service.JobExecutionContext",
                 "code/service/CodeSnapshotReindexJobHandler.java -> import io.github.loredock.job.service.JobHandler",
                 "code/service/CodeSnapshotUploadService.java -> import io.github.loredock.storage.model.result.ObjectMetadata",
@@ -97,9 +86,6 @@ class BackendMvcArchitectureTest {
                 "feedback/model/result/KnowledgeGapFeedbackRecord.java -> import io.github.loredock.agent.model.enums.AgentRefusalReason",
                 "feedback/model/result/KnowledgeGapFeedbackRecord.java -> import io.github.loredock.agent.model.enums.AgentResultType",
                 "feedback/service/CreateKnowledgeGapService.java -> import io.github.loredock.agent.model.snapshot.AgentRunSnapshot",
-                "feedback/service/CreateKnowledgeGapService.java -> import io.github.loredock.project.model.result.BranchView",
-                "feedback/service/CreateKnowledgeGapService.java -> import io.github.loredock.project.model.result.ProjectDetailView",
-                "feedback/service/CreateKnowledgeGapService.java -> import io.github.loredock.project.service.ProjectApplicationService",
                 "feedback/service/CreateKnowledgeGapService.java -> import io.github.loredock.qa.exception.WebQaQuestionNotFoundException",
                 "feedback/service/CreateKnowledgeGapService.java -> import io.github.loredock.qa.model.command.QueryWebQaDetailCommand",
                 "feedback/service/CreateKnowledgeGapService.java -> import io.github.loredock.qa.model.enums.WebQaMessageRole",
@@ -122,12 +108,6 @@ class BackendMvcArchitectureTest {
                 "knowledge/service/importing/ObjectStorageImportCompensation.java -> import io.github.loredock.storage.service.ObjectStorage",
                 "knowledge/service/indexing/KnowledgeReindexJobHandler.java -> import io.github.loredock.job.service.JobExecutionContext",
                 "knowledge/service/indexing/KnowledgeReindexJobHandler.java -> import io.github.loredock.job.service.JobHandler",
-                "knowledge/service/project/ProjectKnowledgeScopeResolver.java -> import io.github.loredock.project.exception.BranchNotFoundException",
-                "knowledge/service/project/ProjectKnowledgeScopeResolver.java -> import io.github.loredock.project.model.result.AdminProjectDetailView",
-                "knowledge/service/project/ProjectKnowledgeScopeResolver.java -> import io.github.loredock.project.model.result.AdminProjectSummaryView",
-                "knowledge/service/project/ProjectKnowledgeScopeResolver.java -> import io.github.loredock.project.model.result.BranchView",
-                "knowledge/service/project/ProjectKnowledgeScopeResolver.java -> import io.github.loredock.project.model.result.ProjectDetailView",
-                "knowledge/service/project/ProjectKnowledgeScopeResolver.java -> import io.github.loredock.project.service.ProjectApplicationService",
                 "knowledge/service/search/KnowledgeSearchService.java -> import io.github.loredock.code.model.enums.CodeSnapshotAvailability",
                 "knowledge/service/search/KnowledgeSearchService.java -> import io.github.loredock.code.service.ActiveCodeSnapshotQueryService",
                 "qa/controller/WebQaController.java -> import io.github.loredock.agent.service.AgentRunQueryService",
@@ -167,16 +147,12 @@ class BackendMvcArchitectureTest {
                 "qa/service/CreateWebQaQuestionService.java -> import io.github.loredock.agent.model.snapshot.AgentRunSnapshot",
                 "qa/service/CreateWebQaQuestionService.java -> import io.github.loredock.agent.service.AgentRunQueryService",
                 "qa/service/CreateWebQaQuestionService.java -> import io.github.loredock.agent.service.StartProjectQaRunService",
-                "qa/service/CreateWebQaQuestionService.java -> import io.github.loredock.project.model.result.ProjectDetailView",
-                "qa/service/CreateWebQaQuestionService.java -> import io.github.loredock.project.service.ProjectApplicationService",
                 "qa/service/DefaultWebQaAssistantMessageMaterializer.java -> import io.github.loredock.agent.model.enums.AgentResultType",
                 "qa/service/DefaultWebQaAssistantMessageMaterializer.java -> import io.github.loredock.agent.model.enums.AgentRunStatus",
                 "qa/service/DefaultWebQaAssistantMessageMaterializer.java -> import io.github.loredock.agent.model.snapshot.AgentRunSnapshot",
                 "qa/service/QueryWebQaQuestionService.java -> import io.github.loredock.agent.exception.AgentRunNotFoundException",
                 "qa/service/QueryWebQaQuestionService.java -> import io.github.loredock.agent.model.snapshot.AgentRunSnapshot",
                 "qa/service/QueryWebQaQuestionService.java -> import io.github.loredock.agent.service.AgentRunQueryService",
-                "qa/service/QueryWebQaQuestionService.java -> import io.github.loredock.project.model.result.ProjectDetailView",
-                "qa/service/QueryWebQaQuestionService.java -> import io.github.loredock.project.service.ProjectApplicationService",
                 "qa/service/WebQaMessageDataService.java -> import io.github.loredock.agent.model.enums.AgentRefusalReason",
                 "qa/service/WebQaMessageDataService.java -> import io.github.loredock.agent.model.enums.AgentResultType",
                 "qa/service/WebQaSseService.java -> import io.github.loredock.agent.model.snapshot.AgentEventSnapshot",
@@ -417,7 +393,11 @@ class BackendMvcArchitectureTest {
             Matcher matcher = PUBLIC_INTERFACE_PATTERN.matcher(Files.readString(source));
             while (matcher.find()) {
                 String interfaceName = matcher.group(1);
-                if (!interfaceName.endsWith("Mapper") && !ALLOWED_BOUNDARY_INTERFACES.contains(interfaceName)) {
+                boolean moduleApi = normalizedPath(source).contains("/api/")
+                        && interfaceName.endsWith("Service");
+                if (!interfaceName.endsWith("Mapper")
+                        && !moduleApi
+                        && !ALLOWED_BOUNDARY_INTERFACES.contains(interfaceName)) {
                     violations.add(SOURCE_ROOT.relativize(source) + " -> " + interfaceName);
                 }
             }

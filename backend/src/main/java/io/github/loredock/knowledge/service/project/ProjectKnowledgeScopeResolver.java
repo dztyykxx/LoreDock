@@ -5,12 +5,8 @@ import io.github.loredock.knowledge.model.KnowledgeScope;
 import io.github.loredock.knowledge.model.enums.KnowledgeBrowseContextType;
 import io.github.loredock.knowledge.model.enums.KnowledgeScopeType;
 import io.github.loredock.knowledge.model.snapshot.KnowledgeBrowseContext;
-import io.github.loredock.project.exception.BranchNotFoundException;
-import io.github.loredock.project.model.result.AdminProjectDetailView;
-import io.github.loredock.project.model.result.AdminProjectSummaryView;
-import io.github.loredock.project.model.result.BranchView;
-import io.github.loredock.project.model.result.ProjectDetailView;
-import io.github.loredock.project.service.ProjectApplicationService;
+import io.github.loredock.project.api.ProjectScope;
+import io.github.loredock.project.api.ProjectService;
 import org.springframework.stereotype.Component;
 
 /**
@@ -19,19 +15,13 @@ import org.springframework.stereotype.Component;
 @Component
 public class ProjectKnowledgeScopeResolver {
 
-    private final ProjectApplicationService projectQueries;
-    private final ProjectApplicationService adminProjectQueries;
+    private final ProjectService projects;
 
     /**
-     * @param projectQueries 只查询已启用项目的普通端口
-     * @param adminProjectQueries 可查询停用项目的管理端口
+     * @param projects 项目模块统一的普通与管理范围契约
      */
-    public ProjectKnowledgeScopeResolver(
-            ProjectApplicationService projectQueries,
-            ProjectApplicationService adminProjectQueries
-    ) {
-        this.projectQueries = projectQueries;
-        this.adminProjectQueries = adminProjectQueries;
+    public ProjectKnowledgeScopeResolver(ProjectService projects) {
+        this.projects = projects;
     }
 
     public KnowledgeBrowseContext resolveBrowse(
@@ -49,12 +39,8 @@ public class ProjectKnowledgeScopeResolver {
         if (!hasText(projectIdentifier)) {
             throw new KnowledgeScopeInvalidException();
         }
-        ProjectDetailView project = projectQueries.getEnabledProject(projectIdentifier.strip(), normalizeOptional(branchName));
-        BranchView selectedBranch = project.branches().stream()
-                .filter(branch -> branch.name().equals(project.selectedBranch()))
-                .findFirst()
-                .orElseThrow(BranchNotFoundException::new);
-        return new KnowledgeBrowseContext(type, project.id(), selectedBranch.id());
+        ProjectScope project = projects.resolveEnabledScope(projectIdentifier.strip(), normalizeOptional(branchName));
+        return new KnowledgeBrowseContext(type, project.projectId(), project.branchId());
     }
 
     public KnowledgeScope resolveAdmin(
@@ -72,25 +58,25 @@ public class ProjectKnowledgeScopeResolver {
         if (!hasText(projectIdentifier)) {
             throw new KnowledgeScopeInvalidException();
         }
-        AdminProjectSummaryView project = adminProjectQueries.listProjects(null).stream()
-                .filter(candidate -> candidate.identifier().equals(projectIdentifier.strip()))
-                .findFirst()
-                .orElseThrow(KnowledgeScopeInvalidException::new);
         if (type == KnowledgeScopeType.PROJECT) {
             if (hasText(branchName)) {
                 throw new KnowledgeScopeInvalidException();
             }
-            return KnowledgeScope.project(project.id());
+            return KnowledgeScope.project(resolveAdminScope(projectIdentifier, null).projectId());
         }
         if (!hasText(branchName)) {
             throw new KnowledgeScopeInvalidException();
         }
-        AdminProjectDetailView detail = adminProjectQueries.getProject(project.id());
-        BranchView branch = detail.branches().stream()
-                .filter(candidate -> candidate.name().equals(branchName.strip()))
-                .findFirst()
-                .orElseThrow(KnowledgeScopeInvalidException::new);
-        return KnowledgeScope.branch(project.id(), branch.id());
+        ProjectScope project = resolveAdminScope(projectIdentifier, branchName.strip());
+        return KnowledgeScope.branch(project.projectId(), project.branchId());
+    }
+
+    private ProjectScope resolveAdminScope(String projectIdentifier, String branchName) {
+        try {
+            return projects.resolveScope(projectIdentifier.strip(), branchName);
+        } catch (RuntimeException exception) {
+            throw new KnowledgeScopeInvalidException();
+        }
     }
 
     private void requireAbsent(String projectIdentifier, String branchName) {

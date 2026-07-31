@@ -14,28 +14,20 @@ import io.github.loredock.knowledge.model.enums.KnowledgeBrowseContextType;
 import io.github.loredock.knowledge.model.enums.KnowledgeScopeType;
 import io.github.loredock.knowledge.model.snapshot.KnowledgeBrowseContext;
 import io.github.loredock.project.exception.BranchNotFoundException;
-import io.github.loredock.project.model.enums.ProjectStatus;
-import io.github.loredock.project.model.result.AdminProjectDetailView;
-import io.github.loredock.project.model.result.AdminProjectSummaryView;
-import io.github.loredock.project.model.result.BranchView;
-import io.github.loredock.project.model.result.ProjectDetailView;
-import io.github.loredock.project.service.ProjectApplicationService;
-import java.time.Instant;
-import java.util.List;
+import io.github.loredock.project.api.ProjectScope;
+import io.github.loredock.project.api.ProjectService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class ProjectKnowledgeScopeResolverTest {
 
-    private ProjectApplicationService projectQueries;
-    private ProjectApplicationService adminProjectQueries;
+    private ProjectService projects;
     private ProjectKnowledgeScopeResolver resolver;
 
     @BeforeEach
     void setUp() {
-        projectQueries = mock(ProjectApplicationService.class);
-        adminProjectQueries = mock(ProjectApplicationService.class);
-        resolver = new ProjectKnowledgeScopeResolver(projectQueries, adminProjectQueries);
+        projects = mock(ProjectService.class);
+        resolver = new ProjectKnowledgeScopeResolver(projects);
     }
 
     /**
@@ -48,7 +40,7 @@ class ProjectKnowledgeScopeResolverTest {
         assertThat(resolver.resolveAdmin(KnowledgeScopeType.GLOBAL, null, null)).isEqualTo(KnowledgeScope.global());
         assertThatThrownBy(() -> resolver.resolveAdmin(KnowledgeScopeType.GLOBAL, "project", null))
                 .isInstanceOf(KnowledgeScopeInvalidException.class);
-        verifyNoInteractions(projectQueries, adminProjectQueries);
+        verifyNoInteractions(projects);
     }
 
     /**
@@ -58,12 +50,11 @@ class ProjectKnowledgeScopeResolverTest {
     void browseResolvesEnabledProjectAndDefaultMainBranch() {
         Long projectId = 8000000000000000013L;
         Long mainId = 8000000000000000014L;
-        when(projectQueries.getEnabledProject("alpha", null)).thenReturn(projectDetail(projectId, mainId, "main"));
+        when(projects.resolveEnabledScope("alpha", null)).thenReturn(project(projectId, mainId, "alpha", "main", true));
 
         assertThat(resolver.resolveBrowse(KnowledgeBrowseContextType.PROJECT, "alpha", null))
                 .isEqualTo(new KnowledgeBrowseContext(KnowledgeBrowseContextType.PROJECT, projectId, mainId));
-        verify(projectQueries).getEnabledProject("alpha", null);
-        verifyNoInteractions(adminProjectQueries);
+        verify(projects).resolveEnabledScope("alpha", null);
     }
 
     /**
@@ -71,13 +62,13 @@ class ProjectKnowledgeScopeResolverTest {
      */
     @Test
     void unknownBrowseBranchNeverFallsBackToMain() {
-        when(projectQueries.getEnabledProject("alpha", "missing")).thenThrow(new BranchNotFoundException());
+        when(projects.resolveEnabledScope("alpha", "missing")).thenThrow(new BranchNotFoundException());
 
         assertThatThrownBy(() -> resolver.resolveBrowse(
                 KnowledgeBrowseContextType.PROJECT, "alpha", "missing"))
                 .isInstanceOf(BranchNotFoundException.class);
-        verify(projectQueries).getEnabledProject("alpha", "missing");
-        verify(projectQueries, never()).getEnabledProject("alpha", null);
+        verify(projects).resolveEnabledScope("alpha", "missing");
+        verify(projects, never()).resolveEnabledScope("alpha", null);
     }
 
     /**
@@ -86,12 +77,12 @@ class ProjectKnowledgeScopeResolverTest {
     @Test
     void adminScopeCanResolveDisabledProject() {
         Long projectId = 8000000000000000015L;
-        when(adminProjectQueries.listProjects(null)).thenReturn(List.of(projectSummary(projectId, "disabled")));
-        when(adminProjectQueries.getProject(projectId)).thenReturn(adminDetail(projectId, List.of()));
+        when(projects.resolveScope("disabled", null))
+                .thenReturn(project(projectId, null, "disabled", null, false));
 
         assertThat(resolver.resolveAdmin(KnowledgeScopeType.PROJECT, "disabled", null))
                 .isEqualTo(KnowledgeScope.project(projectId));
-        verifyNoInteractions(projectQueries);
+        verify(projects).resolveScope("disabled", null);
     }
 
     /**
@@ -101,9 +92,9 @@ class ProjectKnowledgeScopeResolverTest {
     void adminBranchMustBelongToSelectedProject() {
         Long projectId = 8000000000000000016L;
         Long mainId = 8000000000000000017L;
-        when(adminProjectQueries.listProjects(null)).thenReturn(List.of(projectSummary(projectId, "alpha")));
-        when(adminProjectQueries.getProject(projectId)).thenReturn(adminDetail(
-                projectId, List.of(branch(mainId, "main"))));
+        when(projects.resolveScope("alpha", "main"))
+                .thenReturn(project(projectId, mainId, "alpha", "main", false));
+        when(projects.resolveScope("alpha", "other")).thenThrow(new BranchNotFoundException());
 
         assertThat(resolver.resolveAdmin(KnowledgeScopeType.BRANCH, "alpha", "main"))
                 .isEqualTo(KnowledgeScope.branch(projectId, mainId));
@@ -111,25 +102,9 @@ class ProjectKnowledgeScopeResolverTest {
                 .isInstanceOf(KnowledgeScopeInvalidException.class);
     }
 
-    private ProjectDetailView projectDetail(Long projectId, Long branchId, String selectedBranch) {
-        return new ProjectDetailView(
-                projectId, "alpha", "Alpha", "", "", "main", selectedBranch,
-                List.of(branch(branchId, selectedBranch)));
-    }
-
-    private AdminProjectSummaryView projectSummary(Long projectId, String identifier) {
-        return new AdminProjectSummaryView(
-                projectId, identifier, identifier, "", "", ProjectStatus.DISABLED, "main", 1,
-                Instant.EPOCH, Instant.EPOCH, "SYSTEM", "SYSTEM");
-    }
-
-    private AdminProjectDetailView adminDetail(Long projectId, List<BranchView> branches) {
-        return new AdminProjectDetailView(
-                projectId, "alpha", "Alpha", "", "", ProjectStatus.DISABLED, "main", branches,
-                Instant.EPOCH, Instant.EPOCH, "SYSTEM", "SYSTEM");
-    }
-
-    private BranchView branch(Long id, String name) {
-        return new BranchView(id, name, Instant.EPOCH, Instant.EPOCH, "SYSTEM", "SYSTEM");
+    private ProjectScope project(
+            Long projectId, Long branchId, String identifier, String branchName, boolean enabled
+    ) {
+        return new ProjectScope(projectId, identifier, identifier, enabled, branchId, branchName);
     }
 }

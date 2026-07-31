@@ -14,9 +14,8 @@ import io.github.loredock.agent.skill.AgentDefinition;
 import io.github.loredock.code.model.enums.CodeSnapshotAvailability;
 import io.github.loredock.code.service.ActiveCodeSnapshotQueryService;
 import io.github.loredock.knowledge.service.KnowledgeSearchIndexDataService;
-import io.github.loredock.project.model.result.BranchView;
-import io.github.loredock.project.model.result.ProjectDetailView;
-import io.github.loredock.project.service.ProjectApplicationService;
+import io.github.loredock.project.api.ProjectScope;
+import io.github.loredock.project.api.ProjectService;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -40,7 +39,7 @@ public class StartProjectQaRunService {
     private static final String TASK_TYPE = "project_qa";
     private final AgentProperties configuration;
     private final AgentDefinitionProvider definitions;
-    private final ProjectApplicationService projects;
+    private final ProjectService projects;
     private final ActiveCodeSnapshotQueryService codeSnapshots;
     private final KnowledgeSearchIndexDataService knowledgeGenerations;
     private final AgentRunService runs;
@@ -60,7 +59,7 @@ public class StartProjectQaRunService {
     public StartProjectQaRunService(
             AgentProperties configuration,
             AgentDefinitionProvider definitions,
-            ProjectApplicationService projects,
+            ProjectService projects,
             ActiveCodeSnapshotQueryService codeSnapshots,
             KnowledgeSearchIndexDataService knowledgeGenerations,
             AgentRunService runs,
@@ -94,14 +93,11 @@ public class StartProjectQaRunService {
         if (!configuration.outputSchemaVersion().equals(definition.outputSchemaVersion())) {
             throw new AgentRequestException(AgentErrorCode.AGENT_SKILL_UNAVAILABLE);
         }
-        ProjectDetailView project = projects.getEnabledProject(input.projectIdentifier(), input.branch());
-        BranchView branch = project.branches().stream()
-                .filter(value -> value.name().equals(project.selectedBranch()))
-                .findFirst().orElseThrow(() -> new IllegalStateException("项目分支解析结果不完整"));
-        var code = codeSnapshots.get(project.identifier(), project.selectedBranch());
+        ProjectScope project = projects.resolveEnabledScope(input.projectIdentifier(), input.branch());
+        var code = codeSnapshots.get(project.projectIdentifier(), project.branchName());
         Long generationId = knowledgeGenerations.findActive().map(value -> value.generationId()).orElse(null);
         AgentScopeSnapshot scope = new AgentScopeSnapshot(
-                project.id(), project.identifier(), branch.id(), project.selectedBranch(),
+                project.projectId(), project.projectIdentifier(), project.branchId(), project.branchName(),
                 code.status() == CodeSnapshotAvailability.INDEXED ? code.snapshotId() : null,
                 code.status() == CodeSnapshotAvailability.INDEXED ? code.commit() : null,
                 generationId, List.of("GLOBAL", "PROJECT", "BRANCH"));

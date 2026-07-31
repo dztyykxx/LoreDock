@@ -16,9 +16,8 @@ import io.github.loredock.agent.model.snapshot.AgentScopeSnapshot;
 import io.github.loredock.agent.model.snapshot.AgentVersionSnapshot;
 import io.github.loredock.agent.service.AgentRunQueryService;
 import io.github.loredock.agent.service.StartProjectQaRunService;
-import io.github.loredock.project.model.result.BranchView;
-import io.github.loredock.project.model.result.ProjectDetailView;
-import io.github.loredock.project.service.ProjectApplicationService;
+import io.github.loredock.project.api.ProjectScope;
+import io.github.loredock.project.api.ProjectService;
 import io.github.loredock.qa.model.command.CreateWebQaQuestionCommand;
 import io.github.loredock.qa.model.enums.WebQaMessageRole;
 import io.github.loredock.qa.model.enums.WebQaTrustState;
@@ -41,7 +40,7 @@ class CreateWebQaQuestionServiceTest {
     private static final Long QUESTION_ID = 6130197811678937094L;
     private static final Long MESSAGE_ID = 6130197811678937095L;
     private static final Instant NOW = Instant.parse("2026-07-30T03:00:00Z");
-    private ProjectApplicationService projects;
+    private ProjectService projects;
     private StartProjectQaRunService starts;
     private AgentRunQueryService runQueries;
     private WebQaQuestionDataService questions;
@@ -50,15 +49,15 @@ class CreateWebQaQuestionServiceTest {
 
     @BeforeEach
     void setUp() {
-        projects = mock(ProjectApplicationService.class);
+        projects = mock(ProjectService.class);
         starts = mock(StartProjectQaRunService.class);
         runQueries = mock(AgentRunQueryService.class);
         questions = mock(WebQaQuestionDataService.class);
         messages = mock(WebQaMessageDataService.class);
         Clock timeProvider = mock(Clock.class);
         when(timeProvider.instant()).thenReturn(NOW);
-        when(projects.getEnabledProject("atlas", null)).thenReturn(project());
-        when(projects.getEnabledProject("atlas", "main")).thenReturn(project());
+        when(projects.resolveEnabledScope("atlas", null)).thenReturn(project());
+        when(projects.resolveEnabledScope("atlas", "main")).thenReturn(project());
         when(questions.findByOperatorAndIdempotencyKey("member", "client-key"))
                 .thenReturn(Optional.empty());
         when(questions.insertIfAbsent(any())).thenReturn(Optional.of(QUESTION_ID));
@@ -101,9 +100,9 @@ class CreateWebQaQuestionServiceTest {
      */
     @Test
     void explicitBranchCreationKeepsResolvedScope() {
-        ProjectDetailView releaseProject = project("release", RELEASE_BRANCH_ID);
+        ProjectScope releaseProject = project("release", RELEASE_BRANCH_ID);
         AgentRunSnapshot releaseRun = run("release", RELEASE_BRANCH_ID);
-        when(projects.getEnabledProject("atlas", "release")).thenReturn(releaseProject);
+        when(projects.resolveEnabledScope("atlas", "release")).thenReturn(releaseProject);
         when(starts.start(any())).thenReturn(releaseRun);
         when(runQueries.get(RUN_ID, "member")).thenReturn(releaseRun);
 
@@ -166,7 +165,7 @@ class CreateWebQaQuestionServiceTest {
      */
     @Test
     void invalidProjectOrBranchFailsBeforePersistence() {
-        when(projects.getEnabledProject("atlas", "missing"))
+        when(projects.resolveEnabledScope("atlas", "missing"))
                 .thenThrow(new IllegalArgumentException("branch missing"));
 
         assertThatThrownBy(() -> service.create(CreateWebQaQuestionCommand.of(
@@ -183,14 +182,12 @@ class CreateWebQaQuestionServiceTest {
         return CreateWebQaQuestionCommand.of("member", "MEMBER", key, "atlas", null, question);
     }
 
-    private ProjectDetailView project() {
+    private ProjectScope project() {
         return project("main", BRANCH_ID);
     }
 
-    private ProjectDetailView project(String selectedBranch, Long selectedBranchId) {
-        BranchView branch = new BranchView(selectedBranchId, selectedBranch, NOW, NOW, "admin", "admin");
-        return new ProjectDetailView(
-                PROJECT_ID, "atlas", "Atlas", "", "Java", "main", selectedBranch, List.of(branch));
+    private ProjectScope project(String selectedBranch, Long selectedBranchId) {
+        return new ProjectScope(PROJECT_ID, "atlas", "Atlas", true, selectedBranchId, selectedBranch);
     }
 
     private AgentRunSnapshot run() {

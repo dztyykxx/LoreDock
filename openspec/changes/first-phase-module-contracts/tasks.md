@@ -4,10 +4,10 @@
 
 ## 1. project 模块契约
 
-- [ ] 1.1 定义 `project.api.ProjectService`：统一解析启用项目/分支与稳定项目范围（默认 `main`、停用/不存在返回稳定错误），返回最小不可变契约类型。
-- [ ] 1.2 为 `ProjectService` 编写失败测试（中文注释说明业务目的）：有效项目/分支解析、停用项目与未知分支错误、默认 main 分支。
-- [ ] 1.3 使 `ProjectApplicationService` 实现契约，迁移 agent/code/knowledge/qa/feedback 对项目内部 Service 的直接引用到 `project.api`。
-- [ ] 1.4 合并项目模块只做单次转发的小类，删除不再有调用方的内部入口；运行项目契约、受影响 HTTP 与架构测试。
+- [x] 1.1 定义 `project.api.ProjectService`：统一解析启用项目/分支与稳定项目范围（默认 `main`、停用/不存在返回稳定错误），返回最小不可变契约类型。
+- [x] 1.2 为 `ProjectService` 编写失败测试（中文注释说明业务目的）：有效项目/分支解析、停用项目与未知分支错误、默认 main 分支。
+- [x] 1.3 使 `ProjectApplicationService` 实现契约，迁移 agent/code/knowledge/qa/feedback 对项目内部 Service 的直接引用到 `project.api`。
+- [x] 1.4 合并项目模块只做单次转发的小类，删除不再有调用方的内部入口；运行项目契约、受影响 HTTP 与架构测试。
 
 ## 2. knowledge 模块契约
 

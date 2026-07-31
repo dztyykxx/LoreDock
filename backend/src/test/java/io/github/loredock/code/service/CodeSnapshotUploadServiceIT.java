@@ -24,9 +24,8 @@ import io.github.loredock.platform.persistence.AuditMetadataFactory;
 import io.github.loredock.platform.web.SensitiveDataRedactor;
 import io.github.loredock.project.exception.BranchNotFoundException;
 import io.github.loredock.project.model.enums.ProjectStatus;
-import io.github.loredock.project.model.result.AdminProjectDetailView;
-import io.github.loredock.project.model.result.BranchView;
-import io.github.loredock.project.service.ProjectApplicationService;
+import io.github.loredock.project.api.ProjectScope;
+import io.github.loredock.project.api.ProjectService;
 import io.github.loredock.storage.model.result.ObjectMetadata;
 import io.github.loredock.storage.model.result.StoredObject;
 import io.github.loredock.storage.service.ObjectStorage;
@@ -195,7 +194,7 @@ class CodeSnapshotUploadServiceIT {
         }
     }
 
-    private CodeSnapshotUploadService service(ProjectApplicationService projects) {
+    private CodeSnapshotUploadService service(ProjectService projects) {
         var repository = new CodeSnapshotDataService(snapshotMapper);
         var registration = new CodeSnapshotRegistrationService(
                 projects, repository, jobs, new AuditMetadataFactory(Clock.fixed(NOW, java.time.ZoneOffset.UTC), () -> "ADMIN"),
@@ -230,12 +229,15 @@ class CodeSnapshotUploadServiceIT {
                         zipHeader.length));
     }
 
-    private ProjectApplicationService project(ProjectStatus status, Long visibleBranchId) {
-        ProjectApplicationService projects = mock(ProjectApplicationService.class);
-        when(projects.getProject(projectId)).thenReturn(new AdminProjectDetailView(
-                projectId, "network-tool", "Network", "", "Java", status,
-                "main", List.of(new BranchView(visibleBranchId, "main", NOW, NOW, "test", "test")),
-                NOW, NOW, "test", "test"));
+    private ProjectService project(ProjectStatus status, Long visibleBranchId) {
+        ProjectService projects = mock(ProjectService.class);
+        if (visibleBranchId.equals(branchId)) {
+            when(projects.resolveScope(projectId, branchId)).thenReturn(new ProjectScope(
+                    projectId, "network-tool", "Network", status == ProjectStatus.ENABLED,
+                    visibleBranchId, "main"));
+        } else {
+            when(projects.resolveScope(projectId, branchId)).thenThrow(new BranchNotFoundException());
+        }
         return projects;
     }
 

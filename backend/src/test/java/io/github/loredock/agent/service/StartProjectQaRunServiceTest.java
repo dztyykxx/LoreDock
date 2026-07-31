@@ -23,9 +23,8 @@ import io.github.loredock.code.model.result.ActiveCodeSnapshotView;
 import io.github.loredock.code.service.ActiveCodeSnapshotQueryService;
 import io.github.loredock.knowledge.model.result.ActiveKnowledgeSearchGeneration;
 import io.github.loredock.knowledge.service.KnowledgeSearchIndexDataService;
-import io.github.loredock.project.model.result.BranchView;
-import io.github.loredock.project.model.result.ProjectDetailView;
-import io.github.loredock.project.service.ProjectApplicationService;
+import io.github.loredock.project.api.ProjectScope;
+import io.github.loredock.project.api.ProjectService;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -45,7 +44,7 @@ class StartProjectQaRunServiceTest {
     private static final Long RUN_ID = 1674921486353642293L;
     private AgentProperties configuration;
     private AgentDefinitionProvider definitions;
-    private ProjectApplicationService projects;
+    private ProjectService projects;
     private ActiveCodeSnapshotQueryService code;
     private KnowledgeSearchIndexDataService knowledge;
     private AgentRunService runs;
@@ -59,7 +58,7 @@ class StartProjectQaRunServiceTest {
     void setUp() {
         configuration = configuration(true, true, "model-v1");
         definitions = mock(AgentDefinitionProvider.class);
-        projects = mock(ProjectApplicationService.class);
+        projects = mock(ProjectService.class);
         code = mock(ActiveCodeSnapshotQueryService.class);
         knowledge = mock(KnowledgeSearchIndexDataService.class);
         runs = mock(AgentRunService.class);
@@ -75,7 +74,7 @@ class StartProjectQaRunServiceTest {
         dispatch = new TransactionAwareAgentRunDispatchCoordinator(scheduler, dispatchFailures);
         when(runs.findByOperatorAndIdempotencyKey(any(), any())).thenReturn(Optional.empty());
         when(definitions.find("project_qa")).thenReturn(Optional.of(definition()));
-        when(projects.getEnabledProject(any(), any())).thenReturn(project("main"));
+        when(projects.resolveEnabledScope(any(), any())).thenReturn(project("main"));
         when(code.get(any(), any())).thenReturn(new ActiveCodeSnapshotView(
                 "atlas", "main", CodeSnapshotAvailability.INDEXED, SNAPSHOT_ID, "abcdef1234567",
                 NOW, 12L, null));
@@ -126,7 +125,7 @@ class StartProjectQaRunServiceTest {
         String tooLong = "🚀".repeat(2001);
         assertThatThrownBy(() -> service().start(command("member", "MEMBER", null, tooLong, "key-d")))
                 .isInstanceOf(IllegalArgumentException.class);
-        verify(projects, org.mockito.Mockito.never()).getEnabledProject(any(), any());
+        verify(projects, org.mockito.Mockito.never()).resolveEnabledScope(any(), any());
         System.out.println("测试证据：场景=启动输入边界，匿名/未知角色/空问题/2001个Unicode字符均被拒绝");
     }
 
@@ -173,7 +172,7 @@ class StartProjectQaRunServiceTest {
      */
     @Test
     void explicitBranchAndMaximumUnicodeQuestionArePinnedWhileInvalidScopeIsRejected() {
-        when(projects.getEnabledProject("atlas", "feature/demo")).thenReturn(project("feature/demo"));
+        when(projects.resolveEnabledScope("atlas", "feature/demo")).thenReturn(project("feature/demo"));
         String maximumQuestion = "问".repeat(1999) + "🚀";
 
         AgentRunSnapshot accepted = service().start(
@@ -181,7 +180,7 @@ class StartProjectQaRunServiceTest {
 
         assertThat(accepted.scope().branch()).isEqualTo("feature/demo");
         assertThat(accepted.questionLength()).isEqualTo(2000);
-        when(projects.getEnabledProject("missing", "main")).thenThrow(new IllegalArgumentException("not found"));
+        when(projects.resolveEnabledScope("missing", "main")).thenThrow(new IllegalArgumentException("not found"));
         assertThatThrownBy(() -> service().start(
                 new StartProjectQaRunCommand("missing-key", "admin", "ADMIN", "missing", null, "question")))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -240,9 +239,8 @@ class StartProjectQaRunServiceTest {
         return new AgentDefinition("project_qa", "project-qa-v1", 8, "skill", "schema");
     }
 
-    private ProjectDetailView project(String branch) {
-        BranchView view = new BranchView(BRANCH_ID, branch, NOW, NOW, "SYSTEM", "SYSTEM");
-        return new ProjectDetailView(PROJECT_ID, "atlas", "Atlas", "", "Java", "main", branch, List.of(view));
+    private ProjectScope project(String branch) {
+        return new ProjectScope(PROJECT_ID, "atlas", "Atlas", true, BRANCH_ID, branch);
     }
 
     private AgentRunSnapshot snapshot(AgentRunCreateData data, AgentRunStatus status, AgentErrorCode code) {

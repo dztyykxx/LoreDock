@@ -6,8 +6,8 @@ import io.github.loredock.agent.model.enums.AgentErrorCode;
 import io.github.loredock.agent.model.snapshot.AgentRunSnapshot;
 import io.github.loredock.agent.service.AgentRunQueryService;
 import io.github.loredock.agent.service.StartProjectQaRunService;
-import io.github.loredock.project.model.result.ProjectDetailView;
-import io.github.loredock.project.service.ProjectApplicationService;
+import io.github.loredock.project.api.ProjectScope;
+import io.github.loredock.project.api.ProjectService;
 import io.github.loredock.qa.model.command.CreateWebQaQuestionCommand;
 import io.github.loredock.qa.model.enums.WebQaMessageRole;
 import io.github.loredock.qa.model.enums.WebQaTrustState;
@@ -32,7 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @Slf4j
 public class CreateWebQaQuestionService {
-    private final ProjectApplicationService projects;
+    private final ProjectService projects;
     private final StartProjectQaRunService starts;
     private final AgentRunQueryService runQueries;
     private final WebQaQuestionDataService questions;
@@ -48,7 +48,7 @@ public class CreateWebQaQuestionService {
      * @param timeProvider UTC 时间源
      */
     public CreateWebQaQuestionService(
-            ProjectApplicationService projects,
+            ProjectService projects,
             StartProjectQaRunService starts,
             AgentRunQueryService runQueries,
             WebQaQuestionDataService questions,
@@ -65,8 +65,8 @@ public class CreateWebQaQuestionService {
 
     @Transactional
     public WebQaQuestionSnapshot create(CreateWebQaQuestionCommand command) {
-        ProjectDetailView project = projects.getEnabledProject(command.projectIdentifier(), command.branch());
-        String requestHash = hash(project.identifier() + "\n" + project.selectedBranch()
+        ProjectScope project = projects.resolveEnabledScope(command.projectIdentifier(), command.branch());
+        String requestHash = hash(project.projectIdentifier() + "\n" + project.branchName()
                 + "\n" + command.question().value());
         var existing = questions.findByOperatorAndIdempotencyKey(
                 command.operatorId(), command.idempotencyKey().value());
@@ -84,7 +84,7 @@ public class CreateWebQaQuestionService {
 
         AgentRunSnapshot run = starts.start(new StartProjectQaRunCommand(
                 agentIdempotencyKey(command.idempotencyKey().value()), command.operatorId(), command.operatorRole(),
-                project.identifier(), project.selectedBranch(), command.question().value()));
+                project.projectIdentifier(), project.branchName(), command.question().value()));
         Instant createdAt = timeProvider.instant();
         WebQaQuestionRecord question = new WebQaQuestionRecord(
                 null, command.operatorId(), command.idempotencyKey().value(), requestHash,

@@ -3,7 +3,7 @@ package io.github.loredock.agent.service;
 import io.github.loredock.agent.exception.AgentRunNotFoundException;
 import io.github.loredock.agent.model.snapshot.AgentEventSnapshot;
 import io.github.loredock.agent.model.snapshot.AgentRunSnapshot;
-import io.github.loredock.project.service.ProjectApplicationService;
+import io.github.loredock.project.api.ProjectService;
 import java.util.List;
 import org.springframework.stereotype.Service;
 
@@ -14,13 +14,13 @@ public class AgentRunQueryService {
     private static final int MAX_EVENT_PAGE_SIZE = 200;
     private final AgentRunService runs;
     private final AgentEventService events;
-    private final ProjectApplicationService projects;
+    private final ProjectService projects;
 
     /** @param runs 运行仓储 @param events 事件仓储 @param projects 启用项目范围查询 */
     public AgentRunQueryService(
             AgentRunService runs,
             AgentEventService events,
-            ProjectApplicationService projects
+            ProjectService projects
     ) {
         this.runs = runs;
         this.events = events;
@@ -56,7 +56,7 @@ public class AgentRunQueryService {
             throw new AgentRunNotFoundException();
         }
         try {
-            projects.getEnabledProject(snapshot.scope().projectIdentifier(), snapshot.scope().branch());
+            projects.resolveEnabledScope(snapshot.scope().projectIdentifier(), snapshot.scope().branch());
         } catch (RuntimeException exception) {
             throw new AgentRunNotFoundException();
         }

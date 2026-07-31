@@ -13,7 +13,7 @@ import io.github.loredock.agent.model.snapshot.AgentEventSnapshot;
 import io.github.loredock.agent.model.snapshot.AgentRunSnapshot;
 import io.github.loredock.agent.model.snapshot.AgentScopeSnapshot;
 import io.github.loredock.agent.model.snapshot.AgentVersionSnapshot;
-import io.github.loredock.project.service.ProjectApplicationService;
+import io.github.loredock.project.api.ProjectService;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -25,14 +25,14 @@ class AgentRunQueryServiceTest {
     private static final Long RUN_ID = 5024764459060926874L;
     private AgentRunService runs;
     private AgentEventService events;
-    private ProjectApplicationService projects;
+    private ProjectService projects;
     private AgentRunQueryService service;
 
     @BeforeEach
     void setUp() {
         runs = mock(AgentRunService.class);
         events = mock(AgentEventService.class);
-        projects = mock(ProjectApplicationService.class);
+        projects = mock(ProjectService.class);
         service = new AgentRunQueryService(runs, events, projects);
         when(runs.findById(RUN_ID)).thenReturn(Optional.of(snapshot("member")));
     }
@@ -46,7 +46,7 @@ class AgentRunQueryServiceTest {
 
         assertThat(result.versions().modelName()).isEqualTo("deepseek-v4-flash");
         assertThat(result.scope().branch()).isEqualTo("main");
-        verify(projects).getEnabledProject("atlas", "main");
+        verify(projects).resolveEnabledScope("atlas", "main");
         System.out.printf("测试证据：场景=运行快照查询，runId=%s，操作者=member，固定模型=%s%n",
                 result.runId(), result.versions().modelName());
     }
@@ -58,7 +58,7 @@ class AgentRunQueryServiceTest {
     void otherOperatorOrDisabledProjectObservesNotFound() {
         assertThatThrownBy(() -> service.get(RUN_ID, "other"))
                 .isInstanceOf(AgentRunNotFoundException.class);
-        when(projects.getEnabledProject("atlas", "main")).thenThrow(new IllegalStateException("disabled"));
+        when(projects.resolveEnabledScope("atlas", "main")).thenThrow(new IllegalStateException("disabled"));
         assertThatThrownBy(() -> service.get(RUN_ID, "member"))
                 .isInstanceOf(AgentRunNotFoundException.class);
         System.out.println("测试证据：场景=运行查询隔离，其他操作者与已禁用项目均返回不存在");
@@ -91,7 +91,7 @@ class AgentRunQueryServiceTest {
         long sequence = service.lastSequence(RUN_ID, "member");
 
         assertThat(sequence).isEqualTo(18);
-        verify(projects).getEnabledProject("atlas", "main");
+        verify(projects).resolveEnabledScope("atlas", "main");
         verify(events).lastSequence(RUN_ID);
         System.out.printf("测试证据：场景=详情事件序号，runId=%s，最后已提交序号=%d%n", RUN_ID, sequence);
     }

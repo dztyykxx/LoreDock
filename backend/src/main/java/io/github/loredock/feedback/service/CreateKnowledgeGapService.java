@@ -7,9 +7,8 @@ import io.github.loredock.feedback.model.enums.KnowledgeGapStatus;
 import io.github.loredock.feedback.model.result.KnowledgeGapCitationRecord;
 import io.github.loredock.feedback.model.result.KnowledgeGapFeedbackRecord;
 import io.github.loredock.feedback.model.snapshot.KnowledgeGapFeedbackSnapshot;
-import io.github.loredock.project.model.result.BranchView;
-import io.github.loredock.project.model.result.ProjectDetailView;
-import io.github.loredock.project.service.ProjectApplicationService;
+import io.github.loredock.project.api.ProjectScope;
+import io.github.loredock.project.api.ProjectService;
 import io.github.loredock.qa.exception.WebQaQuestionNotFoundException;
 import io.github.loredock.qa.model.command.QueryWebQaDetailCommand;
 import io.github.loredock.qa.model.enums.WebQaMessageRole;
@@ -34,7 +33,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @Slf4j
 public class CreateKnowledgeGapService {
-    private final ProjectApplicationService projects;
+    private final ProjectService projects;
     private final QueryWebQaQuestionService questions;
     private final KnowledgeGapDataService feedback;
     private final Clock timeProvider;
@@ -46,7 +45,7 @@ public class CreateKnowledgeGapService {
      * @param timeProvider UTC 时间源
      */
     public CreateKnowledgeGapService(
-            ProjectApplicationService projects,
+            ProjectService projects,
             QueryWebQaQuestionService questions,
             KnowledgeGapDataService feedback,
             Clock timeProvider
@@ -59,14 +58,11 @@ public class CreateKnowledgeGapService {
 
     @Transactional
     public KnowledgeGapFeedbackSnapshot create(CreateKnowledgeGapCommand command) {
-        ProjectDetailView project = projects.getEnabledProject(command.projectIdentifier(), command.branch());
-        BranchView branch = project.branches().stream()
-                .filter(candidate -> candidate.name().equals(project.selectedBranch()))
-                .findFirst().orElseThrow(() -> new IllegalStateException("selected project branch is missing"));
+        ProjectScope project = projects.resolveEnabledScope(command.projectIdentifier(), command.branch());
         LinkedFacts linked = command.questionId() == null
                 ? LinkedFacts.manual(command.question())
-                : linkedFacts(command, project, branch);
-        String requestHash = hash(canonical(command, project, branch, linked));
+                : linkedFacts(command, project);
+        String requestHash = hash(canonical(command, project, linked));
 
         var existing = feedback.findByOperatorAndIdempotencyKey(command.operatorId(), command.idempotencyKey());
         if (existing.isPresent()) {
@@ -76,7 +72,7 @@ public class CreateKnowledgeGapService {
         Instant now = timeProvider.instant();
         KnowledgeGapFeedbackRecord pendingRecord = new KnowledgeGapFeedbackRecord(
                 null, command.operatorId(), command.idempotencyKey(), requestHash,
-                project.id(), project.identifier(), branch.id(), branch.name(),
+                project.projectId(), project.projectIdentifier(), project.branchId(), project.branchName(),
                 linked.questionId(), linked.runId(), command.type(), KnowledgeGapStatus.OPEN,
                 linked.question(), command.note(), linked.run() == null ? null : linked.run().resultType(),
                 linked.run() == null ? null : linked.run().refusalReason(),
@@ -108,7 +104,8 @@ public class CreateKnowledgeGapService {
         feedback.insertCitations(citations);
         log.info("knowledge_gap created traceId={} feedbackId={} project={} branch={} type={} status={} "
                         + "questionId={} runId={} citationCount={} questionLength={} noteLength={}",
-                traceId(), feedbackId, project.identifier(), branch.name(), command.type(), KnowledgeGapStatus.OPEN,
+                traceId(), feedbackId, project.projectIdentifier(), project.branchName(), command.type(),
+                KnowledgeGapStatus.OPEN,
                 linked.questionId(), linked.runId(), citations.size(), codePoints(linked.question()),
                 codePoints(command.note()));
         return new KnowledgeGapFeedbackSnapshot(record, citations.stream()
@@ -117,14 +114,13 @@ public class CreateKnowledgeGapService {
 
     private LinkedFacts linkedFacts(
             CreateKnowledgeGapCommand command,
-            ProjectDetailView project,
-            BranchView branch
+            ProjectScope project
     ) {
         WebQaQuestionSnapshot snapshot = questions.detail(new QueryWebQaDetailCommand(
-                command.operatorId(), project.identifier(), command.questionId()));
-        if (!snapshot.question().projectId().equals(project.id())
-                || !snapshot.question().branchId().equals(branch.id())
-                || !snapshot.question().branch().equals(branch.name())) {
+                command.operatorId(), project.projectIdentifier(), command.questionId()));
+        if (!snapshot.question().projectId().equals(project.projectId())
+                || !snapshot.question().branchId().equals(project.branchId())
+                || !snapshot.question().branch().equals(project.branchName())) {
             throw new WebQaQuestionNotFoundException();
         }
         WebQaMessageRecord user = snapshot.messages().stream()
@@ -151,12 +147,12 @@ public class CreateKnowledgeGapService {
 
     private String canonical(
             CreateKnowledgeGapCommand command,
-            ProjectDetailView project,
-            BranchView branch,
+            ProjectScope project,
             LinkedFacts linked
     ) {
         return String.join("\n",
-                project.id().toString(), project.identifier(), branch.id().toString(), branch.name(),
+                project.projectId().toString(), project.projectIdentifier(), project.branchId().toString(),
+                project.branchName(),
                 command.type().name(), linked.questionId() == null ? "" : linked.questionId().toString(),
                 linked.question(), command.note() == null ? "" : command.note());
     }

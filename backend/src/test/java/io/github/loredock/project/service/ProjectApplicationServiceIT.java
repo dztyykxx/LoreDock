@@ -3,6 +3,8 @@ package io.github.loredock.project.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.loredock.project.api.ProjectScope;
+import io.github.loredock.project.api.ProjectService;
 import io.github.loredock.project.exception.BranchNameConflictException;
 import io.github.loredock.project.exception.BranchNotFoundException;
 import io.github.loredock.project.exception.ProjectIdentifierConflictException;
@@ -52,6 +54,9 @@ class ProjectApplicationServiceIT {
 
     @Autowired
     private ProjectApplicationService adminQueries;
+
+    @Autowired
+    private ProjectService projectService;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -206,6 +211,51 @@ class ProjectApplicationServiceIT {
         assertThatThrownBy(() -> queries.getEnabledProject("roundtrip-project", "missing"))
                 .isInstanceOf(BranchNotFoundException.class);
         assertThat(adminQueries.getProject(created.id()).identifier()).isEqualTo("roundtrip-project");
+    }
+
+    /**
+     * 业务目的：跨模块契约必须把空分支稳定解析为 main，也必须保留显式分支的项目内 Long 标识。
+     */
+    @Test
+    void projectContractResolvesDefaultAndExplicitBranch() {
+        AdminProjectDetailView created = create("contract-project", "Contract");
+        BranchView release = commands.addBranch(created.id(), new AddBranchCommand("release"));
+
+        ProjectScope defaultScope = projectService.resolveEnabledScope("contract-project", null);
+        ProjectScope releaseScope = projectService.resolveEnabledScope("contract-project", "release");
+
+        assertThat(defaultScope.projectId()).isEqualTo(created.id());
+        assertThat(defaultScope.branchName()).isEqualTo("main");
+        assertThat(defaultScope.branchId()).isNotNull();
+        assertThat(releaseScope.branchId()).isEqualTo(release.id());
+        assertThat(releaseScope.branchName()).isEqualTo("release");
+        System.out.println("测试证据：场景=ProjectService范围解析，项目=" + defaultScope.projectIdentifier()
+                + "，默认分支=" + defaultScope.branchName() + "，显式分支=" + releaseScope.branchName());
+    }
+
+    /**
+     * 业务目的：停用项目不得经普通跨模块契约进入检索和问答范围，防止绕过项目启停规则。
+     */
+    @Test
+    void projectContractRejectsDisabledProject() {
+        AdminProjectDetailView created = create("disabled-contract", "Disabled Contract");
+        commands.changeStatus(created.id(), new ChangeProjectStatusCommand(ProjectStatus.DISABLED));
+
+        assertThatThrownBy(() -> projectService.resolveEnabledScope("disabled-contract", null))
+                .isInstanceOf(ProjectNotFoundException.class);
+        System.out.println("测试证据：场景=ProjectService停用项目，项目=disabled-contract，结果=PROJECT_NOT_FOUND");
+    }
+
+    /**
+     * 业务目的：未知分支必须返回稳定错误而不是回退 main，防止知识、代码和问答越过用户指定范围。
+     */
+    @Test
+    void projectContractRejectsUnknownBranchWithoutFallback() {
+        create("unknown-branch-contract", "Unknown Branch Contract");
+
+        assertThatThrownBy(() -> projectService.resolveEnabledScope("unknown-branch-contract", "missing"))
+                .isInstanceOf(BranchNotFoundException.class);
+        System.out.println("测试证据：场景=ProjectService未知分支，项目=unknown-branch-contract，结果=BRANCH_NOT_FOUND");
     }
 
     private AdminProjectDetailView create(String identifier, String name) {

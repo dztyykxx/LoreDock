@@ -23,8 +23,8 @@ import io.github.loredock.agent.service.AgentRunQueryService;
 import io.github.loredock.agent.service.AgentRunService;
 import io.github.loredock.agent.service.ProjectQaRunTaskExecutor;
 import io.github.loredock.auth.service.SessionService;
-import io.github.loredock.project.model.result.ProjectDetailView;
-import io.github.loredock.project.service.ProjectApplicationService;
+import io.github.loredock.project.api.ProjectScope;
+import io.github.loredock.project.api.ProjectService;
 import io.github.loredock.qa.model.command.CreateWebQaQuestionCommand;
 import io.github.loredock.qa.model.command.QueryWebQaDetailCommand;
 import io.github.loredock.qa.config.WebQaSseProperties;
@@ -72,7 +72,7 @@ class WebQaSsePersistenceIT {
             .withUsername("loredock")
             .withPassword("loredock_test");
 
-    @Autowired private ProjectApplicationService projects;
+    @Autowired private ProjectService projects;
     @Autowired private AgentRunService runs;
     @Autowired private AgentRunQueryService runQueries;
     @Autowired private AgentEventService eventRepository;
@@ -180,15 +180,15 @@ class WebQaSsePersistenceIT {
     private io.github.loredock.agent.model.snapshot.AgentRunSnapshot acceptRun(
             io.github.loredock.agent.model.command.StartProjectQaRunCommand command
     ) {
-        ProjectDetailView project = projects.getEnabledProject(command.projectIdentifier(), command.branch());
+        ProjectScope project = projects.resolveEnabledScope(command.projectIdentifier(), command.branch());
         Instant acceptedAt = timeProvider.instant();
         AgentRunCreateData data = new AgentRunCreateData(
                 8000000000000000163L, command.operatorId(), command.idempotencyKey(),
-                hash(project.identifier() + "\n" + project.selectedBranch() + "\n" + command.question()),
+                hash(project.projectIdentifier() + "\n" + project.branchName() + "\n" + command.question()),
                 "project_qa", hash(command.question()),
                 command.question().codePointCount(0, command.question().length()),
                 new AgentScopeSnapshot(
-                        project.id(), project.identifier(), BRANCH_ID, project.selectedBranch(),
+                        project.projectId(), project.projectIdentifier(), project.branchId(), project.branchName(),
                         null, null, null, List.of("GLOBAL", "PROJECT", "BRANCH")),
                 new AgentVersionSnapshot("project_qa", "scripted-model", "project-qa-v1"),
                 acceptedAt);

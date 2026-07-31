@@ -3,8 +3,8 @@ package io.github.loredock.qa.service;
 import io.github.loredock.agent.exception.AgentRunNotFoundException;
 import io.github.loredock.agent.model.snapshot.AgentRunSnapshot;
 import io.github.loredock.agent.service.AgentRunQueryService;
-import io.github.loredock.project.model.result.ProjectDetailView;
-import io.github.loredock.project.service.ProjectApplicationService;
+import io.github.loredock.project.api.ProjectScope;
+import io.github.loredock.project.api.ProjectService;
 import io.github.loredock.qa.converter.WebQaCursorCodec;
 import io.github.loredock.qa.exception.WebQaQuestionNotFoundException;
 import io.github.loredock.qa.model.command.QueryWebQaDetailCommand;
@@ -28,7 +28,7 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class QueryWebQaQuestionService {
     private static final int MAX_PAGE_SIZE = 100;
-    private final ProjectApplicationService projects;
+    private final ProjectService projects;
     private final AgentRunQueryService runs;
     private final WebQaQuestionDataService questions;
     private final WebQaMessageDataService messages;
@@ -42,7 +42,7 @@ public class QueryWebQaQuestionService {
      * @param materializer 终态助手消息自愈投影器
      */
     public QueryWebQaQuestionService(
-            ProjectApplicationService projects,
+            ProjectService projects,
             AgentRunQueryService runs,
             WebQaQuestionDataService questions,
             WebQaMessageDataService messages,
@@ -60,11 +60,11 @@ public class QueryWebQaQuestionService {
         if (command.limit() < 1 || command.limit() > MAX_PAGE_SIZE) {
             throw new IllegalArgumentException("web QA page size out of range");
         }
-        ProjectDetailView project = enabledProject(command.projectIdentifier());
+        ProjectScope project = enabledProject(command.projectIdentifier());
         WebQaCursor after = command.cursor() == null || command.cursor().isBlank()
                 ? null : WebQaCursorCodec.decode(command.cursor());
         List<WebQaQuestionRecord> records = questions.findHistory(
-                command.operatorId(), project.id(), after, command.limit() + 1);
+                command.operatorId(), project.projectId(), after, command.limit() + 1);
         boolean hasMore = records.size() > command.limit();
         List<WebQaQuestionRecord> visible = hasMore
                 ? records.subList(0, command.limit()) : records;
@@ -78,7 +78,7 @@ public class QueryWebQaQuestionService {
                         visible.getLast().createdAt(), visible.getLast().id()))
                 : null;
         log.info("web_qa history queried traceId={} project={} resultCount={} hasMore={}",
-                traceId(), project.identifier(), snapshots.size(), hasMore);
+                traceId(), project.projectIdentifier(), snapshots.size(), hasMore);
         return new WebQaQuestionPage(snapshots, nextCursor);
     }
 
@@ -97,9 +97,9 @@ public class QueryWebQaQuestionService {
         if (command.questionId() == null) {
             throw new WebQaQuestionNotFoundException();
         }
-        ProjectDetailView project = enabledProject(command.projectIdentifier());
+        ProjectScope project = enabledProject(command.projectIdentifier());
         WebQaQuestionRecord question = questions.findVisibleById(
-                        command.operatorId(), project.id(), command.questionId())
+                        command.operatorId(), project.projectId(), command.questionId())
                 .orElseThrow(WebQaQuestionNotFoundException::new);
         AgentRunSnapshot run;
         try {
@@ -125,9 +125,9 @@ public class QueryWebQaQuestionService {
                 messages.findByQuestionId(question.id()));
     }
 
-    private ProjectDetailView enabledProject(String identifier) {
+    private ProjectScope enabledProject(String identifier) {
         try {
-            return projects.getEnabledProject(identifier, null);
+            return projects.resolveEnabledScope(identifier, null);
         } catch (RuntimeException exception) {
             throw new WebQaQuestionNotFoundException();
         }

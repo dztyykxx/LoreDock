@@ -16,9 +16,8 @@ import io.github.loredock.feedback.model.result.KnowledgeGapCitationRecord;
 import io.github.loredock.feedback.model.result.KnowledgeGapFeedbackRecord;
 import io.github.loredock.feedback.model.result.KnowledgeGapFilter;
 import io.github.loredock.feedback.model.snapshot.KnowledgeGapFeedbackSnapshot;
-import io.github.loredock.project.model.result.BranchView;
-import io.github.loredock.project.model.result.ProjectDetailView;
-import io.github.loredock.project.service.ProjectApplicationService;
+import io.github.loredock.project.api.ProjectScope;
+import io.github.loredock.project.api.ProjectService;
 import io.github.loredock.qa.exception.WebQaQuestionNotFoundException;
 import io.github.loredock.qa.model.enums.WebQaMessageRole;
 import io.github.loredock.qa.model.result.WebQaMessageRecord;
@@ -44,20 +43,20 @@ class CreateKnowledgeGapServiceTest {
     private static final Long FEEDBACK_ID = 2553040173361004551L;
     private static final Instant NOW = Instant.parse("2026-07-30T11:00:00Z");
 
-    private ProjectApplicationService projects;
+    private ProjectService projects;
     private QueryWebQaQuestionService questions;
     private MemoryRepository repository;
     private CreateKnowledgeGapService service;
 
     @BeforeEach
     void setUp() {
-        projects = mock(ProjectApplicationService.class);
+        projects = mock(ProjectService.class);
         questions = mock(QueryWebQaQuestionService.class);
         repository = new MemoryRepository();
         Clock time = Clock.fixed(NOW, java.time.ZoneOffset.UTC);
         service = new CreateKnowledgeGapService(projects, questions, repository, time);
-        when(projects.getEnabledProject("atlas", "main")).thenReturn(project("main"));
-        when(projects.getEnabledProject("atlas", null)).thenReturn(project("main"));
+        when(projects.resolveEnabledScope("atlas", "main")).thenReturn(project("main"));
+        when(projects.resolveEnabledScope("atlas", null)).thenReturn(project("main"));
     }
 
     /**
@@ -163,10 +162,8 @@ class CreateKnowledgeGapServiceTest {
         return CreateKnowledgeGapCommand.of("member", key, "atlas", "main", type, questionId, question, note);
     }
 
-    private ProjectDetailView project(String branch) {
-        return new ProjectDetailView(
-                PROJECT_ID, "atlas", "Atlas", "", "Java", "main", branch,
-                List.of(new BranchView(BRANCH_ID, branch, NOW, NOW, "admin", "admin")));
+    private ProjectScope project(String branch) {
+        return new ProjectScope(PROJECT_ID, "atlas", "Atlas", true, BRANCH_ID, branch);
     }
 
     private static final class MemoryRepository extends KnowledgeGapDataService {

@@ -12,9 +12,8 @@ import io.github.loredock.agent.model.snapshot.AgentRunSnapshot;
 import io.github.loredock.agent.model.snapshot.AgentScopeSnapshot;
 import io.github.loredock.agent.model.snapshot.AgentVersionSnapshot;
 import io.github.loredock.agent.service.AgentRunQueryService;
-import io.github.loredock.project.model.result.BranchView;
-import io.github.loredock.project.model.result.ProjectDetailView;
-import io.github.loredock.project.service.ProjectApplicationService;
+import io.github.loredock.project.api.ProjectScope;
+import io.github.loredock.project.api.ProjectService;
 import io.github.loredock.qa.converter.WebQaCursorCodec;
 import io.github.loredock.qa.exception.WebQaQuestionNotFoundException;
 import io.github.loredock.qa.model.command.QueryWebQaDetailCommand;
@@ -34,7 +33,7 @@ class QueryWebQaQuestionServiceTest {
     private static final Long PROJECT_ID = 4937811932239626242L;
     private static final Long BRANCH_ID = 4937811932239626243L;
     private static final Instant NOW = Instant.parse("2026-07-30T05:00:00Z");
-    private ProjectApplicationService projects;
+    private ProjectService projects;
     private AgentRunQueryService runs;
     private WebQaQuestionDataService questions;
     private WebQaMessageDataService messages;
@@ -43,12 +42,12 @@ class QueryWebQaQuestionServiceTest {
 
     @BeforeEach
     void setUp() {
-        projects = mock(ProjectApplicationService.class);
+        projects = mock(ProjectService.class);
         runs = mock(AgentRunQueryService.class);
         questions = mock(WebQaQuestionDataService.class);
         messages = mock(WebQaMessageDataService.class);
         materializer = mock(DefaultWebQaAssistantMessageMaterializer.class);
-        when(projects.getEnabledProject("atlas", null)).thenReturn(project());
+        when(projects.resolveEnabledScope("atlas", null)).thenReturn(project());
         service = new QueryWebQaQuestionService(projects, runs, questions, messages, materializer);
     }
 
@@ -119,9 +118,8 @@ class QueryWebQaQuestionServiceTest {
         System.out.printf("测试证据：场景=详情防枚举，猜测questionId=%s，稳定错误=QA_QUESTION_NOT_FOUND%n", guessed);
     }
 
-    private ProjectDetailView project() {
-        BranchView branch = new BranchView(BRANCH_ID, "main", NOW, NOW, "admin", "admin");
-        return new ProjectDetailView(PROJECT_ID, "atlas", "Atlas", "", "Java", "main", "main", List.of(branch));
+    private ProjectScope project() {
+        return new ProjectScope(PROJECT_ID, "atlas", "Atlas", true, BRANCH_ID, "main");
     }
 
     private WebQaQuestionRecord question(int ordinal, Instant createdAt, Long id) {

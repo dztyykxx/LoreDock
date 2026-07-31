@@ -3,6 +3,8 @@ package io.github.loredock.project.service;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import io.github.loredock.platform.persistence.AuditMetadata;
 import io.github.loredock.platform.persistence.AuditMetadataFactory;
+import io.github.loredock.project.api.ProjectScope;
+import io.github.loredock.project.api.ProjectService;
 import io.github.loredock.project.exception.BranchNameConflictException;
 import io.github.loredock.project.exception.BranchNotFoundException;
 import io.github.loredock.project.exception.ProjectIdentifierConflictException;
@@ -37,7 +39,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 只有命名唯一约束会转换为稳定 409，其他数据库异常保留原始失败语义并触发回滚。
  */
 @Service
-public class ProjectApplicationService {
+public class ProjectApplicationService implements ProjectService {
 
     private static final String PROJECT_IDENTIFIER_CONSTRAINT = "uq_project_space_identifier";
     private static final String BRANCH_NAME_CONSTRAINT = "uq_project_branch_project_name";
@@ -160,6 +162,50 @@ public class ProjectApplicationService {
         );
     }
 
+    /**
+     * 普通跨模块调用复用现有启用项目查询，并只投影已选分支，避免把 HTTP 管理视图带出模块。
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public ProjectScope resolveEnabledScope(String projectIdentifier, String branchName) {
+        ProjectDetailView detail = getEnabledProject(projectIdentifier, branchName);
+        BranchView selected = detail.branches().stream()
+                .filter(branch -> branch.name().equals(detail.selectedBranch()))
+                .findFirst()
+                .orElseThrow(BranchNotFoundException::new);
+        return new ProjectScope(
+                detail.id(), detail.identifier(), detail.name(), true, selected.id(), selected.name());
+    }
+
+    /**
+     * 管理范围直接按项目业务标识解析，允许调用方观察停用状态，但不返回内部状态枚举和审计字段。
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public ProjectScope resolveScope(String projectIdentifier, String branchName) {
+        String normalizedIdentifier = ProjectIdentifier.of(projectIdentifier).value();
+        ProjectData project = findProject(normalizedIdentifier).orElseThrow(ProjectNotFoundException::new);
+        BranchData branch = branchName == null
+                ? null
+                : findBranch(project.id(), BranchName.of(branchName).value())
+                        .orElseThrow(BranchNotFoundException::new);
+        return scope(project, branch);
+    }
+
+    /**
+     * 按外键解析时必须同时验证分支归属，防止代码快照把其他项目的分支主键带入当前范围。
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public ProjectScope resolveScope(Long projectId, Long branchId) {
+        ProjectData project = requireProject(projectId);
+        BranchData branch = Optional.ofNullable(branches.selectById(Objects.requireNonNull(branchId, "branchId")))
+                .map(this::toData)
+                .filter(candidate -> candidate.projectId().equals(project.id()))
+                .orElseThrow(BranchNotFoundException::new);
+        return scope(project, branch);
+    }
+
     @Transactional(readOnly = true)
     public List<AdminProjectSummaryView> listProjects(ProjectStatus status) {
         return findProjects(status).stream().map(project -> new AdminProjectSummaryView(
@@ -185,6 +231,12 @@ public class ProjectApplicationService {
         return Optional.ofNullable(projects.selectOne(Wrappers.<ProjectSpaceEntity>lambdaQuery()
                         .eq(ProjectSpaceEntity::getIdentifier, identifier)
                         .eq(ProjectSpaceEntity::getStatus, ProjectStatus.ENABLED.name())))
+                .map(this::toData);
+    }
+
+    private Optional<ProjectData> findProject(String identifier) {
+        return Optional.ofNullable(projects.selectOne(Wrappers.<ProjectSpaceEntity>lambdaQuery()
+                        .eq(ProjectSpaceEntity::getIdentifier, identifier)))
                 .map(this::toData);
     }
 
@@ -255,6 +307,12 @@ public class ProjectApplicationService {
     private BranchView branchView(BranchData branch) {
         return new BranchView(
                 branch.id(), branch.name(), branch.createdAt(), branch.updatedAt(), branch.createdBy(), branch.updatedBy());
+    }
+
+    private ProjectScope scope(ProjectData project, BranchData branch) {
+        return new ProjectScope(
+                project.id(), project.identifier(), project.name(), project.status() == ProjectStatus.ENABLED,
+                branch == null ? null : branch.id(), branch == null ? null : branch.name());
     }
 
     private String requiredText(String value, int maxLength, String error) {
