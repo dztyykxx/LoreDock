@@ -61,6 +61,7 @@ import java.util.function.Supplier;
 public class SpringAiAlibabaAgentExecutionAdapter implements AgentExecutionPort {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(SpringAiAlibabaAgentExecutionAdapter.class);
+    private static final int TOOL_RESULT_PREVIEW_CODE_POINTS = 500;
 
     private final Supplier<ChatModel> model;
     private final ProjectQaToolRegistry tools;
@@ -84,6 +85,8 @@ public class SpringAiAlibabaAgentExecutionAdapter implements AgentExecutionPort 
 
     @Override
     public AgentExecutionResult execute(AgentExecutionRequest request, AgentExecutionObserver observer) {
+        System.out.println("project_qa.question");
+        System.out.println(request.question());
         long started = System.nanoTime();
         ExecutionBudget budget = new ExecutionBudget(request.limits());
         CountingChatModel countedModel = new CountingChatModel(model.get(), budget);
@@ -99,6 +102,8 @@ public class SpringAiAlibabaAgentExecutionAdapter implements AgentExecutionPort 
                     .collectList()
                     .block();
             AssistantMessage answer = finalAnswer(messages);
+            System.out.println("project_qa.model_response");
+            System.out.println(answer.getText());
             ProjectQaModelResult modelResult = parse(answer.getText(), request.limits());
             long elapsed = Duration.ofNanos(System.nanoTime() - started).toMillis();
             AgentExecutionUsage usage = new AgentExecutionUsage(
@@ -207,6 +212,10 @@ public class SpringAiAlibabaAgentExecutionAdapter implements AgentExecutionPort 
         budget.beforeTool();
         try {
             AgentToolResult result = tools.execute(runId, name, input);
+            System.out.println("project_qa.tool_result tool=" + name
+                    + " resultCount=" + result.resultCount()
+                    + " evidenceCount=" + result.evidence().size());
+            System.out.println(preview(result.modelContext()));
             ledger.successfulRetrievalCount.incrementAndGet();
             ledger.retainedEvidenceCount.addAndGet((int) result.evidence().stream()
                     .filter(AgentEvidence::retained)
@@ -307,6 +316,18 @@ public class SpringAiAlibabaAgentExecutionAdapter implements AgentExecutionPort 
             throw new IllegalArgumentException(field + " required");
         }
         return value;
+    }
+
+    private String preview(String value) {
+        if (value == null) {
+            return "";
+        }
+        int codePoints = value.codePointCount(0, value.length());
+        if (codePoints <= TOOL_RESULT_PREVIEW_CODE_POINTS) {
+            return value;
+        }
+        int end = value.offsetByCodePoints(0, TOOL_RESULT_PREVIEW_CODE_POINTS);
+        return value.substring(0, end) + "\n...[truncated]";
     }
 
     private AgentExecutionException mapped(Throwable exception) {

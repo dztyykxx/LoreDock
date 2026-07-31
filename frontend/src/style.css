@@ -1122,6 +1122,319 @@ a {
   min-height: 960px;
 }
 
+.snapshot-main {
+  min-height: 960px;
+}
+
+.snapshot-content {
+  width: min(1080px, calc(100% - 80px));
+  margin: 0 auto;
+  padding: 34px 0 64px;
+}
+
+.snapshot-content > .project-tabs {
+  margin-top: 24px;
+}
+
+.snapshot-content > .page-header {
+  margin-top: 16px;
+}
+
+.snapshot-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.snapshot-metric {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--surface);
+}
+
+.snapshot-metric__icon {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.snapshot-metric__icon .icon-glyph {
+  width: 17px;
+  height: 17px;
+}
+
+.snapshot-metric > div {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.snapshot-metric small,
+.snapshot-metric span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.snapshot-metric strong {
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 20px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: "Geist Mono", monospace;
+}
+
+.snapshot-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 650px) minmax(300px, 1fr);
+  gap: 24px;
+  align-items: start;
+  margin-top: 16px;
+}
+
+.snapshot-upload-card,
+.snapshot-job-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.snapshot-upload-card {
+  padding: 18px;
+}
+
+.snapshot-upload-card > header,
+.snapshot-job-card > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.snapshot-upload-card h2,
+.snapshot-job-card h2,
+.snapshot-boundary-card h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 22px;
+}
+
+.snapshot-upload-card header p,
+.snapshot-job-card header p,
+.snapshot-boundary-card p,
+.snapshot-job-card > p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 17px;
+}
+
+.snapshot-upload-card > header > span {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.snapshot-upload-card form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.snapshot-dropzone {
+  min-height: 142px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px dashed #cfcfcf;
+  border-radius: 10px;
+  color: var(--ink);
+  background: var(--neutral-soft);
+  cursor: pointer;
+}
+
+.snapshot-dropzone:hover,
+.snapshot-dropzone--selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.snapshot-dropzone__icon {
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  color: var(--accent);
+  background: var(--surface);
+}
+
+.snapshot-dropzone strong {
+  max-width: 90%;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.snapshot-dropzone > span:last-child {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.snapshot-form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+}
+
+.snapshot-form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.snapshot-form-grid label > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 550;
+}
+
+.snapshot-form-grid select,
+.snapshot-form-grid input {
+  width: 100%;
+  min-height: 42px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0 12px;
+  color: var(--ink);
+  background: var(--surface);
+  font-size: 13px;
+}
+
+.snapshot-form-grid select:focus,
+.snapshot-form-grid input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgb(21 131 109 / 10%);
+}
+
+.snapshot-upload-card form footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.snapshot-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.snapshot-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.snapshot-job-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+}
+
+.snapshot-job-status {
+  flex: 0 0 auto;
+  border-radius: 99px;
+  padding: 4px 8px;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.snapshot-job-status--success {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.snapshot-job-status--warning {
+  color: var(--warning);
+  background: var(--warning-soft);
+}
+
+.snapshot-job-status--danger {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.snapshot-job-card progress {
+  width: 100%;
+  height: 7px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 99px;
+  color: var(--accent);
+  background: var(--border);
+}
+
+.snapshot-job-card progress::-webkit-progress-bar {
+  background: var(--border);
+}
+
+.snapshot-job-card progress::-webkit-progress-value {
+  background: var(--accent);
+}
+
+.snapshot-job-card progress::-moz-progress-bar {
+  background: var(--accent);
+}
+
+.snapshot-job-progress {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.snapshot-job-progress strong {
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.snapshot-boundary-card {
+  border-radius: 10px;
+  padding: 16px;
+  background: var(--neutral-soft);
+}
+
 .settings-content {
   width: min(1080px, calc(100% - 80px));
   margin: 0 auto;

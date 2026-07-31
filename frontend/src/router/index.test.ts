@@ -107,6 +107,7 @@ describe('router session guards', () => {
     expect(router.resolve('/projects/network-designer/knowledge/document-1').name).toBe('project-knowledge-detail')
     expect(router.resolve('/projects/network-designer/knowledge/document-1/edit').name).toBe('project-knowledge-edit')
     expect(router.resolve('/projects/network-designer/qa?branch=feature%2Fimport').name).toBe('project-qa')
+    expect(router.resolve('/projects/project-1/code-snapshots').name).toBe('project-code-snapshots')
     expect(router.resolve('/projects/project-1/settings').name).toBe('project-settings')
   })
 

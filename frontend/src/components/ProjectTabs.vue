@@ -27,6 +27,13 @@
     </button>
     <RouterLink
       v-if="role === 'ADMIN' && projectId"
+      data-tab="code-snapshots"
+      :to="codeSnapshotTarget"
+      :class="{ 'project-tabs__item--active': active === 'code-snapshots' }"
+      :aria-current="active === 'code-snapshots' ? 'page' : undefined"
+    >代码快照</RouterLink>
+    <RouterLink
+      v-if="role === 'ADMIN' && projectId"
       data-tab="settings"
       :to="`/projects/${projectId}/settings`"
       :class="{ 'project-tabs__item--active': active === 'settings' }"
@@ -63,5 +70,8 @@ const knowledgeTarget = computed(() => {
 const qaTarget = computed(() => props.branch && props.branch !== 'main'
   ? { path: `/projects/${props.projectIdentifier}/qa`, query: { branch: props.branch } }
   : `/projects/${props.projectIdentifier}/qa`)
+const codeSnapshotTarget = computed(() => props.branch && props.branch !== 'main'
+  ? { path: `/projects/${props.projectId}/code-snapshots`, query: { branch: props.branch } }
+  : `/projects/${props.projectId}/code-snapshots`)
 const futureTabs = DESIGN_SAMPLES.tabs.filter(tab => tab.id !== 'knowledge' && tab.id !== 'settings')
 </script>

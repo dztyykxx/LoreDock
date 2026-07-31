@@ -19,6 +19,7 @@ import io.github.loredock.agent.domain.AgentVersionSnapshot;
 import io.github.loredock.agent.domain.AnswerBasis;
 import io.github.loredock.agent.domain.EvidenceSourceType;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.metadata.DefaultUsage;
@@ -26,6 +27,8 @@ import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import reactor.core.publisher.Flux;
 
 import java.time.Duration;
@@ -44,6 +47,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+@ExtendWith(OutputCaptureExtension.class)
 class SpringAiAlibabaAgentExecutionAdapterTest {
 
     private static final UUID RUN_ID = UUID.fromString("91000000-0000-0000-0000-000000000001");
@@ -51,10 +55,12 @@ class SpringAiAlibabaAgentExecutionAdapterTest {
     private static final UUID CODE_ID = UUID.fromString("91000000-0000-0000-0000-000000000003");
 
     /**
-     * 业务目的：真实 ReactAgent 必须按白名单完成三种工具循环、解析结构化结果并保留实际模型/工具/Token 计数。
+     * 业务目的：stdout 只显示用户问题、截断后的工具结果预览和模型最终响应，避免 Prompt 与流式分片淹没联调信息。
      */
     @Test
-    void realReactAgentExecutesThreeControlledToolsAndParsesStructuredResult() {
+    void realReactAgentPrintsConciseQaStages(CapturedOutput output) {
+        String longKnowledgeContext = "knowledge evidence\n" + "x".repeat(1300)
+                + "\nSHOULD_NOT_BE_PRINTED";
         ScriptedChatModel model = new ScriptedChatModel(List.of(
                 tool("knowledge_search", "{\"query\":\"审核规则\",\"limit\":1}"),
                 tool("code_search", "{\"query\":\"ReviewService\",\"pathPrefix\":\"src\",\"limit\":1}"),
@@ -65,7 +71,7 @@ class SpringAiAlibabaAgentExecutionAdapterTest {
                         """.formatted(KNOWLEDGE_ID, CODE_ID))), Duration.ZERO, true);
         ProjectQaToolRegistry tools = mock(ProjectQaToolRegistry.class);
         when(tools.execute(eq(RUN_ID), eq("knowledge_search"), any(KnowledgeSearchToolRequest.class)))
-                .thenReturn(toolResult(knowledgeEvidence(), "knowledge evidence"));
+                .thenReturn(toolResult(knowledgeEvidence(), longKnowledgeContext));
         when(tools.execute(eq(RUN_ID), eq("code_search"), any(CodeSearchToolRequest.class)))
                 .thenReturn(new AgentToolResult("code search", List.of(), 1, 0));
         when(tools.execute(eq(RUN_ID), eq("code_snippet_read"), any(CodeSnippetToolRequest.class)))
@@ -88,6 +94,14 @@ class SpringAiAlibabaAgentExecutionAdapterTest {
         verify(tools).execute(eq(RUN_ID), eq("knowledge_search"), any(KnowledgeSearchToolRequest.class));
         verify(tools).execute(eq(RUN_ID), eq("code_search"), any(CodeSearchToolRequest.class));
         verify(tools).execute(eq(RUN_ID), eq("code_snippet_read"), any(CodeSnippetToolRequest.class));
+        assertThat(output).contains(
+                "project_qa.question", "为什么需要审核？",
+                "project_qa.tool_result tool=knowledge_search resultCount=1 evidenceCount=1",
+                "knowledge evidence", "code evidence", "...[truncated]",
+                "project_qa.model_response", "审核规则由当前实现执行。");
+        assertThat(output).doesNotContain(
+                "SHOULD_NOT_BE_PRINTED", "project_qa.model_prompt",
+                "project_qa.model_response_chunk", "project_qa.agent_messages");
         System.out.printf("测试证据：场景=ReactAgent三工具循环，模型调用=%d，工具调用=%d，证据=%d，Token=%d/%d%n",
                 result.usage().modelCallCount(), result.usage().stepCount() - result.usage().modelCallCount(),
                 result.evidence().size(), result.usage().inputTokens(), result.usage().outputTokens());

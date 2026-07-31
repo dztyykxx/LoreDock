@@ -3,11 +3,13 @@ import type { ProjectApi } from './api/projects'
 import type { KnowledgeApi } from './api/knowledge'
 import type { SessionController } from './session/useSession'
 import type { QaApi } from './api/qa'
+import type { CodeSnapshotApi } from './api/codeSnapshots'
 
 export const sessionKey: InjectionKey<SessionController> = Symbol('loredock-session')
 export const projectApiKey: InjectionKey<ProjectApi> = Symbol('loredock-project-api')
 export const knowledgeApiKey: InjectionKey<KnowledgeApi> = Symbol('loredock-knowledge-api')
 export const qaApiKey: InjectionKey<QaApi> = Symbol('loredock-qa-api')
+export const codeSnapshotApiKey: InjectionKey<CodeSnapshotApi> = Symbol('loredock-code-snapshot-api')
 
 export function useSession(): SessionController {
   const session = inject(sessionKey)
@@ -37,6 +39,14 @@ export function useQaApi(): QaApi {
   const api = inject(qaApiKey)
   if (!api) {
     throw new Error('LoreDock QA API is not provided')
+  }
+  return api
+}
+
+export function useCodeSnapshotApi(): CodeSnapshotApi {
+  const api = inject(codeSnapshotApiKey)
+  if (!api) {
+    throw new Error('LoreDock code snapshot API is not provided')
   }
   return api
 }
