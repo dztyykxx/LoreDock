@@ -6,7 +6,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import io.github.loredock.agent.api.AgentRun;
 import io.github.loredock.feedback.exception.KnowledgeGapIdempotencyConflictException;
 import io.github.loredock.feedback.model.command.CreateKnowledgeGapCommand;
 import io.github.loredock.feedback.model.enums.KnowledgeGapType;
@@ -16,12 +15,9 @@ import io.github.loredock.feedback.model.result.KnowledgeGapFilter;
 import io.github.loredock.feedback.model.snapshot.KnowledgeGapFeedbackSnapshot;
 import io.github.loredock.project.api.ProjectScope;
 import io.github.loredock.project.api.ProjectService;
-import io.github.loredock.qa.exception.WebQaQuestionNotFoundException;
-import io.github.loredock.qa.model.enums.WebQaMessageRole;
-import io.github.loredock.qa.model.result.WebQaMessageRecord;
-import io.github.loredock.qa.model.result.WebQaQuestionRecord;
-import io.github.loredock.qa.model.snapshot.WebQaQuestionSnapshot;
-import io.github.loredock.qa.service.QueryWebQaQuestionService;
+import io.github.loredock.qa.api.QaQuestion;
+import io.github.loredock.qa.api.QaQuestionNotFoundException;
+import io.github.loredock.qa.api.QaService;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -42,14 +38,14 @@ class CreateKnowledgeGapServiceTest {
     private static final Instant NOW = Instant.parse("2026-07-30T11:00:00Z");
 
     private ProjectService projects;
-    private QueryWebQaQuestionService questions;
+    private QaService questions;
     private MemoryRepository repository;
     private CreateKnowledgeGapService service;
 
     @BeforeEach
     void setUp() {
         projects = mock(ProjectService.class);
-        questions = mock(QueryWebQaQuestionService.class);
+        questions = mock(QaService.class);
         repository = new MemoryRepository();
         Clock time = Clock.fixed(NOW, java.time.ZoneOffset.UTC);
         service = new CreateKnowledgeGapService(projects, questions, repository, time);
@@ -62,30 +58,28 @@ class CreateKnowledgeGapServiceTest {
      */
     @Test
     void linkedQuestionCopiesOnlyServerFactsAndCitations() {
-        AgentRun run = mock(AgentRun.class);
-        AgentRun.Citation citation = mock(AgentRun.Citation.class);
+        QaQuestion run = mock(QaQuestion.class);
+        QaQuestion.Citation citation = mock(QaQuestion.Citation.class);
         when(citation.evidenceId()).thenReturn(EVIDENCE_ID);
         when(run.runId()).thenReturn(RUN_ID);
-        when(run.resultType()).thenReturn(AgentRun.ResultType.ANSWER);
+        when(run.questionId()).thenReturn(QUESTION_ID);
+        when(run.scope()).thenReturn(new QaQuestion.Scope(PROJECT_ID, "atlas", BRANCH_ID, "main", null, false));
+        when(run.resultType()).thenReturn(QaQuestion.ResultType.ANSWER);
         when(run.errorCode()).thenReturn(null);
         when(run.citations()).thenReturn(List.of(citation));
-        WebQaQuestionRecord question = new WebQaQuestionRecord(
-                QUESTION_ID, "member", "qa-key", "a".repeat(64), PROJECT_ID, "atlas", BRANCH_ID,
-                "main", RUN_ID, NOW.minusSeconds(10));
-        WebQaMessageRecord user = new WebQaMessageRecord(
-                8000000000000000054L, QUESTION_ID, WebQaMessageRole.USER, "服务端真实问题", null, null, NOW);
-        WebQaMessageRecord assistant = new WebQaMessageRecord(
-                8000000000000000055L, QUESTION_ID, WebQaMessageRole.ASSISTANT, "不得复制的完整答案",
-                AgentRun.ResultType.ANSWER, null, NOW);
-        when(questions.detail(org.mockito.ArgumentMatchers.any()))
-                .thenReturn(new WebQaQuestionSnapshot(question, run, null, List.of(user, assistant)));
+        when(run.messages()).thenReturn(List.of(
+                new QaQuestion.Message(8000000000000000054L, QaQuestion.MessageRole.USER,
+                        "服务端真实问题", null, null, NOW),
+                new QaQuestion.Message(8000000000000000055L, QaQuestion.MessageRole.ASSISTANT,
+                        "不得复制的完整答案", QaQuestion.ResultType.ANSWER, null, NOW)));
+        when(questions.detail(org.mockito.ArgumentMatchers.any())).thenReturn(run);
 
         KnowledgeGapFeedbackSnapshot result = service.create(command(
                 "linked-key", KnowledgeGapType.WRONG_ANSWER, QUESTION_ID, "客户端伪造问题", "补充"));
 
         assertThat(result.feedback().question()).isEqualTo("服务端真实问题");
         assertThat(result.feedback().runId()).isEqualTo(RUN_ID);
-        assertThat(result.feedback().resultType()).isEqualTo(AgentRun.ResultType.ANSWER);
+        assertThat(result.feedback().resultType()).isEqualTo(QaQuestion.ResultType.ANSWER);
         assertThat(result.citationEvidenceIds()).containsExactly(EVIDENCE_ID);
         assertThat(result.toString()).doesNotContain("不得复制的完整答案");
         System.out.printf("测试证据：场景=关联问答反馈，questionId=%s，runId=%s，引用数=%d，伪造问题采用=false%n",
@@ -97,20 +91,19 @@ class CreateKnowledgeGapServiceTest {
      */
     @Test
     void linkedQuestionFromDifferentBranchIsHidden() {
-        AgentRun run = mock(AgentRun.class);
+        QaQuestion run = mock(QaQuestion.class);
+        when(run.questionId()).thenReturn(QUESTION_ID);
         when(run.runId()).thenReturn(RUN_ID);
         when(run.citations()).thenReturn(List.of());
-        WebQaQuestionRecord question = new WebQaQuestionRecord(
-                QUESTION_ID, "member", "qa-key", "a".repeat(64), PROJECT_ID, "atlas", 8000000000000000056L,
-                "release", RUN_ID, NOW.minusSeconds(10));
-        WebQaMessageRecord user = new WebQaMessageRecord(
-                8000000000000000057L, QUESTION_ID, WebQaMessageRole.USER, "服务端真实问题", null, null, NOW);
-        when(questions.detail(org.mockito.ArgumentMatchers.any()))
-                .thenReturn(new WebQaQuestionSnapshot(question, run, null, List.of(user)));
+        when(run.scope()).thenReturn(new QaQuestion.Scope(
+                PROJECT_ID, "atlas", 8000000000000000056L, "release", null, false));
+        when(run.messages()).thenReturn(List.of(new QaQuestion.Message(
+                8000000000000000057L, QaQuestion.MessageRole.USER, "服务端真实问题", null, null, NOW)));
+        when(questions.detail(org.mockito.ArgumentMatchers.any())).thenReturn(run);
 
         assertThatThrownBy(() -> service.create(command(
                 "wrong-branch", KnowledgeGapType.NO_ANSWER, QUESTION_ID, null, null)))
-                .isInstanceOf(WebQaQuestionNotFoundException.class);
+                .isInstanceOf(QaQuestionNotFoundException.class);
         assertThat(repository.records).isEmpty();
         System.out.printf("测试证据：场景=关联问答分支不匹配，questionId=%s，请求分支=main，实际分支=release，结果=404%n",
                 QUESTION_ID);

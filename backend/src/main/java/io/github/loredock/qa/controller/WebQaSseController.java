@@ -5,10 +5,9 @@ import io.github.loredock.auth.service.SessionService;
 import io.github.loredock.platform.web.ApiError;
 import io.github.loredock.platform.web.ErrorCode;
 import io.github.loredock.platform.web.SecurityErrorFactory;
-import io.github.loredock.qa.model.command.QueryWebQaDetailCommand;
+import io.github.loredock.qa.api.QaService;
 import io.github.loredock.qa.model.request.WebQaSseStreamRequest;
 import io.github.loredock.qa.model.snapshot.WebQaSseCursor;
-import io.github.loredock.qa.service.QueryWebQaQuestionService;
 import io.github.loredock.qa.service.WebQaSseService;
 import java.time.Clock;
 import java.util.List;
@@ -29,27 +28,27 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class WebQaSseController {
     private final SessionService sessions;
     private final SessionService continuity;
-    private final QueryWebQaQuestionService access;
+    private final QaService questions;
     private final WebQaSseService streams;
     private final SecurityErrorFactory errorFactory;
 
     /**
      * @param sessions 当前认证身份
      * @param continuity 异步会话租约
-     * @param access 问答与项目范围复核
+     * @param questions 问答与项目范围复核契约
      * @param streams 有界 SSE 流服务
      * @param timeProvider UTC 错误时间源
      */
     public WebQaSseController(
             SessionService sessions,
             SessionService continuity,
-            QueryWebQaQuestionService access,
+            QaService questions,
             WebQaSseService streams,
             Clock timeProvider
     ) {
         this.sessions = sessions;
         this.continuity = continuity;
-        this.access = access;
+        this.questions = questions;
         this.streams = streams;
         this.errorFactory = new SecurityErrorFactory(timeProvider);
     }
@@ -70,10 +69,10 @@ public class WebQaSseController {
     ) {
         AuthenticatedActor actor = sessions.currentSession();
         long cursor = WebQaSseCursor.resolve(lastEventId, afterSequence);
-        var target = access.authorize(new QueryWebQaDetailCommand(actor.username(), identifier, questionId));
+        var target = questions.detail(new QaService.DetailQuery(actor.username(), identifier, questionId));
         SessionService.SessionLease lease = continuity.capture();
         return streams.open(new WebQaSseStreamRequest(
-                actor.username(), identifier, questionId, target.run().runId(), cursor, lease));
+                actor.username(), identifier, questionId, target.runId(), cursor, lease));
     }
 
     /**

@@ -26,11 +26,10 @@ import io.github.loredock.agent.service.ProjectQaRunTaskExecutor;
 import io.github.loredock.auth.service.SessionService;
 import io.github.loredock.project.api.ProjectScope;
 import io.github.loredock.project.api.ProjectService;
-import io.github.loredock.qa.model.command.CreateWebQaQuestionCommand;
-import io.github.loredock.qa.model.command.QueryWebQaDetailCommand;
+import io.github.loredock.qa.api.QaQuestion;
+import io.github.loredock.qa.api.QaService;
 import io.github.loredock.qa.config.WebQaSseProperties;
 import io.github.loredock.qa.model.request.WebQaSseStreamRequest;
-import io.github.loredock.qa.model.snapshot.WebQaQuestionSnapshot;
 import io.github.loredock.qa.model.snapshot.WebQaSsePublicEvent;
 import io.github.loredock.qa.scheduler.BoundedWebQaSseExecutor;
 import io.github.loredock.qa.service.impl.WebQaSseSink;
@@ -81,7 +80,7 @@ class WebQaSsePersistenceIT {
     @Autowired private WebQaQuestionDataService questions;
     @Autowired private WebQaMessageDataService messages;
     @Autowired private DefaultWebQaAssistantMessageMaterializer materializer;
-    @Autowired private QueryWebQaQuestionService questionQueries;
+    @Autowired private QaServiceImpl questionQueries;
     @Autowired private Clock timeProvider;
     @Autowired private PlatformTransactionManager transactionManager;
     @Autowired private JdbcTemplate jdbcTemplate;
@@ -123,14 +122,14 @@ class WebQaSsePersistenceIT {
         AgentService starts = mock(AgentService.class);
         when(starts.start(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation ->
                 acceptRun(invocation.getArgument(0)));
-        CreateWebQaQuestionService creation = new CreateWebQaQuestionService(
-                projects, starts, questions, messages, timeProvider);
-        WebQaQuestionSnapshot created = new TransactionTemplate(transactionManager).execute(
-                status -> creation.create(CreateWebQaQuestionCommand.of(
+        QaServiceImpl creation = new QaServiceImpl(
+                projects, starts, questions, messages, materializer, timeProvider);
+        QaQuestion created = new TransactionTemplate(transactionManager).execute(
+                status -> creation.create(new QaService.CreateRequest(
                         "member", "MEMBER", "sse-it-key", "atlas", "main", "为什么采用范围隔离？")));
         assertThat(created).isNotNull();
 
-        Long runId = created.run().runId();
+        Long runId = created.runId();
         executeScriptedModel(created);
 
         SessionService sessions = alwaysValidSession();
@@ -140,7 +139,7 @@ class WebQaSsePersistenceIT {
                 mock(BoundedWebQaSseExecutor.class), timeProvider, questionQueries, agents,
                 sessions, materializer);
         WebQaSseStreamRequest request = new WebQaSseStreamRequest(
-                "member", "atlas", created.question().id(), runId, 0, sessions.capture());
+                "member", "atlas", created.questionId(), runId, 0, sessions.capture());
 
         RecordingSink firstConnection = new RecordingSink(2);
         streams.stream(request, firstConnection, timeProvider.instant());
@@ -152,19 +151,19 @@ class WebQaSsePersistenceIT {
         long firstCursor = firstConnection.events.getLast().data().sequence();
         RecordingSink resumedConnection = new RecordingSink(Integer.MAX_VALUE);
         streams.stream(new WebQaSseStreamRequest(
-                        "member", "atlas", created.question().id(), runId, firstCursor, sessions.capture()),
+                        "member", "atlas", created.questionId(), runId, firstCursor, sessions.capture()),
                 resumedConnection, timeProvider.instant());
-        WebQaQuestionSnapshot detail = questionQueries.detail(
-                new QueryWebQaDetailCommand("member", "atlas", created.question().id()));
+        QaQuestion detail = questionQueries.detail(
+                new QaService.DetailQuery("member", "atlas", created.questionId()));
 
         assertThat(resumedConnection.events).isNotEmpty();
         assertThat(resumedConnection.events).allMatch(event -> event.data().sequence() > firstCursor);
         assertThat(resumedConnection.events).extracting(event -> event.data().sequence()).isSorted();
         assertThat(resumedConnection.events.getLast().name()).isEqualTo("run.completed");
         assertThat(resumedConnection.closed).isTrue();
-        assertThat(detail.run().resultType()).isEqualTo(AgentRun.ResultType.ANSWER);
-        assertThat(detail.run().answerBasis()).isEqualTo(AgentRun.AnswerBasis.BUSINESS_RULE);
-        assertThat(detail.run().citations()).hasSize(1);
+        assertThat(detail.resultType()).isEqualTo(QaQuestion.ResultType.ANSWER);
+        assertThat(detail.answerBasis()).isEqualTo(QaQuestion.AnswerBasis.BUSINESS_RULE);
+        assertThat(detail.citations()).hasSize(1);
         assertThat(detail.messages()).hasSize(2);
 
         long elapsedMillis = Duration.ofNanos(System.nanoTime() - startedNanos).toMillis();
@@ -174,7 +173,7 @@ class WebQaSsePersistenceIT {
         System.out.printf("测试证据：场景=真实PostgreSQL SSE断线续读，首序号=%d，末序号=%d，"
                         + "事件类型=%s，终态=%s，引用数=%d，耗时毫秒=%d%n",
                 firstConnection.events.getFirst().data().sequence(), resumedConnection.events.getLast().data().sequence(), eventTypes,
-                detail.run().status(), detail.run().citations().size(), elapsedMillis);
+                detail.status(), detail.citations().size(), elapsedMillis);
     }
 
     private AgentRun acceptRun(
@@ -196,8 +195,8 @@ class WebQaSsePersistenceIT {
         return io.github.loredock.testsupport.AgentApiFixtures.run(acceptedRun);
     }
 
-    private void executeScriptedModel(WebQaQuestionSnapshot created) {
-        Long runId = created.run().runId();
+    private void executeScriptedModel(QaQuestion created) {
+        Long runId = created.runId();
         Long evidenceId = 8000000000000000164L;
         AgentEvidence source = new AgentEvidence(
                 evidenceId, runId, EvidenceSourceType.KNOWLEDGE, true, 0.95,

@@ -17,7 +17,7 @@ import cn.dev33.satoken.dao.SaTokenDaoDefaultImpl;
 import cn.dev33.satoken.spring.SaBeanInject;
 import cn.dev33.satoken.spring.SaBeanRegister;
 import cn.dev33.satoken.spring.SaTokenContextRegister;
-import io.github.loredock.agent.api.AgentRun;
+import io.github.loredock.qa.api.QaQuestion;
 import io.github.loredock.auth.TestAuthFactory;
 import io.github.loredock.auth.config.IdentityRoleConfiguration;
 import io.github.loredock.auth.config.IdentityWebConfiguration;
@@ -211,8 +211,8 @@ class KnowledgeGapWebContractTest {
         return new KnowledgeGapFeedbackSnapshot(new KnowledgeGapFeedbackRecord(
                 FEEDBACK_ID, "member", "gap-key", "a".repeat(64), 8000000000000000058L, "atlas",
                 8000000000000000059L, "main", QUESTION_ID, RUN_ID, KnowledgeGapType.NO_ANSWER, status,
-                "服务端真实问题", "需要补充", AgentRun.ResultType.REFUSAL,
-                AgentRun.RefusalReason.INSUFFICIENT_EVIDENCE, null, NOW, NOW, "member",
+                "服务端真实问题", "需要补充", QaQuestion.ResultType.REFUSAL,
+                QaQuestion.RefusalReason.INSUFFICIENT_EVIDENCE, null, NOW, NOW, "member",
                 status == KnowledgeGapStatus.OPEN ? "member" : "admin"), List.of(8000000000000000060L));
     }
 

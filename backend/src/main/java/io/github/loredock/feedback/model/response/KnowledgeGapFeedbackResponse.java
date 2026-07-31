@@ -1,6 +1,6 @@
 package io.github.loredock.feedback.model.response;
 
-import io.github.loredock.agent.api.AgentRun;
+import io.github.loredock.qa.api.QaQuestion;
 import io.github.loredock.feedback.model.enums.KnowledgeGapStatus;
 import io.github.loredock.feedback.model.enums.KnowledgeGapType;
 import java.time.Instant;
@@ -17,9 +17,9 @@ public record KnowledgeGapFeedbackResponse(
         String note,
         Long questionId,
         Long runId,
-        AgentRun.ResultType resultType,
-        AgentRun.RefusalReason refusalReason,
-        AgentRun.ErrorCode errorCode,
+        QaQuestion.ResultType resultType,
+        QaQuestion.RefusalReason refusalReason,
+        QaQuestion.ErrorCode errorCode,
         List<Long> citationEvidenceIds,
         Instant createdAt,
         Instant updatedAt,

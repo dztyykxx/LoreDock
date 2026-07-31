@@ -32,20 +32,17 @@ import io.github.loredock.platform.web.PlatformConfiguration;
 import io.github.loredock.platform.web.SensitiveDataRedactor;
 import io.github.loredock.project.exception.BranchNotFoundException;
 import io.github.loredock.project.exception.ProjectNotFoundException;
-import io.github.loredock.qa.exception.WebQaQuestionNotFoundException;
-import io.github.loredock.qa.model.command.CreateWebQaQuestionCommand;
-import io.github.loredock.qa.model.command.QueryWebQaDetailCommand;
-import io.github.loredock.qa.model.command.QueryWebQaHistoryCommand;
+import io.github.loredock.qa.api.QaQuestion;
+import io.github.loredock.qa.api.QaQuestionNotFoundException;
+import io.github.loredock.qa.api.QaQuestionPage;
+import io.github.loredock.qa.api.QaService;
 import io.github.loredock.qa.model.enums.WebQaMessageRole;
 import io.github.loredock.qa.model.enums.WebQaTrustState;
 import io.github.loredock.qa.model.request.WebQaSseStreamRequest;
 import io.github.loredock.qa.model.result.WebQaMessageRecord;
-import io.github.loredock.qa.model.result.WebQaQuestionPage;
 import io.github.loredock.qa.model.result.WebQaQuestionRecord;
 import io.github.loredock.qa.model.result.WebQaStreamTarget;
 import io.github.loredock.qa.model.snapshot.WebQaQuestionSnapshot;
-import io.github.loredock.qa.service.CreateWebQaQuestionService;
-import io.github.loredock.qa.service.QueryWebQaQuestionService;
 import io.github.loredock.qa.service.WebQaSseService;
 import jakarta.servlet.http.Cookie;
 import java.time.Instant;
@@ -98,8 +95,7 @@ class WebQaWebContractTest {
     private static final Instant NOW = Instant.parse("2026-07-30T08:00:00Z");
 
     @Autowired private MockMvc mockMvc;
-    @MockitoBean private CreateWebQaQuestionService creates;
-    @MockitoBean private QueryWebQaQuestionService queries;
+    @MockitoBean private QaService questions;
     @MockitoBean private AgentService agents;
     @MockitoBean private WebQaSseService streams;
 
@@ -108,7 +104,7 @@ class WebQaWebContractTest {
         SaTokenDaoDefaultImpl sessions = new SaTokenDaoDefaultImpl();
         sessions.init();
         SaManager.setSaTokenDao(sessions);
-        reset(creates, queries, agents, streams);
+        reset(questions, agents, streams);
     }
 
     /**
@@ -116,7 +112,7 @@ class WebQaWebContractTest {
      */
     @Test
     void authenticatedRolesCreateAcceptedQuestionWithServerIdentity() throws Exception {
-        when(creates.create(any())).thenReturn(snapshot());
+        when(questions.create(any())).thenReturn(snapshot());
         when(agents.lastEventSequence(RUN_ID, "member")).thenReturn(1L);
         when(agents.lastEventSequence(RUN_ID, "admin")).thenReturn(1L);
 
@@ -134,7 +130,7 @@ class WebQaWebContractTest {
                 .andExpect(jsonPath("$.trustState").value("IN_PROGRESS"))
                 .andExpect(jsonPath("$.lastEventSequence").value(1));
 
-        verify(creates).create(CreateWebQaQuestionCommand.of(
+        verify(questions).create(new QaService.CreateRequest(
                 "member", "MEMBER", "client-key", "atlas", "main", "为什么必须校验引用？"));
 
         mockMvc.perform(post("/api/projects/atlas/qa/questions")
@@ -143,7 +139,7 @@ class WebQaWebContractTest {
                         .content("{\"idempotencyKey\":\"admin-key\",\"question\":\"管理员问题\"}"))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.questionId").value(QUESTION_ID.toString()));
-        verify(creates).create(CreateWebQaQuestionCommand.of(
+        verify(questions).create(new QaService.CreateRequest(
                 "admin", "ADMIN", "admin-key", "atlas", null, "管理员问题"));
         System.out.printf("测试证据：场景=双角色创建问答，questionId=%s，runId=%s，角色=MEMBER+ADMIN，HTTP=202%n",
                 QUESTION_ID, RUN_ID);
@@ -167,7 +163,7 @@ class WebQaWebContractTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
 
-        verify(creates, never()).create(any());
+        verify(questions, never()).create(any());
         System.out.println("测试证据：场景=问答入口认证与校验，匿名=401，空字段=400，创建调用=0");
     }
 
@@ -177,7 +173,7 @@ class WebQaWebContractTest {
     @Test
     void conflictAndHiddenDetailUseStableErrors() throws Exception {
         Cookie member = loginCookie("member");
-        when(creates.create(any())).thenThrow(new AgentRequestException(
+        when(questions.create(any())).thenThrow(new AgentRequestException(
                 AgentRun.ErrorCode.AGENT_RUN_IDEMPOTENCY_CONFLICT));
         mockMvc.perform(post("/api/projects/atlas/qa/questions")
                         .cookie(member).contentType(MediaType.APPLICATION_JSON)
@@ -185,14 +181,14 @@ class WebQaWebContractTest {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value("AGENT_RUN_IDEMPOTENCY_CONFLICT"));
 
-        when(queries.detail(any())).thenThrow(new WebQaQuestionNotFoundException());
+        when(questions.detail(any())).thenThrow(new QaQuestionNotFoundException());
         mockMvc.perform(get("/api/projects/other/qa/questions/{questionId}", QUESTION_ID).cookie(member))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("QA_QUESTION_NOT_FOUND"))
                 .andExpect(content().string(org.hamcrest.Matchers.not(
                         org.hamcrest.Matchers.containsString("atlas"))));
 
-        verify(queries).detail(new QueryWebQaDetailCommand("member", "other", QUESTION_ID));
+        verify(questions).detail(new QaService.DetailQuery("member", "other", QUESTION_ID));
         System.out.println("测试证据：场景=问答稳定错误，同键异参=409，跨项目猜测=404");
     }
 
@@ -202,15 +198,15 @@ class WebQaWebContractTest {
     @Test
     void invalidCreationScopePreservesProjectAndBranchNotFound() throws Exception {
         Cookie member = loginCookie("member");
-        when(creates.create(any())).thenThrow(new ProjectNotFoundException());
+        when(questions.create(any())).thenThrow(new ProjectNotFoundException());
         mockMvc.perform(post("/api/projects/missing/qa/questions")
                         .cookie(member).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"idempotencyKey\":\"project-key\",\"question\":\"问题\"}"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("PROJECT_NOT_FOUND"));
 
-        reset(creates);
-        when(creates.create(any())).thenThrow(new BranchNotFoundException());
+        reset(questions);
+        when(questions.create(any())).thenThrow(new BranchNotFoundException());
         mockMvc.perform(post("/api/projects/atlas/qa/questions")
                         .cookie(member).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"idempotencyKey\":\"branch-key\",\"branch\":\"missing\","
@@ -225,9 +221,9 @@ class WebQaWebContractTest {
      */
     @Test
     void historyAndDetailExcludeInternalFields() throws Exception {
-        WebQaQuestionSnapshot snapshot = snapshot();
-        when(queries.history(any())).thenReturn(new WebQaQuestionPage(List.of(snapshot), "next-safe-cursor"));
-        when(queries.detail(any())).thenReturn(snapshot);
+        QaQuestion snapshot = snapshot();
+        when(questions.history(any())).thenReturn(new QaQuestionPage(List.of(snapshot), "next-safe-cursor"));
+        when(questions.detail(any())).thenReturn(snapshot);
         when(agents.lastEventSequence(RUN_ID, "member")).thenReturn(7L);
         Cookie member = loginCookie("member");
 
@@ -247,8 +243,8 @@ class WebQaWebContractTest {
         assertThat(json).doesNotContain(
                 "operatorId", "idempotencyKey", "requestHash", "knowledgeGenerationId",
                 "versions", "objectKey", "/srv/loredock");
-        verify(queries).history(new QueryWebQaHistoryCommand("member", "atlas", "opaque-cursor", 25));
-        verify(queries).detail(new QueryWebQaDetailCommand("member", "atlas", QUESTION_ID));
+        verify(questions).history(new QaService.HistoryQuery("member", "atlas", "opaque-cursor", 25));
+        verify(questions).detail(new QaService.DetailQuery("member", "atlas", QUESTION_ID));
         System.out.printf("测试证据：场景=问答安全响应，questionId=%s，事件末序号=7，内部字段泄露=false%n",
                 QUESTION_ID);
     }
@@ -258,9 +254,8 @@ class WebQaWebContractTest {
      */
     @Test
     void sseEndpointAuthorizesQuestionAndUsesLastEventId() throws Exception {
-        WebQaQuestionSnapshot snapshot = snapshot();
-        when(queries.authorize(any())).thenReturn(
-                new WebQaStreamTarget(snapshot.question(), snapshot.run()));
+        QaQuestion snapshot = snapshot();
+        when(questions.detail(any())).thenReturn(snapshot);
         when(streams.open(any())).thenReturn(new SseEmitter(1_000L));
 
         mockMvc.perform(get("/api/projects/atlas/qa/questions/{questionId}/events", QUESTION_ID)
@@ -270,7 +265,7 @@ class WebQaWebContractTest {
                 .andExpect(status().isOk())
                 .andExpect(request().asyncStarted());
 
-        verify(queries).authorize(new QueryWebQaDetailCommand("member", "atlas", QUESTION_ID));
+        verify(questions).detail(new QaService.DetailQuery("member", "atlas", QUESTION_ID));
         var request = org.mockito.ArgumentCaptor.forClass(WebQaSseStreamRequest.class);
         verify(streams).open(request.capture());
         assertThat(request.getValue().runId()).isEqualTo(RUN_ID);
@@ -293,7 +288,7 @@ class WebQaWebContractTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
 
-        verify(queries, never()).authorize(any());
+        verify(questions, never()).detail(any());
         verify(streams, never()).open(any());
         System.out.println("测试证据：场景=SSE游标冲突，Last-Event-ID=8，afterSequence=7，HTTP=400，后台任务=0");
     }
@@ -309,7 +304,7 @@ class WebQaWebContractTest {
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
                 .andExpect(jsonPath("$.code").value("AUTH_LOGIN_REQUIRED"));
 
-        when(queries.authorize(any())).thenThrow(new WebQaQuestionNotFoundException());
+        when(questions.detail(any())).thenThrow(new QaQuestionNotFoundException());
         mockMvc.perform(get("/api/projects/atlas/qa/questions/{questionId}/events", QUESTION_ID)
                         .accept(MediaType.TEXT_EVENT_STREAM)
                         .cookie(loginCookie("member")))
@@ -330,7 +325,7 @@ class WebQaWebContractTest {
         return result.getResponse().getCookie("loredock_session");
     }
 
-    private WebQaQuestionSnapshot snapshot() {
+    private QaQuestion snapshot() {
         WebQaQuestionRecord question = new WebQaQuestionRecord(
                 QUESTION_ID, "member", "client-key", "a".repeat(64), PROJECT_ID, "atlas",
                 BRANCH_ID, "main", RUN_ID, NOW);
@@ -346,7 +341,8 @@ class WebQaWebContractTest {
         WebQaMessageRecord message = new WebQaMessageRecord(
                 8000000000000000162L, QUESTION_ID, WebQaMessageRole.USER, "为什么必须校验引用？",
                 null, null, NOW);
-        return new WebQaQuestionSnapshot(question, run, WebQaTrustState.IN_PROGRESS, List.of(message));
+        return io.github.loredock.testsupport.QaApiFixtures.question(
+                new WebQaQuestionSnapshot(question, run, WebQaTrustState.IN_PROGRESS, List.of(message)));
     }
 
     @TestConfiguration(proxyBeanMethods = false)

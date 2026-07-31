@@ -13,9 +13,10 @@ import io.github.loredock.agent.model.snapshot.AgentVersionSnapshot;
 import io.github.loredock.agent.service.AgentRunService;
 import io.github.loredock.project.api.ProjectScope;
 import io.github.loredock.project.api.ProjectService;
-import io.github.loredock.qa.model.command.CreateWebQaQuestionCommand;
-import io.github.loredock.qa.model.snapshot.WebQaQuestionSnapshot;
-import io.github.loredock.qa.service.CreateWebQaQuestionService;
+import io.github.loredock.qa.api.QaQuestion;
+import io.github.loredock.qa.api.QaService;
+import io.github.loredock.qa.service.DefaultWebQaAssistantMessageMaterializer;
+import io.github.loredock.qa.service.QaServiceImpl;
 import io.github.loredock.qa.service.WebQaMessageDataService;
 import io.github.loredock.qa.service.WebQaQuestionDataService;
 import java.nio.charset.StandardCharsets;
@@ -95,9 +96,9 @@ class WebQaPersistenceIT {
      */
     @Test
     void creationCommitsQuestionMessageRunAndFirstEventAtomically() {
-        CreateWebQaQuestionService service = service(startUseCase(null, null), messages);
+        QaServiceImpl service = service(startUseCase(null, null), messages);
 
-        WebQaQuestionSnapshot created = transaction().execute(status -> service.create(command("atomic-key")));
+        QaQuestion created = transaction().execute(status -> service.create(command("atomic-key")));
 
         assertThat(created).isNotNull();
         assertThat(count("web_qa_question")).isEqualTo(1);
@@ -105,7 +106,7 @@ class WebQaPersistenceIT {
         assertThat(count("agent_run")).isEqualTo(1);
         assertThat(count("agent_run_event")).isEqualTo(1);
         System.out.printf("测试证据：场景=问答原子提交，questionId=%s，runId=%s，问答/消息/运行/首事件=1/1/1/1%n",
-                created.question().id(), created.run().runId());
+                created.questionId(), created.runId());
     }
 
     /**
@@ -115,9 +116,9 @@ class WebQaPersistenceIT {
     void concurrentIdenticalCreationReturnsOneQuestionAndRun() throws Exception {
         CountDownLatch ready = new CountDownLatch(2);
         CountDownLatch start = new CountDownLatch(1);
-        CreateWebQaQuestionService service = service(startUseCase(ready, start), messages);
-        WebQaQuestionSnapshot first;
-        WebQaQuestionSnapshot second;
+        QaServiceImpl service = service(startUseCase(ready, start), messages);
+        QaQuestion first;
+        QaQuestion second;
         try (var executor = Executors.newFixedThreadPool(2)) {
             var firstFuture = executor.submit(() -> transaction().execute(status -> service.create(command("same-key"))));
             var secondFuture = executor.submit(() -> transaction().execute(status -> service.create(command("same-key"))));
@@ -127,14 +128,14 @@ class WebQaPersistenceIT {
             second = secondFuture.get();
         }
 
-        assertThat(second.question().id()).isEqualTo(first.question().id());
-        assertThat(second.run().runId()).isEqualTo(first.run().runId());
+        assertThat(second.questionId()).isEqualTo(first.questionId());
+        assertThat(second.runId()).isEqualTo(first.runId());
         assertThat(count("web_qa_question")).isEqualTo(1);
         assertThat(count("web_qa_message")).isEqualTo(1);
         assertThat(count("agent_run")).isEqualTo(1);
         assertThat(count("agent_run_event")).isEqualTo(1);
         System.out.printf("测试证据：场景=并发问答幂等，questionId=%s，runId=%s，数据库行=1/1/1/1%n",
-                first.question().id(), first.run().runId());
+                first.questionId(), first.runId());
     }
 
     /**
@@ -145,7 +146,7 @@ class WebQaPersistenceIT {
         WebQaMessageDataService failingMessages = mock(WebQaMessageDataService.class);
         when(failingMessages.insertIfAbsent(any())).thenThrow(
                 new IllegalStateException("simulated message persistence failure"));
-        CreateWebQaQuestionService service = service(startUseCase(null, null), failingMessages);
+        QaServiceImpl service = service(startUseCase(null, null), failingMessages);
 
         assertThatThrownBy(() -> transaction().execute(status -> service.create(command("rollback-key"))))
                 .isInstanceOf(IllegalStateException.class);
@@ -157,15 +158,17 @@ class WebQaPersistenceIT {
         System.out.println("测试证据：场景=消息失败回滚，问答/消息/运行/首事件=0/0/0/0");
     }
 
-    private CreateWebQaQuestionService service(
+    private QaServiceImpl service(
             AgentService agents,
             WebQaMessageDataService messageRepository
     ) {
         when(agents.get(any(), any())).thenAnswer(invocation -> runs.findById(invocation.getArgument(0))
                 .filter(value -> value.operatorId().equals(invocation.getArgument(1)))
                 .map(io.github.loredock.testsupport.AgentApiFixtures::run).orElseThrow());
-        return new CreateWebQaQuestionService(
-                projects, agents, questions, messageRepository, Clock.fixed(NOW, java.time.ZoneOffset.UTC));
+        return new QaServiceImpl(
+                projects, agents, questions, messageRepository,
+                mock(DefaultWebQaAssistantMessageMaterializer.class),
+                Clock.fixed(NOW, java.time.ZoneOffset.UTC));
     }
 
     private AgentService startUseCase(CountDownLatch ready, CountDownLatch start) {
@@ -206,8 +209,8 @@ class WebQaPersistenceIT {
         return new TransactionTemplate(transactionManager);
     }
 
-    private CreateWebQaQuestionCommand command(String key) {
-        return CreateWebQaQuestionCommand.of("member", "MEMBER", key, "atlas", null, "为什么这样设计？");
+    private QaService.CreateRequest command(String key) {
+        return new QaService.CreateRequest("member", "MEMBER", key, "atlas", null, "为什么这样设计？");
     }
 
     private int count(String table) {

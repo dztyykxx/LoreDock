@@ -3,11 +3,11 @@ package io.github.loredock.qa.service;
 import io.github.loredock.agent.api.AgentEvent;
 import io.github.loredock.agent.api.AgentService;
 import io.github.loredock.auth.service.SessionService;
+import io.github.loredock.qa.api.QaQuestionNotFoundException;
+import io.github.loredock.qa.api.QaService;
 import io.github.loredock.qa.config.WebQaSseProperties;
 import io.github.loredock.qa.converter.WebQaSseEventMapper;
 import io.github.loredock.qa.exception.WebQaSseCapacityException;
-import io.github.loredock.qa.exception.WebQaQuestionNotFoundException;
-import io.github.loredock.qa.model.command.QueryWebQaDetailCommand;
 import io.github.loredock.qa.model.request.WebQaSseStreamRequest;
 import io.github.loredock.qa.model.result.WebQaStreamTarget;
 import io.github.loredock.qa.scheduler.BoundedWebQaSseExecutor;
@@ -30,7 +30,7 @@ public class WebQaSseService {
     private final WebQaSseProperties properties;
     private final BoundedWebQaSseExecutor executor;
     private final Clock timeProvider;
-    private final QueryWebQaQuestionService access;
+    private final QaServiceImpl access;
     private final AgentService agents;
     private final SessionService sessions;
     private final DefaultWebQaAssistantMessageMaterializer materializer;
@@ -48,7 +48,7 @@ public class WebQaSseService {
             WebQaSseProperties properties,
             BoundedWebQaSseExecutor executor,
             Clock timeProvider,
-            QueryWebQaQuestionService access,
+            QaServiceImpl access,
             AgentService agents,
             SessionService sessions,
             DefaultWebQaAssistantMessageMaterializer materializer
@@ -154,7 +154,7 @@ public class WebQaSseService {
             return null;
         }
         try {
-            WebQaStreamTarget target = access.authorize(new QueryWebQaDetailCommand(
+            WebQaStreamTarget target = access.authorizeInternal(new QaService.DetailQuery(
                     request.operatorId(), request.projectIdentifier(), request.questionId()));
             if (!request.runId().equals(target.run().runId())
                     || !request.runId().equals(target.question().runId())) {
@@ -162,7 +162,7 @@ public class WebQaSseService {
                 return null;
             }
             return target;
-        } catch (WebQaQuestionNotFoundException exception) {
+        } catch (QaQuestionNotFoundException exception) {
             sink.complete();
             return null;
         }

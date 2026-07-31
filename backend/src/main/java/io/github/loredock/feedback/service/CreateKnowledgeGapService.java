@@ -1,6 +1,5 @@
 package io.github.loredock.feedback.service;
 
-import io.github.loredock.agent.api.AgentRun;
 import io.github.loredock.feedback.exception.KnowledgeGapIdempotencyConflictException;
 import io.github.loredock.feedback.model.command.CreateKnowledgeGapCommand;
 import io.github.loredock.feedback.model.enums.KnowledgeGapStatus;
@@ -9,12 +8,9 @@ import io.github.loredock.feedback.model.result.KnowledgeGapFeedbackRecord;
 import io.github.loredock.feedback.model.snapshot.KnowledgeGapFeedbackSnapshot;
 import io.github.loredock.project.api.ProjectScope;
 import io.github.loredock.project.api.ProjectService;
-import io.github.loredock.qa.exception.WebQaQuestionNotFoundException;
-import io.github.loredock.qa.model.command.QueryWebQaDetailCommand;
-import io.github.loredock.qa.model.enums.WebQaMessageRole;
-import io.github.loredock.qa.model.result.WebQaMessageRecord;
-import io.github.loredock.qa.model.snapshot.WebQaQuestionSnapshot;
-import io.github.loredock.qa.service.QueryWebQaQuestionService;
+import io.github.loredock.qa.api.QaQuestion;
+import io.github.loredock.qa.api.QaQuestionNotFoundException;
+import io.github.loredock.qa.api.QaService;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Clock;
@@ -34,7 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Slf4j
 public class CreateKnowledgeGapService {
     private final ProjectService projects;
-    private final QueryWebQaQuestionService questions;
+    private final QaService questions;
     private final KnowledgeGapDataService feedback;
     private final Clock timeProvider;
 
@@ -46,7 +42,7 @@ public class CreateKnowledgeGapService {
      */
     public CreateKnowledgeGapService(
             ProjectService projects,
-            QueryWebQaQuestionService questions,
+            QaService questions,
             KnowledgeGapDataService feedback,
             Clock timeProvider
     ) {
@@ -116,18 +112,18 @@ public class CreateKnowledgeGapService {
             CreateKnowledgeGapCommand command,
             ProjectScope project
     ) {
-        WebQaQuestionSnapshot snapshot = questions.detail(new QueryWebQaDetailCommand(
+        QaQuestion snapshot = questions.detail(new QaService.DetailQuery(
                 command.operatorId(), project.projectIdentifier(), command.questionId()));
-        if (!snapshot.question().projectId().equals(project.projectId())
-                || !snapshot.question().branchId().equals(project.branchId())
-                || !snapshot.question().branch().equals(project.branchName())) {
-            throw new WebQaQuestionNotFoundException();
+        if (!snapshot.scope().projectId().equals(project.projectId())
+                || !snapshot.scope().branchId().equals(project.branchId())
+                || !snapshot.scope().branch().equals(project.branchName())) {
+            throw new QaQuestionNotFoundException();
         }
-        WebQaMessageRecord user = snapshot.messages().stream()
-                .filter(message -> message.role() == WebQaMessageRole.USER)
+        QaQuestion.Message user = snapshot.messages().stream()
+                .filter(message -> message.role() == QaQuestion.MessageRole.USER)
                 .findFirst().orElseThrow(() -> new IllegalStateException("web QA user message is missing"));
         return new LinkedFacts(
-                snapshot.question().id(), snapshot.run().runId(), user.content(), snapshot.run());
+                snapshot.questionId(), snapshot.runId(), user.content(), snapshot);
     }
 
     private KnowledgeGapFeedbackSnapshot reuse(KnowledgeGapFeedbackRecord existing, String requestHash) {
@@ -175,7 +171,7 @@ public class CreateKnowledgeGapService {
         return current == null || current.isBlank() ? "background" : current;
     }
 
-    private record LinkedFacts(Long questionId, Long runId, String question, AgentRun run) {
+    private record LinkedFacts(Long questionId, Long runId, String question, QaQuestion run) {
         private static LinkedFacts manual(String question) {
             return new LinkedFacts(null, null, question, null);
         }

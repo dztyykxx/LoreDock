@@ -32,10 +32,10 @@
 
 ## 5. qa 模块契约
 
-- [ ] 5.1 定义 `qa.api.QaService`：问答创建、历史、详情与必要关联事实（供 Feedback 使用），保持已成型 HTTP 契约。
-- [ ] 5.2 为契约编写失败测试：创建/历史/详情/终态对外行为不变，`failureMessage` 与引用语义保留。
-- [ ] 5.3 使 `CreateWebQaQuestionService`/`QueryWebQaQuestionService` 实现契约，迁移 feedback 的直接引用。
-- [ ] 5.4 使用 `AgentService` 收口问答编排，保持 SSE 与详情 HTTP 契约兼容；运行契约、SSE 持久化与架构测试。
+- [x] 5.1 定义 `qa.api.QaService`：问答创建、历史、详情与必要关联事实（供 Feedback 使用），保持已成型 HTTP 契约。
+- [x] 5.2 为契约编写失败测试：创建/历史/详情/终态对外行为不变，`failureMessage` 与引用语义保留。
+- [x] 5.3 使 `CreateWebQaQuestionService`/`QueryWebQaQuestionService` 实现契约，迁移 feedback 的直接引用。
+- [x] 5.4 使用 `AgentService` 收口问答编排，保持 SSE 与详情 HTTP 契约兼容；运行契约、SSE 持久化与架构测试。
 
 ## 6. job / storage / auth 契约
 

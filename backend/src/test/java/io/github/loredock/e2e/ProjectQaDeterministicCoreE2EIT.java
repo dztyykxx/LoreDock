@@ -30,12 +30,8 @@ import io.github.loredock.knowledge.model.result.KnowledgeEmbeddingVector;
 import io.github.loredock.knowledge.service.KnowledgeDocumentDataService;
 import io.github.loredock.knowledge.service.KnowledgeIndexRebuildService;
 import io.github.loredock.knowledge.service.search.KnowledgeEmbeddingService;
-import io.github.loredock.qa.model.command.CreateWebQaQuestionCommand;
-import io.github.loredock.qa.model.command.QueryWebQaDetailCommand;
-import io.github.loredock.qa.model.enums.WebQaMessageRole;
-import io.github.loredock.qa.model.snapshot.WebQaQuestionSnapshot;
-import io.github.loredock.qa.service.CreateWebQaQuestionService;
-import io.github.loredock.qa.service.QueryWebQaQuestionService;
+import io.github.loredock.qa.api.QaQuestion;
+import io.github.loredock.qa.api.QaService;
 import io.github.loredock.support.TestIds;
 import java.sql.Timestamp;
 import java.time.Duration;
@@ -94,8 +90,7 @@ class ProjectQaDeterministicCoreE2EIT {
             .withUsername("loredock")
             .withPassword("loredock_test");
 
-    @Autowired private CreateWebQaQuestionService creation;
-    @Autowired private QueryWebQaQuestionService questionQueries;
+    @Autowired private QaService questions;
     @Autowired private KnowledgeDocumentDataService documents;
     @Autowired private KnowledgeIndexRebuildService rebuilder;
     @Autowired private JdbcTemplate jdbcTemplate;
@@ -154,26 +149,26 @@ class ProjectQaDeterministicCoreE2EIT {
         rebuilder.rebuild(jobId, noOpProgress());
         scriptedModel.scriptToolCall("knowledge_search", "{\"query\":\"范围隔离\",\"limit\":3}");
 
-        WebQaQuestionSnapshot created = creation.create(CreateWebQaQuestionCommand.of(
+        QaQuestion created = questions.create(new QaService.CreateRequest(
                 "member", "MEMBER", "e2e-answer-key", "atlas", "main", "范围隔离规则是什么？"));
-        WebQaQuestionSnapshot detail = awaitTerminal(created.question().id());
+        QaQuestion detail = awaitTerminal(created.questionId());
 
-        assertThat(detail.run().status()).isEqualTo(io.github.loredock.agent.api.AgentRun.Status.COMPLETED);
-        assertThat(detail.run().resultType()).isEqualTo(io.github.loredock.agent.api.AgentRun.ResultType.ANSWER);
-        assertThat(detail.run().citations()).hasSize(1);
-        assertThat(detail.run().citations().get(0).documentId()).isEqualTo(published.id());
-        assertThat(detail.run().citations().get(0).projectIdentifier()).isEqualTo("atlas");
+        assertThat(detail.status()).isEqualTo(QaQuestion.Status.COMPLETED);
+        assertThat(detail.resultType()).isEqualTo(QaQuestion.ResultType.ANSWER);
+        assertThat(detail.citations()).hasSize(1);
+        assertThat(detail.citations().get(0).documentId()).isEqualTo(published.id());
+        assertThat(detail.citations().get(0).projectIdentifier()).isEqualTo("atlas");
         assertThat(detail.messages()).extracting(message -> message.role())
-                .containsExactly(WebQaMessageRole.USER, WebQaMessageRole.ASSISTANT);
+                .containsExactly(QaQuestion.MessageRole.USER, QaQuestion.MessageRole.ASSISTANT);
         assertThat(detail.messages().get(1).content()).contains("范围隔离规则");
         assertThat(detail.messages().get(1).resultType())
-                .isEqualTo(io.github.loredock.agent.api.AgentRun.ResultType.ANSWER);
+                .isEqualTo(QaQuestion.ResultType.ANSWER);
         assertThat(scriptedModel.calls()).isGreaterThanOrEqualTo(2);
         System.out.printf("测试证据：场景=确定性核心E2E带引用回答，questionId=%d，runId=%d，终态=%s，"
                         + "结果=%s，引用数=%d，证据ID=%d，文档ID=%d，消息数=%d，模型调用=%d，耗时毫秒=%d%n",
-                detail.question().id(), detail.run().runId(), detail.run().status(), detail.run().resultType(),
-                detail.run().citations().size(), detail.run().citations().get(0).evidenceId(),
-                detail.run().citations().get(0).documentId(), detail.messages().size(), scriptedModel.calls(),
+                detail.questionId(), detail.runId(), detail.status(), detail.resultType(),
+                detail.citations().size(), detail.citations().get(0).evidenceId(),
+                detail.citations().get(0).documentId(), detail.messages().size(), scriptedModel.calls(),
                 Duration.ofNanos(System.nanoTime() - startedNanos).toMillis());
     }
 
@@ -183,38 +178,37 @@ class ProjectQaDeterministicCoreE2EIT {
     @Test
     void refusalWhenNoIndexedKnowledgeExists() throws Exception {
         long startedNanos = System.nanoTime();
-        WebQaQuestionSnapshot created = creation.create(CreateWebQaQuestionCommand.of(
+        QaQuestion created = questions.create(new QaService.CreateRequest(
                 "member", "MEMBER", "e2e-refusal-key", "atlas", "main", "这个项目有部署指南吗？"));
-        WebQaQuestionSnapshot detail = awaitTerminal(created.question().id());
+        QaQuestion detail = awaitTerminal(created.questionId());
 
-        assertThat(detail.run().status()).isEqualTo(io.github.loredock.agent.api.AgentRun.Status.COMPLETED);
-        assertThat(detail.run().resultType()).isEqualTo(io.github.loredock.agent.api.AgentRun.ResultType.REFUSAL);
-        assertThat(detail.run().refusalReason())
-                .isEqualTo(io.github.loredock.agent.api.AgentRun.RefusalReason.INSUFFICIENT_EVIDENCE);
-        assertThat(detail.run().citations()).isEmpty();
-        assertThat(detail.messages().get(1).role()).isEqualTo(WebQaMessageRole.ASSISTANT);
+        assertThat(detail.status()).isEqualTo(QaQuestion.Status.COMPLETED);
+        assertThat(detail.resultType()).isEqualTo(QaQuestion.ResultType.REFUSAL);
+        assertThat(detail.refusalReason()).isEqualTo(QaQuestion.RefusalReason.INSUFFICIENT_EVIDENCE);
+        assertThat(detail.citations()).isEmpty();
+        assertThat(detail.messages().get(1).role()).isEqualTo(QaQuestion.MessageRole.ASSISTANT);
         assertThat(detail.messages().get(1).content()).isEqualTo("当前知识库没有足够依据");
         System.out.printf("测试证据：场景=确定性核心E2E明确拒答，questionId=%d，runId=%d，终态=%s，"
                         + "结果=%s，原因=%s，引用数=%d，消息数=%d，模型调用=%d，耗时毫秒=%d%n",
-                detail.question().id(), detail.run().runId(), detail.run().status(), detail.run().resultType(),
-                detail.run().refusalReason(), detail.run().citations().size(), detail.messages().size(),
+                detail.questionId(), detail.runId(), detail.status(), detail.resultType(),
+                detail.refusalReason(), detail.citations().size(), detail.messages().size(),
                 scriptedModel.calls(), Duration.ofNanos(System.nanoTime() - startedNanos).toMillis());
     }
 
-    private WebQaQuestionSnapshot awaitTerminal(Long questionId) throws Exception {
-        WebQaQuestionSnapshot snapshot = null;
+    private QaQuestion awaitTerminal(Long questionId) throws Exception {
+        QaQuestion snapshot = null;
         long deadline = System.nanoTime() + Duration.ofSeconds(30).toNanos();
         while (System.nanoTime() < deadline) {
-            snapshot = questionQueries.detail(new QueryWebQaDetailCommand("member", "atlas", questionId));
-            var status = snapshot.run().status();
-            if (status == io.github.loredock.agent.api.AgentRun.Status.COMPLETED
-                    || status == io.github.loredock.agent.api.AgentRun.Status.FAILED
-                    || status == io.github.loredock.agent.api.AgentRun.Status.TERMINATED) {
+            snapshot = questions.detail(new QaService.DetailQuery("member", "atlas", questionId));
+            var status = snapshot.status();
+            if (status == QaQuestion.Status.COMPLETED
+                    || status == QaQuestion.Status.FAILED
+                    || status == QaQuestion.Status.TERMINATED) {
                 return snapshot;
             }
             Thread.sleep(100);
         }
-        throw new AssertionError("项目问答未在超时内达到终态：" + snapshot.run().status());
+        throw new AssertionError("项目问答未在超时内达到终态：" + snapshot.status());
     }
 
     private KnowledgeDocument publishDocument(String title, String body) {

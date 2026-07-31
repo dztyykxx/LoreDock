@@ -45,7 +45,7 @@ class WebQaSseServiceTest {
         AgentRunEventMapper mapper = mock(AgentRunEventMapper.class);
         AgentEventService eventStream = new AgentEventService(mapper, new ObjectMapper());
         AgentService agents = mock(AgentService.class);
-        QueryWebQaQuestionService access = mock(QueryWebQaQuestionService.class);
+        QaServiceImpl access = mock(QaServiceImpl.class);
         SessionService sessions = mock(SessionService.class);
         SessionService.SessionLease lease = mock(SessionService.SessionLease.class);
         DefaultWebQaAssistantMessageMaterializer materializer = mock(DefaultWebQaAssistantMessageMaterializer.class);
@@ -54,7 +54,8 @@ class WebQaSseServiceTest {
             waiting.countDown();
             return true;
         });
-        when(access.authorize(any())).thenReturn(target(AgentRun.Status.RUNNING), target(AgentRun.Status.COMPLETED));
+        when(access.authorizeInternal(any())).thenReturn(
+                target(AgentRun.Status.RUNNING), target(AgentRun.Status.COMPLETED));
         when(agents.listEvents(any(), any(), any(Long.class), any(Integer.class))).thenReturn(List.of());
         when(agents.lastEventSequence(RUN_ID, "member")).thenReturn(1L);
         when(agents.subscribe(RUN_ID)).thenAnswer(ignored -> subscription(eventStream));
@@ -87,7 +88,7 @@ class WebQaSseServiceTest {
     void invalidSessionClosesBeforeReadingEvents() {
         AgentService agents = mock(AgentService.class);
         AgentEventService eventStream = new AgentEventService(mock(AgentRunEventMapper.class), new ObjectMapper());
-        QueryWebQaQuestionService access = mock(QueryWebQaQuestionService.class);
+        QaServiceImpl access = mock(QaServiceImpl.class);
         SessionService sessions = mock(SessionService.class);
         SessionService.SessionLease lease = mock(SessionService.SessionLease.class);
         when(sessions.isValid(lease, "member")).thenReturn(false);
@@ -99,7 +100,7 @@ class WebQaSseServiceTest {
 
         assertThat(sink.closed).isTrue();
         assertThat(sink.events).isEmpty();
-        verify(access, never()).authorize(any());
+        verify(access, never()).authorizeInternal(any());
         verify(agents, never()).listEvents(any(), any(), any(Long.class), any(Integer.class));
         System.out.println("测试证据：场景=SSE会话失效，会话复核=false，读取事件=0，发送事件=0");
     }
@@ -107,7 +108,7 @@ class WebQaSseServiceTest {
     private WebQaSseService service(
             AgentService agents,
             SessionService sessions,
-            QueryWebQaQuestionService access,
+            QaServiceImpl access,
             DefaultWebQaAssistantMessageMaterializer materializer
     ) {
         return new WebQaSseService(

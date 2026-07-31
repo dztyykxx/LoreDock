@@ -4,14 +4,10 @@ import io.github.loredock.agent.api.AgentService;
 import io.github.loredock.auth.model.AuthenticatedActor;
 import io.github.loredock.auth.service.SessionService;
 import io.github.loredock.qa.converter.WebQaHttpMapper;
-import io.github.loredock.qa.model.command.CreateWebQaQuestionCommand;
-import io.github.loredock.qa.model.command.QueryWebQaDetailCommand;
-import io.github.loredock.qa.model.command.QueryWebQaHistoryCommand;
+import io.github.loredock.qa.api.QaService;
 import io.github.loredock.qa.model.request.CreateWebQaQuestionRequest;
 import io.github.loredock.qa.model.response.WebQaQuestionPageResponse;
 import io.github.loredock.qa.model.response.WebQaQuestionResponse;
-import io.github.loredock.qa.service.CreateWebQaQuestionService;
-import io.github.loredock.qa.service.QueryWebQaQuestionService;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -26,25 +22,21 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/projects/{identifier}/qa/questions")
 public class WebQaController {
-    private final CreateWebQaQuestionService creates;
-    private final QueryWebQaQuestionService queries;
+    private final QaService questions;
     private final AgentService agents;
     private final SessionService sessions;
 
     /**
-     * @param creates 事务性问答创建用例
-     * @param queries 范围约束历史与详情用例
+     * @param questions 问答创建、历史与详情契约
      * @param agents 已授权的 Agent 运行与事件查询契约
      * @param sessions 当前认证身份
      */
     public WebQaController(
-            CreateWebQaQuestionService creates,
-            QueryWebQaQuestionService queries,
+            QaService questions,
             AgentService agents,
             SessionService sessions
     ) {
-        this.creates = creates;
-        this.queries = queries;
+        this.questions = questions;
         this.agents = agents;
         this.sessions = sessions;
     }
@@ -56,10 +48,10 @@ public class WebQaController {
             @Valid @RequestBody CreateWebQaQuestionRequest request
     ) {
         AuthenticatedActor actor = sessions.currentSession();
-        var snapshot = creates.create(CreateWebQaQuestionCommand.of(
+        var snapshot = questions.create(new QaService.CreateRequest(
                 actor.username(), actor.role().name(), request.idempotencyKey(), identifier,
                 request.branch(), request.question()));
-        long lastSequence = agents.lastEventSequence(snapshot.run().runId(), actor.username());
+        long lastSequence = agents.lastEventSequence(snapshot.runId(), actor.username());
         return ResponseEntity.accepted().body(WebQaHttpMapper.toResponse(snapshot, lastSequence));
     }
 
@@ -71,11 +63,11 @@ public class WebQaController {
             @RequestParam(defaultValue = "20") int limit
     ) {
         AuthenticatedActor actor = sessions.currentSession();
-        var page = queries.history(new QueryWebQaHistoryCommand(
+        var page = questions.history(new QaService.HistoryQuery(
                 actor.username(), identifier, cursor, limit));
         var items = page.items().stream()
                 .map(snapshot -> WebQaHttpMapper.toResponse(snapshot,
-                        agents.lastEventSequence(snapshot.run().runId(), actor.username())))
+                        agents.lastEventSequence(snapshot.runId(), actor.username())))
                 .toList();
         return new WebQaQuestionPageResponse(items, page.nextCursor());
     }
@@ -87,8 +79,8 @@ public class WebQaController {
             @PathVariable Long questionId
     ) {
         AuthenticatedActor actor = sessions.currentSession();
-        var snapshot = queries.detail(new QueryWebQaDetailCommand(actor.username(), identifier, questionId));
-        long lastSequence = agents.lastEventSequence(snapshot.run().runId(), actor.username());
+        var snapshot = questions.detail(new QaService.DetailQuery(actor.username(), identifier, questionId));
+        long lastSequence = agents.lastEventSequence(snapshot.runId(), actor.username());
         return WebQaHttpMapper.toResponse(snapshot, lastSequence);
     }
 }

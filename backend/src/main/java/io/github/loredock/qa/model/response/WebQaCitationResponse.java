@@ -1,6 +1,6 @@
 package io.github.loredock.qa.model.response;
 
-import io.github.loredock.agent.api.AgentRun;
+import io.github.loredock.qa.api.QaQuestion;
 import java.time.Instant;
 
 /**
@@ -8,7 +8,7 @@ import java.time.Instant;
  */
 public record WebQaCitationResponse(
         int order,
-        AgentRun.EvidenceSourceType sourceType,
+        QaQuestion.EvidenceSourceType sourceType,
         String projectIdentifier,
         String branch,
         String commit,

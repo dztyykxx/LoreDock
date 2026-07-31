@@ -25,13 +25,14 @@ class WebQaHttpMapperTest {
      */
     @Test
     void completedRefusalKeepsResultTextWithoutFailureMessage() {
-        WebQaQuestionResponse response = WebQaHttpMapper.toResponse(snapshot(
+        WebQaQuestionResponse response = WebQaHttpMapper.toResponse(
+                io.github.loredock.testsupport.QaApiFixtures.question(snapshot(
                 AgentRun.Status.COMPLETED,
                 AgentRun.ResultType.REFUSAL,
                 "当前知识库没有足够依据",
                 AgentRun.RefusalReason.INSUFFICIENT_EVIDENCE,
                 null,
-                WebQaTrustState.INSUFFICIENT_EVIDENCE), 5);
+                WebQaTrustState.INSUFFICIENT_EVIDENCE)), 5);
 
         assertThat(response.resultText()).isEqualTo("当前知识库没有足够依据");
         assertThat(response.failureMessage()).isNull();
@@ -44,17 +45,19 @@ class WebQaHttpMapperTest {
      */
     @Test
     void terminatedRunReturnsSafeFailureMessageAndDiagnosticCode() {
-        WebQaQuestionResponse response = WebQaHttpMapper.toResponse(snapshot(
+        WebQaQuestionResponse response = WebQaHttpMapper.toResponse(
+                io.github.loredock.testsupport.QaApiFixtures.question(snapshot(
                 AgentRun.Status.TERMINATED,
                 null,
                 null,
                 null,
                 AgentRun.ErrorCode.AGENT_STEP_LIMIT_EXCEEDED,
-                WebQaTrustState.FAILED), 8);
+                WebQaTrustState.FAILED)), 8);
 
         assertThat(response.resultText()).isNull();
         assertThat(response.failureMessage()).contains("达到运行上限").contains("缩小问题范围");
-        assertThat(response.errorCode()).isEqualTo(AgentRun.ErrorCode.AGENT_STEP_LIMIT_EXCEEDED);
+        assertThat(response.errorCode())
+                .isEqualTo(io.github.loredock.qa.api.QaQuestion.ErrorCode.AGENT_STEP_LIMIT_EXCEEDED);
         System.out.printf("测试证据：场景=运行终止，状态=%s，错误码=%s，说明长度=%d%n",
                 response.status(), response.errorCode(), response.failureMessage().length());
     }

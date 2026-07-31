@@ -1,6 +1,6 @@
 package io.github.loredock.qa.model.response;
 
-import io.github.loredock.agent.api.AgentRun;
+import io.github.loredock.qa.api.QaQuestion;
 import io.github.loredock.qa.model.enums.WebQaTrustState;
 import java.time.Instant;
 import java.util.List;
@@ -13,12 +13,12 @@ public record WebQaQuestionResponse(
         Long runId,
         WebQaScopeResponse scope,
         Instant createdAt,
-        AgentRun.Status status,
-        AgentRun.ResultType resultType,
-        WebQaTrustState trustState,
-        AgentRun.AnswerBasis answerBasis,
-        AgentRun.RefusalReason refusalReason,
-        AgentRun.ErrorCode errorCode,
+        QaQuestion.Status status,
+        QaQuestion.ResultType resultType,
+        QaQuestion.TrustState trustState,
+        QaQuestion.AnswerBasis answerBasis,
+        QaQuestion.RefusalReason refusalReason,
+        QaQuestion.ErrorCode errorCode,
         String failureMessage,
         String resultText,
         int stepCount,

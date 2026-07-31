@@ -8,24 +8,22 @@ import static org.mockito.Mockito.when;
 
 import io.github.loredock.agent.api.AgentRun;
 import io.github.loredock.agent.api.AgentService;
+import io.github.loredock.qa.api.QaQuestion;
+import io.github.loredock.qa.api.QaQuestionPage;
+import io.github.loredock.qa.api.QaService;
 import io.github.loredock.project.api.ProjectScope;
 import io.github.loredock.project.api.ProjectService;
 import io.github.loredock.qa.converter.WebQaCursorCodec;
-import io.github.loredock.qa.exception.WebQaQuestionNotFoundException;
-import io.github.loredock.qa.model.command.QueryWebQaDetailCommand;
-import io.github.loredock.qa.model.command.QueryWebQaHistoryCommand;
-import io.github.loredock.qa.model.enums.WebQaTrustState;
-import io.github.loredock.qa.model.result.WebQaQuestionPage;
+import io.github.loredock.qa.api.QaQuestionNotFoundException;
 import io.github.loredock.qa.model.result.WebQaQuestionRecord;
 import io.github.loredock.qa.model.snapshot.WebQaCursor;
-import io.github.loredock.qa.model.snapshot.WebQaQuestionSnapshot;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-class QueryWebQaQuestionServiceTest {
+class QaServiceQueryTest {
     private static final Long PROJECT_ID = 4937811932239626242L;
     private static final Long BRANCH_ID = 4937811932239626243L;
     private static final Instant NOW = Instant.parse("2026-07-30T05:00:00Z");
@@ -34,7 +32,7 @@ class QueryWebQaQuestionServiceTest {
     private WebQaQuestionDataService questions;
     private WebQaMessageDataService messages;
     private DefaultWebQaAssistantMessageMaterializer materializer;
-    private QueryWebQaQuestionService service;
+    private QaServiceImpl service;
 
     @BeforeEach
     void setUp() {
@@ -44,7 +42,7 @@ class QueryWebQaQuestionServiceTest {
         messages = mock(WebQaMessageDataService.class);
         materializer = mock(DefaultWebQaAssistantMessageMaterializer.class);
         when(projects.resolveEnabledScope("atlas", null)).thenReturn(project());
-        service = new QueryWebQaQuestionService(projects, agents, questions, messages, materializer);
+        service = new QaServiceImpl(projects, agents, questions, messages, materializer, java.time.Clock.systemUTC());
     }
 
     /**
@@ -64,15 +62,15 @@ class QueryWebQaQuestionServiceTest {
                 run(invocation.getArgument(0)));
         when(messages.findByQuestionId(any())).thenReturn(List.of());
 
-        WebQaQuestionPage page = service.history(new QueryWebQaHistoryCommand(
+        QaQuestionPage page = service.history(new QaService.HistoryQuery(
                 "member", "atlas", WebQaCursorCodec.encode(after), 2));
 
-        assertThat(page.items()).extracting(value -> value.question().id())
+        assertThat(page.items()).extracting(QaQuestion::questionId)
                 .containsExactly(first.id(), second.id());
         assertThat(WebQaCursorCodec.decode(page.nextCursor()))
                 .isEqualTo(new WebQaCursor(second.createdAt(), second.id()));
         assertThat(page.items()).allSatisfy(value ->
-                assertThat(value.trustState()).isEqualTo(WebQaTrustState.RELIABLE_ANSWER));
+                assertThat(value.trustState()).isEqualTo(QaQuestion.TrustState.RELIABLE_ANSWER));
         System.out.printf("测试证据：场景=历史复合游标，项目=atlas，返回=%d，额外探测=1，下一游标ID=%s%n",
                 page.items().size(), second.id());
     }
@@ -89,14 +87,14 @@ class QueryWebQaQuestionServiceTest {
         when(messages.findByQuestionId(question.id())).thenReturn(List.of());
         when(materializer.materialize(any(), any())).thenThrow(new IllegalStateException("temporary projection"));
 
-        WebQaQuestionSnapshot snapshot = service.detail(
-                new QueryWebQaDetailCommand("member", "atlas", question.id()));
+        QaQuestion snapshot = service.detail(
+                new QaService.DetailQuery("member", "atlas", question.id()));
 
-        assertThat(snapshot.trustState()).isEqualTo(WebQaTrustState.RELIABLE_ANSWER);
-        assertThat(snapshot.run().resultText()).isEqualTo("可信回答");
+        assertThat(snapshot.trustState()).isEqualTo(QaQuestion.TrustState.RELIABLE_ANSWER);
+        assertThat(snapshot.resultText()).isEqualTo("可信回答");
         assertThat(snapshot.messages()).isEmpty();
         System.out.printf("测试证据：场景=投影失败快照自愈，questionId=%s，Agent终态=%s，可信状态=%s%n",
-                question.id(), snapshot.run().status(), snapshot.trustState());
+                question.id(), snapshot.status(), snapshot.trustState());
     }
 
     /**
@@ -108,8 +106,8 @@ class QueryWebQaQuestionServiceTest {
         when(questions.findVisibleById("member", PROJECT_ID, guessed)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.detail(
-                new QueryWebQaDetailCommand("member", "atlas", guessed)))
-                .isInstanceOf(WebQaQuestionNotFoundException.class)
+                new QaService.DetailQuery("member", "atlas", guessed)))
+                .isInstanceOf(QaQuestionNotFoundException.class)
                 .hasMessage("QA_QUESTION_NOT_FOUND");
         System.out.printf("测试证据：场景=详情防枚举，猜测questionId=%s，稳定错误=QA_QUESTION_NOT_FOUND%n", guessed);
     }

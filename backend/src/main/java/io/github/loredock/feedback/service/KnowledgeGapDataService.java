@@ -1,7 +1,7 @@
 package io.github.loredock.feedback.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import io.github.loredock.agent.api.AgentRun;
+import io.github.loredock.qa.api.QaQuestion;
 import io.github.loredock.feedback.mapper.KnowledgeGapFeedbackCitationMapper;
 import io.github.loredock.feedback.mapper.KnowledgeGapFeedbackMapper;
 import io.github.loredock.feedback.model.entity.KnowledgeGapFeedbackCitationEntity;
@@ -126,9 +126,9 @@ public class KnowledgeGapDataService {
                 value.getProjectId(), value.getProjectIdentifier(), value.getBranchId(), value.getBranchName(),
                 value.getQuestionId(), value.getRunId(), KnowledgeGapType.valueOf(value.getGapType()),
                 KnowledgeGapStatus.valueOf(value.getStatus()), value.getQuestionText(), value.getNote(),
-                enumValue(AgentRun.ResultType.class, value.getResultType()),
-                enumValue(AgentRun.RefusalReason.class, value.getRefusalReason()),
-                enumValue(AgentRun.ErrorCode.class, value.getErrorCode()), value.getCreatedAt(), value.getUpdatedAt(),
+                enumValue(QaQuestion.ResultType.class, value.getResultType()),
+                enumValue(QaQuestion.RefusalReason.class, value.getRefusalReason()),
+                enumValue(QaQuestion.ErrorCode.class, value.getErrorCode()), value.getCreatedAt(), value.getUpdatedAt(),
                 value.getCreatedBy(), value.getUpdatedBy());
     }
 

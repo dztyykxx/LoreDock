@@ -1,6 +1,6 @@
 package io.github.loredock.qa.converter;
 
-import io.github.loredock.agent.api.AgentRun;
+import io.github.loredock.qa.api.QaQuestion;
 
 /**
  * 把内部稳定错误码映射为可直接展示给用户的安全说明，不暴露异常原文、模型配置或服务器信息。
@@ -17,8 +17,8 @@ public final class WebQaFailureMessageMapper {
      * @param errorCode 稳定错误码
      * @return 仅失败或终止状态返回用户可读说明，正常回答与业务拒答返回 {@code null}
      */
-    public static String from(AgentRun.Status status, AgentRun.ErrorCode errorCode) {
-        if (status != AgentRun.Status.FAILED && status != AgentRun.Status.TERMINATED) {
+    public static String from(QaQuestion.Status status, QaQuestion.ErrorCode errorCode) {
+        if (status != QaQuestion.Status.FAILED && status != QaQuestion.Status.TERMINATED) {
             return null;
         }
         if (errorCode == null) {
