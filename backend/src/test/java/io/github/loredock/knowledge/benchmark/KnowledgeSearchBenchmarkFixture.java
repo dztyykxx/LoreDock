@@ -1,19 +1,17 @@
 package io.github.loredock.knowledge.benchmark;
 
-import io.github.loredock.knowledge.application.KnowledgeBrowseContextType;
-import io.github.loredock.knowledge.application.search.KnowledgeSearchMode;
-import io.github.loredock.knowledge.domain.DocumentFormat;
-import io.github.loredock.knowledge.domain.DocumentSourceType;
-import io.github.loredock.knowledge.domain.DocumentStatus;
-import io.github.loredock.knowledge.domain.KnowledgeScopeType;
-import org.springframework.core.io.ClassPathResource;
 import com.fasterxml.jackson.databind.ObjectMapper;
-
+import io.github.loredock.knowledge.model.enums.DocumentFormat;
+import io.github.loredock.knowledge.model.enums.DocumentSourceType;
+import io.github.loredock.knowledge.model.enums.DocumentStatus;
+import io.github.loredock.knowledge.model.enums.KnowledgeBrowseContextType;
+import io.github.loredock.knowledge.model.enums.KnowledgeScopeType;
+import io.github.loredock.knowledge.model.enums.KnowledgeSearchMode;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.UUID;
+import org.springframework.core.io.ClassPathResource;
 
 /** 读取可提交的 T5 知识检索基准材料，不从待评估结果生成问题或正确来源。 */
 final class KnowledgeSearchBenchmarkFixture {
@@ -70,17 +68,17 @@ final class KnowledgeSearchBenchmarkFixture {
         }
     }
 
-    record Project(UUID id, String identifier, String name, List<Branch> branches) {
+    record Project(Long id, String identifier, String name, List<Branch> branches) {
         Project {
             branches = List.copyOf(branches);
         }
     }
 
-    record Branch(UUID id, String name) {
+    record Branch(Long id, String name) {
     }
 
     record Document(
-            UUID id,
+            Long id,
             String file,
             String title,
             DocumentFormat format,
@@ -112,7 +110,7 @@ final class KnowledgeSearchBenchmarkFixture {
             boolean semanticParaphrase,
             String paraphraseReview,
             boolean hasAnswer,
-            List<UUID> expectedDocumentIds,
+            List<Long> expectedDocumentIds,
             String noAnswerReason
     ) {
         Question {

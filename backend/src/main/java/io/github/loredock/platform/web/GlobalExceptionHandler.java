@@ -3,29 +3,27 @@ package io.github.loredock.platform.web;
 import cn.dev33.satoken.exception.NotLoginException;
 import cn.dev33.satoken.exception.NotPermissionException;
 import cn.dev33.satoken.exception.NotRoleException;
-import io.github.loredock.agent.application.AgentRequestException;
-import io.github.loredock.identity.application.ForbiddenOperationException;
-import io.github.loredock.identity.application.InvalidCredentialsException;
-import io.github.loredock.identity.application.LoginRequiredException;
-import io.github.loredock.knowledge.domain.DocumentReplacementConflictException;
-import io.github.loredock.knowledge.domain.DocumentStateConflictException;
-import io.github.loredock.platform.time.TimeProvider;
+import io.github.loredock.agent.exception.AgentRequestException;
+import io.github.loredock.auth.exception.ForbiddenOperationException;
+import io.github.loredock.auth.exception.InvalidCredentialsException;
+import io.github.loredock.auth.exception.LoginRequiredException;
+import io.github.loredock.knowledge.exception.DocumentReplacementConflictException;
+import io.github.loredock.knowledge.exception.DocumentStateConflictException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.time.Clock;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Locale;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.slf4j.MDC;
-import org.springframework.http.ResponseEntity;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
-
-import java.io.PrintWriter;
-import java.io.StringWriter;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Locale;
 
 /**
  * 将已知和未预期异常映射为统一安全错误体，同时把经过脱敏的诊断上下文保留在服务端日志。
@@ -41,7 +39,7 @@ public class GlobalExceptionHandler {
      * @param timeProvider UTC 时间端口
      * @param redactor 日志诊断脱敏器
      */
-    public GlobalExceptionHandler(TimeProvider timeProvider, SensitiveDataRedactor redactor) {
+    public GlobalExceptionHandler(Clock timeProvider, SensitiveDataRedactor redactor) {
         this.errorFactory = new SecurityErrorFactory(timeProvider);
         this.redactor = redactor;
     }
@@ -144,7 +142,7 @@ public class GlobalExceptionHandler {
     }
 
     /**
-     * 映射 JSON/枚举/UUID 解析与领域值对象拒绝，不回显原始请求值或转换异常正文。
+     * 映射 JSON/枚举/Long 解析与领域值对象拒绝，不回显原始请求值或转换异常正文。
      *
      * @param exception 不可安全继续处理的输入
      * @return 统一 400 错误

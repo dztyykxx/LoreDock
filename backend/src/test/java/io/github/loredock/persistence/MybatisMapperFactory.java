@@ -2,11 +2,9 @@ package io.github.loredock.persistence;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.spring.MybatisSqlSessionFactoryBean;
-import io.github.loredock.platform.persistence.PostgresUuidTypeHandler;
+import javax.sql.DataSource;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.mybatis.spring.SqlSessionTemplate;
-
-import javax.sql.DataSource;
 
 /**
  * 为不启动完整 Spring 上下文的真实数据库集成测试创建 MyBatis-Plus Mapper 代理。
@@ -24,7 +22,6 @@ public final class MybatisMapperFactory {
     public static <T> T create(DataSource dataSource, Class<T> mapperType) {
         try {
             MybatisConfiguration configuration = new MybatisConfiguration();
-            configuration.getTypeHandlerRegistry().register(PostgresUuidTypeHandler.class);
             configuration.addMapper(mapperType);
             MybatisSqlSessionFactoryBean factoryBean = new MybatisSqlSessionFactoryBean();
             factoryBean.setDataSource(dataSource);

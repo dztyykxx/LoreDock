@@ -43,7 +43,7 @@ export interface QaScope {
 }
 
 export interface QaMessage {
-  id: string
+  id: number
   role: QaMessageRole
   content: string
   resultType: QaResultType | null
@@ -67,8 +67,8 @@ export interface QaCitation {
 }
 
 export interface QaQuestion {
-  questionId: string
-  runId: string
+  questionId: number
+  runId: number
   scope: QaScope
   createdAt: string
   status: QaRunStatus
@@ -143,24 +143,24 @@ export interface CreateKnowledgeGapInput {
   idempotencyKey: string
   branch: string
   type: KnowledgeGapType
-  questionId: string
+  questionId: number
   note?: string
 }
 
 export interface KnowledgeGapFeedback {
-  feedbackId: string
+  feedbackId: number
   projectIdentifier: string
   branch: string
   type: KnowledgeGapType
   status: KnowledgeGapStatus
   question: string
   note: string | null
-  questionId: string | null
-  runId: string | null
+  questionId: number | null
+  runId: number | null
   resultType: QaResultType | null
   refusalReason: QaRefusalReason | null
   errorCode: QaErrorCode | null
-  citationEvidenceIds: string[]
+  citationEvidenceIds: number[]
   createdAt: string
   updatedAt: string
   createdBy: string
@@ -169,12 +169,12 @@ export interface KnowledgeGapFeedback {
 
 export interface QaApi {
   history(identifier: string, cursor?: string, limit?: number): Promise<QaQuestionPage>
-  detail(identifier: string, questionId: string): Promise<QaQuestion>
+  detail(identifier: string, questionId: number): Promise<QaQuestion>
   createQuestion(identifier: string, input: CreateQaQuestionInput): Promise<QaQuestion>
   createKnowledgeGap(identifier: string, input: CreateKnowledgeGapInput): Promise<KnowledgeGapFeedback>
   openEventStream(
     identifier: string,
-    questionId: string,
+    questionId: number,
     afterSequence: number,
     handlers: QaEventStreamHandlers,
     factory?: EventSourceFactory,

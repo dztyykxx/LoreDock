@@ -1,17 +1,15 @@
 package io.github.loredock.knowledge.benchmark;
 
-import io.github.loredock.knowledge.application.KnowledgeBrowseContextType;
-import io.github.loredock.knowledge.application.search.KnowledgeSearchMode;
-import io.github.loredock.knowledge.domain.DocumentStatus;
-import io.github.loredock.knowledge.domain.KnowledgeScopeType;
-
+import io.github.loredock.knowledge.model.enums.DocumentStatus;
+import io.github.loredock.knowledge.model.enums.KnowledgeBrowseContextType;
+import io.github.loredock.knowledge.model.enums.KnowledgeScopeType;
+import io.github.loredock.knowledge.model.enums.KnowledgeSearchMode;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 import java.util.regex.Pattern;
 
 /** 在任何检索调用前校验基准构成、人工标注、范围可见性和常见敏感模式。 */
@@ -33,13 +31,13 @@ final class KnowledgeSearchBenchmarkFixtureValidator {
         require(text(manifest.reviewNote()), "benchmark human review note is required");
         require(manifest.benchmarkVersion().equals(fixture.questionVersion()), "benchmark versions must match");
         validateProjects(manifest.projects());
-        Map<UUID, KnowledgeSearchBenchmarkFixture.Document> documents = validateDocuments(manifest.documents());
+        Map<Long, KnowledgeSearchBenchmarkFixture.Document> documents = validateDocuments(manifest.documents());
         validateQuestions(fixture.questions(), documents, manifest.projects());
     }
 
     private void validateProjects(List<KnowledgeSearchBenchmarkFixture.Project> projects) {
         require(projects.size() == 2, "benchmark must contain two simulated projects");
-        Set<UUID> ids = new HashSet<>();
+        Set<Long> ids = new HashSet<>();
         Set<String> identifiers = new HashSet<>();
         for (var project : projects) {
             require(project.id() != null && ids.add(project.id()), "project IDs must be unique");
@@ -52,11 +50,11 @@ final class KnowledgeSearchBenchmarkFixtureValidator {
         }
     }
 
-    private Map<UUID, KnowledgeSearchBenchmarkFixture.Document> validateDocuments(
+    private Map<Long, KnowledgeSearchBenchmarkFixture.Document> validateDocuments(
             List<KnowledgeSearchBenchmarkFixture.Document> entries
     ) {
         require(entries.size() >= 10, "benchmark needs representative documents");
-        Map<UUID, KnowledgeSearchBenchmarkFixture.Document> documents = new HashMap<>();
+        Map<Long, KnowledgeSearchBenchmarkFixture.Document> documents = new HashMap<>();
         Set<String> files = new HashSet<>();
         Set<DocumentStatus> states = EnumSet.noneOf(DocumentStatus.class);
         Set<KnowledgeScopeType> scopes = EnumSet.noneOf(KnowledgeScopeType.class);
@@ -82,7 +80,7 @@ final class KnowledgeSearchBenchmarkFixtureValidator {
 
     private void validateQuestions(
             List<KnowledgeSearchBenchmarkFixture.Question> questions,
-            Map<UUID, KnowledgeSearchBenchmarkFixture.Document> documents,
+            Map<Long, KnowledgeSearchBenchmarkFixture.Document> documents,
             List<KnowledgeSearchBenchmarkFixture.Project> projects
     ) {
         require(questions.size() >= 15 && questions.size() <= 20,
@@ -112,7 +110,7 @@ final class KnowledgeSearchBenchmarkFixtureValidator {
             }
             if (question.hasAnswer()) {
                 require(!question.expectedDocumentIds().isEmpty(), "answerable question needs expected evidence");
-                for (UUID expectedId : question.expectedDocumentIds()) {
+                for (Long expectedId : question.expectedDocumentIds()) {
                     var document = documents.get(expectedId);
                     require(document != null && document.status() == DocumentStatus.PUBLISHED,
                             "expected evidence must reference a published fixture document");

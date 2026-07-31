@@ -10,7 +10,7 @@ import type { SessionController, SessionStatus } from '../session/useSession'
 import CodeSnapshotView from './CodeSnapshotView.vue'
 
 const project: AdminProjectDetail = {
-  id: 'project-1',
+  id: 1,
   identifier: 'nanobot',
   name: 'nanobot',
   description: '本地 coding harness',
@@ -18,7 +18,7 @@ const project: AdminProjectDetail = {
   status: 'ENABLED',
   defaultBranch: 'main',
   branches: [{
-    id: 'branch-1',
+    id: 11,
     name: 'main',
     createdAt: '2026-07-30T00:00:00Z',
     updatedAt: '2026-07-30T00:00:00Z',
@@ -32,10 +32,10 @@ const project: AdminProjectDetail = {
 }
 
 const pendingJob: CodeSnapshotJob = {
-  snapshotId: 'snapshot-1',
-  jobId: 'job-1',
+  snapshotId: 21,
+  jobId: 31,
   projectId: project.id,
-  branchId: 'branch-1',
+  branchId: 11,
   commit: 'a41e9c7',
   status: 'PENDING',
   progress: 0,
@@ -75,7 +75,7 @@ async function render(api: CodeSnapshotApi) {
     history: createMemoryHistory(),
     routes: [{ path: '/projects/:projectId/code-snapshots', component: CodeSnapshotView }],
   })
-  await router.push('/projects/project-1/code-snapshots')
+  await router.push('/projects/1/code-snapshots')
   await router.isReady()
   const wrapper = mount(CodeSnapshotView, {
     global: {
@@ -105,7 +105,7 @@ describe('CodeSnapshotView', () => {
     const getActive = vi.fn()
       .mockResolvedValueOnce({ projectIdentifier: 'nanobot', branch: 'main', status: 'NOT_INDEXED' })
       .mockResolvedValueOnce({
-        projectIdentifier: 'nanobot', branch: 'main', status: 'INDEXED', snapshotId: 'snapshot-1',
+        projectIdentifier: 'nanobot', branch: 'main', status: 'INDEXED', snapshotId: 21,
         commit: 'a41e9c7', indexedAt: '2026-07-31T04:01:00Z', indexedFileCount: 128, changeHint: 'INITIAL',
       })
     const upload = vi.fn().mockResolvedValue(pendingJob)
@@ -128,7 +128,7 @@ describe('CodeSnapshotView', () => {
 
     expect(upload).toHaveBeenCalledWith({
       projectId: project.id,
-      branchId: 'branch-1',
+      branchId: 11,
       commit: 'a41e9c7',
       file,
     })
@@ -137,7 +137,7 @@ describe('CodeSnapshotView', () => {
     await vi.advanceTimersByTimeAsync(1000)
     await flushPromises()
 
-    expect(getJob).toHaveBeenCalledWith('job-1')
+    expect(getJob).toHaveBeenCalledWith(31)
     expect(getActive).toHaveBeenCalledTimes(2)
     expect(wrapper.text()).toContain('可查询')
     expect(wrapper.text()).toContain('128 个文件')

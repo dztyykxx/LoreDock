@@ -1,11 +1,13 @@
-package io.github.loredock.platform.audit;
-
-import org.junit.jupiter.api.Test;
-
-import java.time.Instant;
-import java.util.concurrent.atomic.AtomicReference;
+package io.github.loredock.platform.persistence;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.Test;
 
 class AuditMetadataFactoryTest {
 
@@ -15,7 +17,8 @@ class AuditMetadataFactoryTest {
     @Test
     void createAuditMetadataUsesCurrentTimeAndSystemActor() {
         Instant now = Instant.parse("2026-07-29T12:00:00Z");
-        AuditMetadataFactory factory = new AuditMetadataFactory(() -> now, () -> "SYSTEM");
+        AuditMetadataFactory factory = new AuditMetadataFactory(
+                Clock.fixed(now, java.time.ZoneOffset.UTC), () -> "SYSTEM");
 
         AuditMetadata metadata = factory.created();
 
@@ -31,7 +34,9 @@ class AuditMetadataFactoryTest {
     @Test
     void updateAuditMetadataPreservesCreationAndRefreshesUpdate() {
         AtomicReference<Instant> now = new AtomicReference<>(Instant.parse("2026-07-29T12:00:00Z"));
-        AuditMetadataFactory factory = new AuditMetadataFactory(now::get, () -> "SYSTEM");
+        Clock clock = mock(Clock.class);
+        when(clock.instant()).thenAnswer(ignored -> now.get());
+        AuditMetadataFactory factory = new AuditMetadataFactory(clock, () -> "SYSTEM");
         AuditMetadata original = factory.created();
         now.set(Instant.parse("2026-07-29T13:00:00Z"));
 

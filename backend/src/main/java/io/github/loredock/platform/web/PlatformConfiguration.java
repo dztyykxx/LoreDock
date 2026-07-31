@@ -1,12 +1,10 @@
 package io.github.loredock.platform.web;
 
-import io.github.loredock.platform.audit.ActorProvider;
-import io.github.loredock.platform.time.TimeProvider;
+import java.time.Clock;
+import java.util.function.Supplier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-
-import java.time.Instant;
 
 /**
  * 平台基础端口的默认实现配置；认证能力接入后只替换操作者提供者，不改变审计契约。
@@ -18,16 +16,16 @@ public class PlatformConfiguration {
      * @return 使用 UTC 瞬间语义的系统时间提供者
      */
     @Bean
-    public TimeProvider timeProvider() {
-        return Instant::now;
+    public Clock timeProvider() {
+        return Clock.systemUTC();
     }
 
     /**
      * @return T1 阶段明确的系统操作者
      */
     @Bean
-    @ConditionalOnMissingBean(ActorProvider.class)
-    public ActorProvider actorProvider() {
+    @ConditionalOnMissingBean(name = "auditActorSupplier")
+    public Supplier<String> auditActorSupplier() {
         return () -> "SYSTEM";
     }
 }

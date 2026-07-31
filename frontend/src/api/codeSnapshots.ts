@@ -8,7 +8,7 @@ export interface ActiveCodeSnapshot {
   projectIdentifier: string
   branch: string
   status: CodeSnapshotAvailability
-  snapshotId?: string | null
+  snapshotId?: number | null
   commit?: string | null
   indexedAt?: string | null
   indexedFileCount?: number | null
@@ -16,10 +16,10 @@ export interface ActiveCodeSnapshot {
 }
 
 export interface CodeSnapshotJob {
-  snapshotId: string
-  jobId: string
-  projectId: string
-  branchId: string
+  snapshotId: number
+  jobId: number
+  projectId: number
+  branchId: number
   commit: string
   status: CodeSnapshotJobStatus
   progress: number
@@ -32,8 +32,8 @@ export interface CodeSnapshotJob {
 }
 
 export interface UploadCodeSnapshotInput {
-  projectId: string
-  branchId: string
+  projectId: number
+  branchId: number
   commit: string
   file: File
 }
@@ -41,8 +41,8 @@ export interface UploadCodeSnapshotInput {
 export interface CodeSnapshotApi {
   getActive(identifier: string, branch: string): Promise<ActiveCodeSnapshot>
   upload(input: UploadCodeSnapshotInput): Promise<CodeSnapshotJob>
-  getJob(jobId: string): Promise<CodeSnapshotJob>
-  reindex(snapshotId: string): Promise<CodeSnapshotJob>
+  getJob(jobId: number): Promise<CodeSnapshotJob>
+  reindex(snapshotId: number): Promise<CodeSnapshotJob>
 }
 
 export const codeSnapshotApi: CodeSnapshotApi = {
@@ -53,8 +53,8 @@ export const codeSnapshotApi: CodeSnapshotApi = {
   },
   upload(input) {
     const form = new FormData()
-    form.append('projectId', input.projectId)
-    form.append('branchId', input.branchId)
+    form.append('projectId', String(input.projectId))
+    form.append('branchId', String(input.branchId))
     form.append('commit', input.commit)
     form.append('file', input.file)
     return requestJson<CodeSnapshotJob>('/api/admin/code-snapshots', { method: 'POST', body: form })

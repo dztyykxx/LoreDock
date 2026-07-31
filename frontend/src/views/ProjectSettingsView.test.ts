@@ -10,7 +10,7 @@ import ProjectSettingsView from './ProjectSettingsView.vue'
 
 const branches: BranchView[] = [
   {
-    id: 'f0e423b9-2968-4978-aacd-c5ce6d7d9d7d',
+    id: 11,
     name: 'main',
     createdAt: '2026-07-30T00:00:00Z',
     updatedAt: '2026-07-30T00:00:00Z',
@@ -18,7 +18,7 @@ const branches: BranchView[] = [
     updatedBy: 'admin',
   },
   {
-    id: 'f4bc4af1-7142-44a1-9ce9-f76298c4cc3d',
+    id: 12,
     name: 'feature/import-export',
     createdAt: '2026-07-30T00:00:00Z',
     updatedAt: '2026-07-30T00:00:00Z',
@@ -28,7 +28,7 @@ const branches: BranchView[] = [
 ]
 
 const adminProject: AdminProjectDetail = {
-  id: '11d24ab5-9274-4593-a2de-68b9f0eaa4e0',
+  id: 1,
   identifier: 'network-designer-api',
   name: '真实网络设计项目',
   description: '服务端真实简介',

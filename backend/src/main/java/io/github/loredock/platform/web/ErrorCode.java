@@ -10,7 +10,6 @@ public enum ErrorCode {
     AUTH_INVALID_CREDENTIALS(HttpStatus.UNAUTHORIZED, "账号或密码错误"),
     AUTH_LOGIN_REQUIRED(HttpStatus.UNAUTHORIZED, "请先登录"),
     AUTH_FORBIDDEN(HttpStatus.FORBIDDEN, "当前身份无权执行此操作"),
-    MCP_TOKEN_INVALID(HttpStatus.UNAUTHORIZED, "MCP Token 无效"),
     PROJECT_NOT_FOUND(HttpStatus.NOT_FOUND, "项目不存在"),
     BRANCH_NOT_FOUND(HttpStatus.NOT_FOUND, "分支不存在"),
     PROJECT_IDENTIFIER_CONFLICT(HttpStatus.CONFLICT, "项目标识已存在"),

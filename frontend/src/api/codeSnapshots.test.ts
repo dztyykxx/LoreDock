@@ -19,8 +19,8 @@ describe('codeSnapshotApi', () => {
    */
   it('uploads a zip with the locked project branch and commit', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
-      snapshotId: 'snapshot-1',
-      jobId: 'job-1',
+      snapshotId: 21,
+      jobId: 31,
       status: 'PENDING',
       progress: 0,
     }, 202))
@@ -28,8 +28,8 @@ describe('codeSnapshotApi', () => {
     const file = new File(['zip'], 'nanobot.zip', { type: 'application/zip' })
 
     await codeSnapshotApi.upload({
-      projectId: 'project-1',
-      branchId: 'branch-1',
+      projectId: 1,
+      branchId: 11,
       commit: 'a41e9c7',
       file,
     })
@@ -39,8 +39,8 @@ describe('codeSnapshotApi', () => {
     expect(path).toBe('/api/admin/code-snapshots')
     expect(request.method).toBe('POST')
     expect(new Headers(request.headers).has('Content-Type')).toBe(false)
-    expect(form.get('projectId')).toBe('project-1')
-    expect(form.get('branchId')).toBe('branch-1')
+    expect(form.get('projectId')).toBe('1')
+    expect(form.get('branchId')).toBe('11')
     expect(form.get('commit')).toBe('a41e9c7')
     expect(form.get('file')).toBe(file)
   })

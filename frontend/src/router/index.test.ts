@@ -72,7 +72,7 @@ describe('router session guards', () => {
     const member: SessionView = { username: 'member', displayName: '组内成员', role: 'MEMBER' }
     const router = createTestRouter(createSession(member))
 
-    await router.push('/projects/8c6883fc-a928-4ef8-a6f7-0dd5d32b88d8/settings')
+    await router.push('/projects/1/settings')
 
     expect(router.currentRoute.value.name).toBe('projects')
   })
@@ -84,7 +84,7 @@ describe('router session guards', () => {
     const administrator: SessionView = { username: 'admin', displayName: '管理员', role: 'ADMIN' }
     const router = createTestRouter(createSession(administrator))
 
-    await router.push('/projects/8c6883fc-a928-4ef8-a6f7-0dd5d32b88d8/settings')
+    await router.push('/projects/1/settings')
 
     expect(router.currentRoute.value.name).toBe('project-settings')
   })
@@ -99,16 +99,16 @@ describe('router session guards', () => {
     expect(router.resolve('/knowledge').name).toBe('knowledge-global')
     expect(router.resolve('/knowledge/new').name).toBe('knowledge-global-new')
     expect(router.resolve('/knowledge/import').name).toBe('knowledge-global-import')
-    expect(router.resolve('/knowledge/document-1').name).toBe('knowledge-global-detail')
-    expect(router.resolve('/knowledge/document-1/edit').name).toBe('knowledge-global-edit')
+    expect(router.resolve('/knowledge/51').name).toBe('knowledge-global-detail')
+    expect(router.resolve('/knowledge/51/edit').name).toBe('knowledge-global-edit')
     expect(router.resolve('/projects/network-designer').name).toBe('project-knowledge')
     expect(router.resolve('/projects/network-designer/knowledge/new').name).toBe('project-knowledge-new')
     expect(router.resolve('/projects/network-designer/knowledge/import').name).toBe('project-knowledge-import')
-    expect(router.resolve('/projects/network-designer/knowledge/document-1').name).toBe('project-knowledge-detail')
-    expect(router.resolve('/projects/network-designer/knowledge/document-1/edit').name).toBe('project-knowledge-edit')
+    expect(router.resolve('/projects/network-designer/knowledge/51').name).toBe('project-knowledge-detail')
+    expect(router.resolve('/projects/network-designer/knowledge/51/edit').name).toBe('project-knowledge-edit')
     expect(router.resolve('/projects/network-designer/qa?branch=feature%2Fimport').name).toBe('project-qa')
-    expect(router.resolve('/projects/project-1/code-snapshots').name).toBe('project-code-snapshots')
-    expect(router.resolve('/projects/project-1/settings').name).toBe('project-settings')
+    expect(router.resolve('/projects/1/code-snapshots').name).toBe('project-code-snapshots')
+    expect(router.resolve('/projects/1/settings').name).toBe('project-settings')
   })
 
   /**

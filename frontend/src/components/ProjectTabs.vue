@@ -52,13 +52,13 @@ const props = withDefaults(defineProps<{
   active: string
   role?: WebRole
   projectIdentifier?: string
-  projectId?: string
+  projectId?: number
   branch?: string
   knowledgeCount?: number
 }>(), {
   role: 'MEMBER',
   projectIdentifier: '',
-  projectId: '',
+  projectId: 0,
   branch: 'main',
   knowledgeCount: 0,
 })

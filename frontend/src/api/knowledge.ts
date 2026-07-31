@@ -19,8 +19,8 @@ export interface PageResult<T> {
 
 export interface KnowledgeScopeView {
   type: KnowledgeScopeType
-  projectId: string | null
-  branchId: string | null
+  projectId: number | null
+  branchId: number | null
 }
 
 export interface KnowledgeScopeInput {
@@ -44,7 +44,7 @@ export interface DocumentSourceInput {
 }
 
 export interface KnowledgeDocumentSummary {
-  id: string
+  id: number
   format: DocumentFormat
   title: string
   directory: string
@@ -73,8 +73,8 @@ export interface AdminKnowledgeDocumentView extends KnowledgeDocumentView {
   archivedAt: string | null
   archivedBy: string | null
   replacement: {
-    replacesDocumentId: string | null
-    replacedByDocumentId: string | null
+    replacesDocumentId: number | null
+    replacedByDocumentId: number | null
   }
   createdAt: string
   createdBy: string
@@ -97,8 +97,8 @@ export interface BrowseKnowledgeInput {
 
 export interface AdminKnowledgeFilter {
   scopeType?: KnowledgeScopeType
-  projectId?: string
-  branchId?: string
+  projectId?: number
+  branchId?: number
   directory?: string
   status?: DocumentStatus
   tag?: string
@@ -129,11 +129,11 @@ export interface KnowledgeImportItem {
   status: KnowledgeImportItemStatus
   reason: string
   message: string
-  documentId: string | null
+  documentId: number | null
 }
 
 export interface KnowledgeImportBatch {
-  id: string
+  id: number
   originalFilename: string
   scope: KnowledgeScopeView
   directoryPrefix: string
@@ -147,7 +147,7 @@ export interface KnowledgeImportBatch {
 }
 
 export interface KnowledgeIndexJob {
-  id: string
+  id: number
   status: KnowledgeIndexJobStatus
   progress: number
   startedAt: string | null
@@ -163,18 +163,18 @@ export interface KnowledgeIndexPollOptions {
 
 export interface KnowledgeApi {
   browse(input: BrowseKnowledgeInput): Promise<KnowledgeBrowseResult>
-  getDocument(documentId: string, input: Pick<BrowseKnowledgeInput, 'context' | 'project' | 'branch'>): Promise<KnowledgeDocumentView>
+  getDocument(documentId: number, input: Pick<BrowseKnowledgeInput, 'context' | 'project' | 'branch'>): Promise<KnowledgeDocumentView>
   listAdmin(input?: AdminKnowledgeFilter): Promise<PageResult<KnowledgeDocumentSummary>>
-  getAdminDocument(documentId: string): Promise<AdminKnowledgeDocumentView>
+  getAdminDocument(documentId: number): Promise<AdminKnowledgeDocumentView>
   createDocument(input: KnowledgeDocumentWriteInput): Promise<AdminKnowledgeDocumentView>
-  updateDocument(documentId: string, input: KnowledgeDocumentWriteInput): Promise<AdminKnowledgeDocumentView>
-  publishDocument(documentId: string, replacesDocumentId?: string): Promise<AdminKnowledgeDocumentView>
-  archiveDocument(documentId: string): Promise<AdminKnowledgeDocumentView>
+  updateDocument(documentId: number, input: KnowledgeDocumentWriteInput): Promise<AdminKnowledgeDocumentView>
+  publishDocument(documentId: number, replacesDocumentId?: number): Promise<AdminKnowledgeDocumentView>
+  archiveDocument(documentId: number): Promise<AdminKnowledgeDocumentView>
   importDocuments(file: File, options: KnowledgeImportOptions): Promise<KnowledgeImportBatch>
-  getImportBatch(batchId: string): Promise<KnowledgeImportBatch>
+  getImportBatch(batchId: number): Promise<KnowledgeImportBatch>
   submitIndexJob(): Promise<KnowledgeIndexJob>
-  getIndexJob(jobId: string): Promise<KnowledgeIndexJob>
-  pollIndexJob(jobId: string, options?: KnowledgeIndexPollOptions): Promise<KnowledgeIndexJob>
+  getIndexJob(jobId: number): Promise<KnowledgeIndexJob>
+  pollIndexJob(jobId: number, options?: KnowledgeIndexPollOptions): Promise<KnowledgeIndexJob>
 }
 
 function appendQuery(params: URLSearchParams, key: string, value: string | number | undefined): void {

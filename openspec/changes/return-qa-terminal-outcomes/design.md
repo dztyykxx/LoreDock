@@ -6,6 +6,12 @@
 
 Pencil `04 · 项目问答 / 引用展开` 与 UI Kit 已把“当前知识库没有足够依据”定义为正常可信状态。现有 HTTP/SSE 均以持久化运行快照为事实来源，终态事件后客户端会重新读取详情，适合由详情统一提供失败说明。
 
+### 与后端精简重构的边界
+
+本 change 已确认的问答终态、SSE 续读、引用/拒答和失败文案属于后续实现必须保持的行为基线。后续包结构、接口收敛、Agent Runtime 框架接入、持久化表精简和自增主键改造统一由 `simplify-backend-mvc-runtime` change 接管；本 change 不再为这些结构调整新增旧式 `application/domain/infrastructure` 分层、单实现 Port/Gateway 或 Skill 数据库版本能力。
+
+尚未完成的本地真实模型烟雾验证仍保留在本 change 的 4.4，不能用结构重构替代，也不能在缺少实际模型结果时标记完成。
+
 ## Goals / Non-Goals
 
 **Goals:**

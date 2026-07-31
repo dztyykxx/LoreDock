@@ -10,13 +10,13 @@ import type { SessionController } from '../session/useSession'
 import KnowledgeWorkspaceView from './KnowledgeWorkspaceView.vue'
 
 const published: KnowledgeDocumentSummary = {
-  id: 'published-1',
+  id: 51,
   format: 'MARKDOWN',
   title: '已发布业务规则',
   directory: '规则/导入',
   tags: ['场景包'],
   source: { type: 'UPLOAD', wikiUrl: null, originalFilename: 'rule.md', curationNote: null },
-  scope: { type: 'PROJECT', projectId: 'project-1', branchId: null },
+  scope: { type: 'PROJECT', projectId: 1, branchId: null },
   status: 'PUBLISHED',
   revision: 2,
   syncStatus: 'SYNCED',
@@ -24,7 +24,7 @@ const published: KnowledgeDocumentSummary = {
 }
 
 const project: ProjectDetail = {
-  id: 'project-1',
+  id: 1,
   identifier: 'network-designer',
   name: '网络设计工具',
   description: '网络拓扑设计',
@@ -32,8 +32,8 @@ const project: ProjectDetail = {
   defaultBranch: 'main',
   selectedBranch: 'main',
   branches: [
-    { id: 'branch-main', name: 'main', createdAt: '', updatedAt: '', createdBy: 'admin', updatedBy: 'admin' },
-    { id: 'branch-feature', name: 'feature/import', createdAt: '', updatedAt: '', createdBy: 'admin', updatedBy: 'admin' },
+    { id: 11, name: 'main', createdAt: '', updatedAt: '', createdBy: 'admin', updatedBy: 'admin' },
+    { id: 12, name: 'feature/import', createdAt: '', updatedAt: '', createdBy: 'admin', updatedBy: 'admin' },
   ],
 }
 
@@ -141,7 +141,7 @@ describe('KnowledgeWorkspaceView', () => {
       browse: vi.fn().mockResolvedValue(browseResult([published])),
       getDocument: vi.fn().mockResolvedValue({ ...published, body, publishedAt: '2026-07-29T00:00:00Z' }),
     })
-    const { wrapper } = await mountView('/knowledge/published-1', {
+    const { wrapper } = await mountView('/knowledge/51', {
       username: 'member', displayName: '组内成员', role: 'MEMBER',
     }, api)
     await flushPromises()
@@ -157,8 +157,8 @@ describe('KnowledgeWorkspaceView', () => {
   it('reloads exact directory and page boundaries', async () => {
     const browse = vi.fn()
       .mockResolvedValueOnce({ ...browseResult([published]), documents: { items: [published], page: 0, size: 20, totalElements: 21, totalPages: 2 } })
-      .mockResolvedValueOnce({ ...browseResult([{ ...published, id: 'directory-1', title: '目录文档' }]), documents: { items: [{ ...published, id: 'directory-1', title: '目录文档' }], page: 0, size: 20, totalElements: 21, totalPages: 2 } })
-      .mockResolvedValueOnce({ ...browseResult([{ ...published, id: 'page-2', title: '第二页文档' }]), documents: { items: [{ ...published, id: 'page-2', title: '第二页文档' }], page: 1, size: 20, totalElements: 21, totalPages: 2 } })
+      .mockResolvedValueOnce({ ...browseResult([{ ...published, id: 53, title: '目录文档' }]), documents: { items: [{ ...published, id: 53, title: '目录文档' }], page: 0, size: 20, totalElements: 21, totalPages: 2 } })
+      .mockResolvedValueOnce({ ...browseResult([{ ...published, id: 54, title: '第二页文档' }]), documents: { items: [{ ...published, id: 54, title: '第二页文档' }], page: 1, size: 20, totalElements: 21, totalPages: 2 } })
     const { wrapper } = await mountView('/knowledge', {
       username: 'member', displayName: '组内成员', role: 'MEMBER',
     }, createKnowledgeApi({ browse }))
@@ -193,7 +193,7 @@ describe('KnowledgeWorkspaceView', () => {
     await wrapper.get('[data-testid="branch-selector"]').setValue('feature/import')
     expect(wrapper.text()).not.toContain('main 文档')
     await flushPromises()
-    resolveFeature(browseResult([{ ...published, id: 'feature-1', title: 'feature 文档' }]))
+    resolveFeature(browseResult([{ ...published, id: 55, title: 'feature 文档' }]))
     await flushPromises()
 
     expect(wrapper.text()).toContain('feature 文档')
@@ -204,7 +204,7 @@ describe('KnowledgeWorkspaceView', () => {
    * 业务目的：管理员目录必须展示草稿和真实索引状态及写入口，而不是复用成员已发布视图隐藏待处理文档。
    */
   it('shows administrator lifecycle states and actions', async () => {
-    const draft = { ...published, id: 'draft-1', title: '待发布规则', status: 'DRAFT' as const, syncStatus: 'NOT_APPLICABLE' as const }
+    const draft = { ...published, id: 56, title: '待发布规则', status: 'DRAFT' as const, syncStatus: 'NOT_APPLICABLE' as const }
     const api = createKnowledgeApi({
       listAdmin: vi.fn().mockResolvedValue({ items: [draft], page: 0, size: 20, totalElements: 1, totalPages: 1 }),
     })
@@ -228,7 +228,7 @@ describe('KnowledgeWorkspaceView', () => {
       browse: vi.fn().mockResolvedValue(browseResult([published])),
       getDocument: vi.fn().mockRejectedValue({ status: 404, code: 'DOCUMENT_NOT_FOUND' }),
     })
-    const { wrapper } = await mountView('/projects/network-designer/knowledge/foreign-document', {
+    const { wrapper } = await mountView('/projects/network-designer/knowledge/999', {
       username: 'member', displayName: '组内成员', role: 'MEMBER',
     }, api)
     await flushPromises()
@@ -244,10 +244,10 @@ describe('KnowledgeWorkspaceView', () => {
    */
   it('shows a failed reindex job without interrupting document browsing', async () => {
     const submitIndexJob = vi.fn().mockResolvedValue({
-      id: 'job-1', status: 'PENDING', progress: 0, startedAt: null, finishedAt: null, failureSummary: null,
+      id: 31, status: 'PENDING', progress: 0, startedAt: null, finishedAt: null, failureSummary: null,
     })
     const pollIndexJob = vi.fn().mockResolvedValue({
-      id: 'job-1', status: 'FAILED', progress: 60, startedAt: '2026-07-30T00:00:00Z', finishedAt: '2026-07-30T00:01:00Z', failureSummary: '重建失败，请检查服务日志。',
+      id: 31, status: 'FAILED', progress: 60, startedAt: '2026-07-30T00:00:00Z', finishedAt: '2026-07-30T00:01:00Z', failureSummary: '重建失败，请检查服务日志。',
     })
     const api = createKnowledgeApi({
       listAdmin: vi.fn().mockResolvedValue({ items: [published], page: 0, size: 20, totalElements: 1, totalPages: 1 }),
@@ -262,8 +262,8 @@ describe('KnowledgeWorkspaceView', () => {
     await flushPromises()
 
     expect(submitIndexJob).toHaveBeenCalledOnce()
-    expect(pollIndexJob).toHaveBeenCalledWith('job-1', expect.objectContaining({ maxAttempts: 20 }))
-    expect(wrapper.get('[data-testid="index-job-panel"]').text()).toContain('job-1')
+    expect(pollIndexJob).toHaveBeenCalledWith(31, expect.objectContaining({ maxAttempts: 20 }))
+    expect(wrapper.get('[data-testid="index-job-panel"]').text()).toContain(31)
     expect(wrapper.get('[data-testid="index-job-panel"]').text()).toContain('重建失败，请检查服务日志。')
     expect(wrapper.text()).toContain('已发布业务规则')
   })
@@ -275,7 +275,7 @@ describe('KnowledgeWorkspaceView', () => {
     let pollingSignal: AbortSignal | undefined
     const api = createKnowledgeApi({
       listAdmin: vi.fn().mockResolvedValue({ items: [], page: 0, size: 20, totalElements: 0, totalPages: 0 }),
-      submitIndexJob: vi.fn().mockResolvedValue({ id: 'job-1', status: 'PENDING', progress: 0, startedAt: null, finishedAt: null, failureSummary: null }),
+      submitIndexJob: vi.fn().mockResolvedValue({ id: 31, status: 'PENDING', progress: 0, startedAt: null, finishedAt: null, failureSummary: null }),
       pollIndexJob: vi.fn().mockImplementation((_jobId, options) => {
         pollingSignal = options?.signal
         return new Promise(() => undefined)

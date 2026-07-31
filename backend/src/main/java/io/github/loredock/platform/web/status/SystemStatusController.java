@@ -9,14 +9,13 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @RestController
 @RequestMapping("/api/v1/system/status")
-public class SystemStatusController implements SystemStatusApi {
+public class SystemStatusController {
 
     /**
      * 返回当前后端进程的公开状态，不读取或返回任何运行配置。
      *
      * @return LoreDock 后端可用状态
      */
-    @Override
     @GetMapping
     public SystemStatusResponse status() {
         return new SystemStatusResponse("loredock", "UP");

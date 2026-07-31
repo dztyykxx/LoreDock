@@ -8,7 +8,7 @@ LoreDock 用于把散落在公司 Wiki、项目文档、需求、PR、Commit、�
 
 ## 当前状态
 
-MVP 开发计划 T1“工程骨架与基础设施”、T2“认证、项目与分支管理”、T3“知识文档完整生命周期”、T4“代码快照与 Lucene 检索”、T5“知识关键词、语义与混合检索”、T6A“单 Agent 问答运行时”和 T7“Web 项目问答与知识缺口”已完成。当前提供严格按通用、项目和分支隔离的知识/代码检索，以及带可信状态、可续读事件、安全引用和人工反馈的 Web 问答闭环；用户注册、用户表和账号管理后台不在 MVP 范围内。
+MVP 开发计划 T1“工程骨架与基础设施”、T2“认证、项目与分支管理”、T3“知识文档完整生命周期”、T4“代码快照与 Lucene 检索”、T5“知识关键词、语义与混合检索”、T6A“单 Agent 问答运行时”和 T7“Web 项目问答与知识缺口”已完成。后端已经收敛为按功能模块分包、模块内部严格 `Controller → Service → Mapper` 的 MVC 结构，业务数据库统一使用自增 `BIGINT` 主键。当前提供严格按通用、项目和分支隔离的知识/代码检索，以及带可信状态、可续读事件、安全引用和人工反馈的 Web 问答闭环；用户注册、用户表和账号管理后台不在 MVP 范围内。
 
 ## 目标场景
 
@@ -122,11 +122,11 @@ MVP 计划通过 Streamable HTTP 暴露只读工具：
 
 ```bash
 cp .env.example .env
-# 先按下文说明替换 .env 中的账号 BCrypt 哈希和 MCP Token 摘要
+# 先按下文说明替换 .env 中的账号 BCrypt 哈希
 ./scripts/dev.sh
 ```
 
-脚本只用 Docker 启动 PostgreSQL/pgvector；Spring Boot 和 Vite 直接在宿主机运行，代码修改可使用各自的本地开发能力。首次启动会执行 `npm ci`，Flyway 会在后端启动时自动迁移空库。
+脚本只用 Docker 启动 PostgreSQL/pgvector；Spring Boot 和 Vite 直接在宿主机运行，代码修改可使用各自的本地开发能力。首次启动会执行 `npm ci`，Flyway 会在后端启动时用单一 V1 基线初始化空库。
 
 - 前端：<http://localhost:5173>
 - 后端状态：<http://localhost:8080/api/v1/system/status>
@@ -141,15 +141,6 @@ cp .env.example .env
 read -rsp "Password: " LOREDOCK_HASH_INPUT; echo
 htpasswd -bnBC 12 "" "$LOREDOCK_HASH_INPUT" | tr -d ':\n'; echo
 unset LOREDOCK_HASH_INPUT
-```
-
-为 MCP 客户端生成至少 256 bit 的高熵原始 Token，只把其小写 SHA-256 摘要填入 `LOREDOCK_MCP_TOKEN_SHA256`。原始 Token 应保存在客户端密钥库，不得写入仓库或服务端配置。
-
-```bash
-openssl rand -hex 32
-read -rsp "MCP token: " LOREDOCK_MCP_INPUT; echo
-printf '%s' "$LOREDOCK_MCP_INPUT" | shasum -a 256 | awk '{print $1}'
-unset LOREDOCK_MCP_INPUT
 ```
 
 Web 会话 Cookie 名为 `loredock_session`，使用 `HttpOnly`、`SameSite=Strict` 和全站 `/` 路径。本地 HTTP 保持 `LOREDOCK_WEB_COOKIE_SECURE=false`；生产 HTTPS 必须设为 `true`。会话当前仅保存在单实例内存中，应用重启后旧 Cookie 会失效并要求重新登录。
@@ -204,22 +195,22 @@ read -rsp "DeepSeek API key: " LOREDOCK_AGENT_MODEL_API_KEY; echo
 export LOREDOCK_AGENT_MODEL_API_KEY
 ```
 
-不要把实际密钥写入 `.env.example`、YAML、数据库、测试或日志。模型名固定为 `deepseek-v4-flash`，默认入口为 DeepSeek 官方 OpenAI 兼容入口；请求不能覆盖模型、端点、项目、分支、commit、知识 generation 或运行限制。若只验证应用、Fake Model 和数据库链路，保持 Agent 关闭即可，不需要外部调用。
+不要把实际密钥写入 `.env.example`、YAML、数据库、测试或日志。当前默认模型为 `deepseek-v4-flash`，默认入口为 DeepSeek 官方 OpenAI 兼容入口；请求不能覆盖模型、端点、项目、分支、commit、知识 generation 或运行限制。Agent 只依赖 Spring AI 标准 `ChatModel`，替换供应商时提供新的 Bean 并修改服务端配置即可，不需要改 Controller 或核心 Service。若只验证应用、Fake Model 和数据库链路，保持 Agent 关闭即可，不需要外部调用。
 
-运行开始时会固定 `project_qa` Skill、项目、实际分支、活动代码 snapshot/commit、活动知识 generation、模型与策略版本。唯一允许的工具是 `knowledge_search`、`code_search` 和 `code_snippet_read`。业务规则回答至少引用知识，当前实现回答至少引用固定快照代码，混合回答必须同时引用两类证据；证据不足、无快照、越界或引用无效时返回“当前知识库没有足够依据”及稳定原因码。
+运行开始时会从 classpath 加载固定的 `project_qa` Agent 定义，并固定项目、实际分支、活动代码 snapshot/commit、活动知识 generation、Agent 名称、模型名称和必要配置摘要。当前阶段不建设数据库 Skill 目录、对象存储 bundle 或版本管理。唯一允许的工具是 `knowledge_search`、`code_search` 和 `code_snippet_read`。业务规则回答至少引用知识，当前实现回答至少引用固定快照代码，混合回答必须同时引用两类证据；证据不足、无快照、越界或引用无效时返回“当前知识库没有足够依据”及稳定原因码。
 
-运行采用专用有界执行器，默认最多 8 步、8 次模型调用、90 秒、每工具 10 条结果、24000 字上下文和 8000 字回答。应用会先聚合并校验结构与引用，再持久化 `ANSWER_DELTA`；阶段、工具、来源、拒答和终态事件可以按序号续读。后端重启会把遗留 `ACCEPTED/RUNNING` 运行终结为 `AGENT_RUN_INTERRUPTED`，T6A 不自动重放模型；检查点恢复属于 T6B。
+运行采用专用有界执行器，默认最多 8 步、8 次模型调用、90 秒、每工具 10 条结果、24000 字上下文和 8000 字回答。Spring AI Alibaba 负责 ReactAgent、Hook、ToolCallback 和框架流式执行；应用只持久化接受、开始、模型开始、来源发现和终态等粗粒度事件，不保存逐 token/逐分片正文事件。SSE 先订阅事务提交后通知再补读数据库，在线等待不固定轮询；断线后按 sequence 续读，终态正文和引用从详情接口刷新。
 
 常见故障按稳定错误处理：
 
-- 未开启、缺少模型 secret 或 Skill 不可用：检查 `LOREDOCK_AGENT_ENABLED`、部署 secret 和启动日志，不要在日志中打印密钥；
+- 未开启、缺少模型 secret 或 Agent 定义不可用：检查 `LOREDOCK_AGENT_ENABLED`、部署 secret 和 classpath 资源，不要在日志中打印密钥；
 - `AGENT_RUNTIME_BUSY`：等待已有运行结束，或在确认机器容量后调整专用执行器；
 - `AGENT_EVIDENCE_VERSION_CHANGED`：运行期间知识 generation 或代码 snapshot 已切换，应提交新运行；
 - `CODE_SNAPSHOT_NOT_INDEXED`：目标分支没有活动快照，只能回答人工知识，不能声称当前实现；
 - `AGENT_CITATION_INVALID`：模型引用不属于本次保留证据，服务端会拒绝模型正文；
 - `AGENT_RUN_TIMEOUT` 或模型不可用：运行保留实际计数与脱敏错误，现有文档浏览、知识搜索和代码搜索不受影响。
 
-数据库备份包含 Skill 版本、运行、事件、工具摘要、证据和引用元数据；对象存储还包含内置 Skill 内容。两者应与既有知识/代码备份在同一静默写入窗口保存。详见 [T6A 单 Agent 兼容性与运行架构](docs/architecture/T6A单Agent兼容性验证.md)。
+数据库备份包含 `agent_run`、`agent_run_event`、`agent_evidence` 以及未来长流程使用的 `graphthread/graphcheckpoint`；引用标记与顺序直接在 evidence 中。classpath Agent 定义随仓库和应用制品备份，不在对象存储中重复保存。数据库与对象文件仍应在同一静默写入窗口保存。详见 [T6A 单 Agent 兼容性与运行架构](docs/architecture/T6A单Agent兼容性验证.md)。
 
 ## 测试与验收
 
@@ -251,14 +242,14 @@ PATH=/opt/homebrew/opt/node@24/bin:$PATH npm run build
 PATH=/opt/homebrew/opt/node@24/bin:$PATH npm audit --audit-level=high
 ```
 
-完整本地栈验收可执行 `./scripts/smoke-test.sh`。它使用隔离数据库卷和临时对象目录，验证空库迁移、前后端访问、重启持久性以及停库后的存活/就绪语义，结束后自动清理测试资源。
+完整本地栈验收可执行 `./scripts/smoke-test.sh`。它先执行认证、项目/分支、知识、代码、项目问答、引用/拒答和知识缺口反馈的 8 个代表性 HTTP 契约测试套件，再使用隔离数据库卷和临时对象目录验证空库迁移、前后端访问、重启持久性以及停库后的存活/就绪语义；关键测试与健康检查会输出真实结果，结束后自动清理测试资源。
 
 ### T2 HTTP 入口
 
 - Web 认证：`POST /api/auth/login`、`GET /api/auth/session`、`POST /api/auth/logout`；
 - 已登录只读查询：`GET /api/projects`、`GET /api/projects/{identifier}?branch=...`；
 - 管理员项目管理：`/api/admin/projects/**`；
-- MCP 认证边界：`/mcp/**`，使用 `Authorization: Bearer <token>`。T2 仅实现前置校验，尚未提供 MCP 工具。
+- MCP 入口预留：`/mcp/**`。当前快速迭代阶段不校验 MCP 身份，尚未提供 MCP 工具；对外部署前再按实际接入方式补充认证边界。
 
 前端是电脑浏览器页面，通过 Vite 同站代理访问 `/api`。项目、分支、知识文档、生命周期状态和身份始终使用真实 API；T4 已提供后端代码快照接口，完整管理页面仍属于 T12。
 
@@ -290,7 +281,7 @@ Lucene 目录先写入 `<generation>.building`，关闭并重开验证后才原�
 - 服务固定一次请求的完整活动 generation，在候选 SQL 中强制通用/项目/分支范围，再按当前事实表复核发布和范围资格；复核删除结果后不补入越界候选；
 - 返回有限片段、来源、更新时间、相关性和匹配方式，不返回完整正文、向量、对象键或内部配置；项目分支没有代码快照时仍返回允许的人工知识，并携带 `CODE_SNAPSHOT_NOT_INDEXED`。
 
-搜索返回 `KNOWLEDGE_INDEX_UNAVAILABLE`（503）时，先确认 T5 部署后是否成功执行过一次重建，以及 `knowledge_index_generation` 的 `ACTIVE` 记录是否有匹配的完整 `knowledge_search_generation` 元数据；不得手工激活 BUILDING。新重建失败会清理未完成 generation 并保留旧 ACTIVE。若 `KNOWLEDGE_EMBEDDING_UNAVAILABLE`（503），核对本地资源可读性、模型 SHA-256、512 维 `sentence_embedding` 输出和内存，不要改成 HTTP URI或关闭校验。
+搜索返回 `KNOWLEDGE_INDEX_UNAVAILABLE`（503）时，先确认 T5 部署后是否成功执行过一次重建，以及 `knowledge_index_generation` 的 `ACTIVE` 记录是否包含完整模型摘要、分块配置和计数；不得手工激活 BUILDING。搜索分块直接按 generation 引用正式文档，当前基线没有独立的 `knowledge_search_generation` 或索引文档投影表。新重建失败会清理未完成 generation 并保留旧 ACTIVE。若 `KNOWLEDGE_EMBEDDING_UNAVAILABLE`（503），核对本地资源可读性、模型 SHA-256、512 维 `sentence_embedding` 输出和内存，不要改成 HTTP URI或关闭校验。
 
 ### T7 项目问答与知识缺口入口
 
@@ -304,16 +295,18 @@ Lucene 目录先写入 `<generation>.building`，关闭并重开验证后才原�
 
 ## 数据迁移、备份与故障排查
 
-- Flyway 是表结构变更的唯一入口。不得修改已经执行的 `V*__*.sql`；需要变更时追加新迁移。checksum 不匹配时应恢复历史迁移原文并新增迁移，不要直接执行 `repair` 掩盖差异。
+- Flyway 是表结构变更的唯一入口。当前快速迭代阶段只维护 `V1__create_loredock_baseline.sql`，不兼容此前的 UUID/多版本开发库，也不提供双写、兼容视图或在线转换。
+- 单一 V1 创建 17 张业务表和 2 张 Spring AI Alibaba Graph 表；所有数据库主键统一为 identity `BIGINT`，UUID 只保留为幂等键、对象键或 Graph 协议键，不作为数据库主键。
+- 切换到本基线前，如需保留本地材料，先执行 `docker compose exec -T database pg_dump -U loredock -d loredock -Fc > loredock-before-baseline.dump`。确认备份后执行 `docker compose down --volumes` 删除旧开发库，再运行 `./scripts/dev.sh` 重建；旧备份不能整体恢复到新结构。
 - `readiness` 失败而 `liveness` 成功，通常表示 PostgreSQL 不可用。先检查 `docker compose ps` 和 `docker compose logs database`，再核对 `.env` 的端口、库名和账号。
 - 端口冲突时调整 `.env`；若修改后端端口，还需同步 Vite 代理目标。构建工具链错误时确认 `java -version` 为 21、`node --version` 为 24。
 - 后端以 `Identity configuration is invalid` 拒绝启动时，检查是否恰好配置两个不同用户名、一个 ADMIN/一个 MEMBER、有效 BCrypt 哈希和 64 位小写十六进制 MCP Token 摘要。错误日志不会回显具体凭据。
 - 页面登录成功但刷新后失效时，先确认前后端使用同站代理，生产 HTTPS 环境已开启 Secure Cookie，且期间后端进程没有重启。
 - 上传被 413 拒绝时，同时核对反向代理、Spring multipart 和 `LOREDOCK_KNOWLEDGE_IMPORT_*` 业务配额；以最小的一层为实际上限。
 - 重新索引失败时，依据任务 ID 查看脱敏摘要；不要手工修改 generation 状态，普通浏览会继续使用上一个成功索引。
-- 知识搜索重建失败时，先按任务 ID、generation UUID、模型摘要和错误码排查资源或容量；旧 ACTIVE 仍提供查询。数据库备份已包含事实文档、搜索 generation、分块、关键词和向量；恢复后必须核对活动代次计数与模型摘要，若派生索引不完整则通过管理员入口重建，不手工拼接向量。
-- 代码搜索返回 503 时，先确认活动 generation 的 UUID 目录存在且进程可读；不要手工把 `.building` 重命名为活动目录。原始 ZIP 仍在对象存储时，应通过活动快照重建接口恢复。
-- 启动日志出现代码索引恢复清理告警时，记录 generation UUID 并检查索引根权限与磁盘空间；单个孤儿清理失败不会替换活动索引，可在解除占用后重启幂等重试。
+- 知识搜索重建失败时，先按任务 ID、generation ID、模型摘要和错误码排查资源或容量；旧 ACTIVE 仍提供查询。数据库备份已包含事实文档、搜索 generation、分块、关键词和向量；恢复后必须核对活动代次计数与模型摘要，若派生索引不完整则通过管理员入口重建，不手工拼接向量。
+- 代码搜索返回 503 时，先确认活动 generation ID 对应目录存在且进程可读；不要手工把 `.building` 重命名为活动目录。原始 ZIP 仍在对象存储时，应通过活动快照重建接口恢复。
+- 启动日志出现代码索引恢复清理告警时，记录 generation ID 并检查索引根权限与磁盘空间；单个孤儿清理失败不会替换活动索引，可在解除占用后重启幂等重试。
 - 默认 profile 使用便于本地调试的文本控制台日志；生产环境以 `--spring.profiles.active=prod` 启动后启用 Logstash JSON，供日志采集系统解析。
 - 数据库备份可执行 `docker compose exec -T database pg_dump -U loredock -d loredock -Fc > loredock.dump`；原始导入文件和代码 ZIP 位于 `LOREDOCK_STORAGE_ROOT`（默认 `data/objects`），必须与数据库来自同一静默写入窗口。`LOREDOCK_CODE_SNAPSHOT_INDEX_ROOT` 是可由原始 ZIP 重建的派生数据：需要恢复后立即查询时一并备份，否则恢复数据库与对象后逐个重建活动快照。`LOREDOCK_CODE_SNAPSHOT_WORK_ROOT` 是临时目录，不应备份。
 - T1 后台任务是单实例、进程内有界执行器，不提供分布式调度或自动重放。重启只会把失去心跳的 `RUNNING` 任务终结为 `FAILED/PROCESS_INTERRUPTED`。

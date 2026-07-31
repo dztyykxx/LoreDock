@@ -1,6 +1,5 @@
 ---
 name: project_qa
-version: 1.0.1
 output_schema_version: project-qa-v1
 max_steps: 8
 tools:

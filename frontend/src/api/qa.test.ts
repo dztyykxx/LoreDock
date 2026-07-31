@@ -19,7 +19,7 @@ describe('qaApi', () => {
    * 业务目的：项目、分支与幂等键必须原样进入问答契约，防止页面在重试时意外创建另一个范围的运行。
    */
   it('encodes the project path and sends a scoped idempotent question', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ questionId: 'question-1' }, 202))
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ questionId: 61 }, 202))
     vi.stubGlobal('fetch', fetchMock)
 
     await qaApi.createQuestion('network/designer', {
@@ -47,14 +47,14 @@ describe('qaApi', () => {
 
     const connection = qaApi.openEventStream(
       'network/designer',
-      'question-1',
+      61,
       8,
       { onEvent: vi.fn(), onError: vi.fn() },
       factory,
     )
 
     expect(factory).toHaveBeenCalledWith(
-      '/api/projects/network%2Fdesigner/qa/questions/question-1/events?afterSequence=8',
+      '/api/projects/network%2Fdesigner/qa/questions/61/events?afterSequence=8',
       { withCredentials: true },
     )
     expect(source.addEventListener).toHaveBeenCalledWith('answer.delta', expect.any(Function))

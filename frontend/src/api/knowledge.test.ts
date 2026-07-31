@@ -43,7 +43,7 @@ describe('knowledgeApi', () => {
    * 业务目的：导入范围和来源默认值必须作为独立 JSON part 发送，且浏览器负责 multipart 边界，防止代理收到不可解析的伪 multipart 请求。
    */
   it('sends a file and JSON options as multipart form data', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: 'batch-1', items: [] }, 201))
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ id: 41, items: [] }, 201))
     vi.stubGlobal('fetch', fetchMock)
     const options: KnowledgeImportOptions = {
       scope: { type: 'PROJECT', project: 'network-designer', branch: null },
@@ -91,12 +91,12 @@ describe('knowledgeApi', () => {
     const body = '<img src=x onerror=alert(1)>'
     const filename = '<script>steal()</script>.md'
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
-      id: 'document-1',
+      id: 51,
       body,
       source: { type: 'UPLOAD', originalFilename: filename },
     })))
 
-    const result = await knowledgeApi.getDocument('document-1', { context: 'GLOBAL' })
+    const result = await knowledgeApi.getDocument(51, { context: 'GLOBAL' })
 
     expect(result.body).toBe(body)
     expect(result.source.originalFilename).toBe(filename)
@@ -107,12 +107,12 @@ describe('knowledgeApi', () => {
    */
   it.each(['SUCCEEDED', 'FAILED'] as const)('polls until the %s terminal state', async terminalStatus => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse({ id: 'job-1', status: 'PENDING', progress: 0 }))
-      .mockResolvedValueOnce(jsonResponse({ id: 'job-1', status: 'RUNNING', progress: 50 }))
-      .mockResolvedValueOnce(jsonResponse({ id: 'job-1', status: terminalStatus, progress: 100 }))
+      .mockResolvedValueOnce(jsonResponse({ id: 31, status: 'PENDING', progress: 0 }))
+      .mockResolvedValueOnce(jsonResponse({ id: 31, status: 'RUNNING', progress: 50 }))
+      .mockResolvedValueOnce(jsonResponse({ id: 31, status: terminalStatus, progress: 100 }))
     vi.stubGlobal('fetch', fetchMock)
 
-    const result = await knowledgeApi.pollIndexJob('job-1', { maxAttempts: 5, intervalMs: 0 })
+    const result = await knowledgeApi.pollIndexJob(31, { maxAttempts: 5, intervalMs: 0 })
 
     expect(result.status).toBe(terminalStatus)
     expect(fetchMock).toHaveBeenCalledTimes(3)

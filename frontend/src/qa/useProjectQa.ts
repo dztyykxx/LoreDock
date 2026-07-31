@@ -22,7 +22,7 @@ export interface ProjectQaController {
   pendingIdempotencyKey: Ref<string | null>
   lastSubmittedQuestion: Ref<string>
   loadHistory(cursor?: string): Promise<void>
-  selectQuestion(questionId: string): Promise<void>
+  selectQuestion(questionId: number): Promise<void>
   submit(question: string): Promise<QaQuestion>
   retry(question?: string): Promise<QaQuestion>
   observe(snapshot: QaQuestion): Promise<void>
@@ -73,7 +73,7 @@ export function createProjectQaController(
     }
   }
 
-  async function selectQuestion(questionId: string): Promise<void> {
+  async function selectQuestion(questionId: number): Promise<void> {
     closeStream()
     loading.value = true
     loadError.value = null
@@ -140,7 +140,7 @@ export function createProjectQaController(
     }
   }
 
-  function connect(questionId: string): void {
+  function connect(questionId: number): void {
     const generation = ++connectionGeneration
     connectionState.value = 'connecting'
     stream = api.openEventStream(identifier, questionId, lastSequence, {
@@ -172,7 +172,7 @@ export function createProjectQaController(
     connectionState.value = 'open'
   }
 
-  function applyEvent(name: QaSseEventName, event: QaSseEvent, questionId: string): void {
+  function applyEvent(name: QaSseEventName, event: QaSseEvent, questionId: number): void {
     if (event.version !== 'v1' || event.sequence <= lastSequence) return
     lastSequence = event.sequence
     phase.value = event.phase
@@ -184,7 +184,7 @@ export function createProjectQaController(
     }
   }
 
-  async function refreshTerminal(questionId: string): Promise<void> {
+  async function refreshTerminal(questionId: number): Promise<void> {
     try {
       const snapshot = await api.detail(identifier, questionId)
       current.value = snapshot

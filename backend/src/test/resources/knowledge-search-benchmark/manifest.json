@@ -4,39 +4,39 @@
   "reviewNote": "公开模拟材料已人工逐项审查；标注在检索运行前独立确定。",
   "projects": [
     {
-      "id": "51000000-0000-0000-0000-000000000001",
+      "id": 510001,
       "identifier": "atlas",
       "name": "Atlas 模拟项目",
       "branches": [
-        {"id": "51100000-0000-0000-0000-000000000001", "name": "main"},
-        {"id": "51100000-0000-0000-0000-000000000002", "name": "demo"}
+        {"id": 511001, "name": "main"},
+        {"id": 511002, "name": "demo"}
       ]
     },
     {
-      "id": "52000000-0000-0000-0000-000000000001",
+      "id": 520001,
       "identifier": "nebula",
       "name": "Nebula 模拟项目",
       "branches": [
-        {"id": "52100000-0000-0000-0000-000000000001", "name": "main"},
-        {"id": "52100000-0000-0000-0000-000000000002", "name": "demo"}
+        {"id": 521001, "name": "main"},
+        {"id": 521002, "name": "demo"}
       ]
     }
   ],
   "documents": [
-    {"id":"53000000-0000-0000-0000-000000000001","file":"documents/scenario-package-guide.md","title":"场景包导入与导出指南","format":"MARKDOWN","status":"PUBLISHED","scope":{"type":"GLOBAL"},"tags":["场景包","导入","导出"],"sourceType":"MANUAL"},
-    {"id":"53000000-0000-0000-0000-000000000002","file":"documents/scenario-package-recovery.md","title":"场景包失败恢复与重复执行","format":"MARKDOWN","status":"PUBLISHED","scope":{"type":"GLOBAL"},"tags":["场景包","恢复","幂等"],"sourceType":"MANUAL"},
-    {"id":"53000000-0000-0000-0000-000000000003","file":"documents/scope-and-citation.md","title":"知识范围与引用规则","format":"MARKDOWN","status":"PUBLISHED","scope":{"type":"GLOBAL"},"tags":["范围","引用","拒答"],"sourceType":"MANUAL"},
-    {"id":"53000000-0000-0000-0000-000000000004","file":"documents/security-boundary.md","title":"安全与脱敏边界","format":"MARKDOWN","status":"PUBLISHED","scope":{"type":"GLOBAL"},"tags":["安全","脱敏","离线模型"],"sourceType":"MANUAL"},
-    {"id":"53000000-0000-0000-0000-000000000005","file":"documents/observability.md","title":"后台任务与检索可观测性","format":"MARKDOWN","status":"PUBLISHED","scope":{"type":"GLOBAL"},"tags":["日志","任务","可观测性"],"sourceType":"MANUAL"},
-    {"id":"53000000-0000-0000-0000-000000000101","file":"documents/atlas-bootstrap.md","title":"Atlas 项目本地启动","format":"MARKDOWN","status":"PUBLISHED","scope":{"type":"PROJECT","project":"atlas"},"tags":["启动","开发环境"],"sourceType":"MANUAL"},
-    {"id":"53000000-0000-0000-0000-000000000102","file":"documents/atlas-architecture.md","title":"Atlas 架构边界","format":"MARKDOWN","status":"PUBLISHED","scope":{"type":"PROJECT","project":"atlas"},"tags":["架构","分层"],"sourceType":"MANUAL"},
-    {"id":"53000000-0000-0000-0000-000000000103","file":"documents/atlas-main-release.md","title":"Atlas main 分支发布流程","format":"MARKDOWN","status":"PUBLISHED","scope":{"type":"BRANCH","project":"atlas","branch":"main"},"tags":["发布","门禁"],"sourceType":"MANUAL"},
-    {"id":"53000000-0000-0000-0000-000000000104","file":"documents/atlas-demo-release.md","title":"Atlas demo 分支演示发布","format":"MARKDOWN","status":"PUBLISHED","scope":{"type":"BRANCH","project":"atlas","branch":"demo"},"tags":["演示","发布"],"sourceType":"MANUAL"},
-    {"id":"53000000-0000-0000-0000-000000000201","file":"documents/nebula-bootstrap.md","title":"Nebula 项目启动说明","format":"MARKDOWN","status":"PUBLISHED","scope":{"type":"PROJECT","project":"nebula"},"tags":["启动","资产"],"sourceType":"MANUAL"},
-    {"id":"53000000-0000-0000-0000-000000000202","file":"documents/nebula-architecture.md","title":"Nebula 资产目录架构","format":"MARKDOWN","status":"PUBLISHED","scope":{"type":"PROJECT","project":"nebula"},"tags":["架构","资产"],"sourceType":"MANUAL"},
-    {"id":"53000000-0000-0000-0000-000000000203","file":"documents/nebula-main-deployment.md","title":"Nebula main 部署检查","format":"MARKDOWN","status":"PUBLISHED","scope":{"type":"BRANCH","project":"nebula","branch":"main"},"tags":["部署","备份"],"sourceType":"MANUAL"},
-    {"id":"53000000-0000-0000-0000-000000000204","file":"documents/nebula-demo-deployment.md","title":"Nebula demo 数据刷新","format":"MARKDOWN","status":"PUBLISHED","scope":{"type":"BRANCH","project":"nebula","branch":"demo"},"tags":["演示","刷新"],"sourceType":"MANUAL"},
-    {"id":"53000000-0000-0000-0000-000000000301","file":"documents/draft-incident-note.md","title":"未审核事故处理草稿","format":"MARKDOWN","status":"DRAFT","scope":{"type":"GLOBAL"},"tags":["事故","草稿"],"sourceType":"MANUAL"},
-    {"id":"53000000-0000-0000-0000-000000000302","file":"documents/archived-legacy-runbook.md","title":"已归档旧版运行手册","format":"MARKDOWN","status":"ARCHIVED","scope":{"type":"GLOBAL"},"tags":["旧版","归档"],"sourceType":"MANUAL"}
+    {"id":530001,"file":"documents/scenario-package-guide.md","title":"场景包导入与导出指南","format":"MARKDOWN","status":"PUBLISHED","scope":{"type":"GLOBAL"},"tags":["场景包","导入","导出"],"sourceType":"MANUAL"},
+    {"id":530002,"file":"documents/scenario-package-recovery.md","title":"场景包失败恢复与重复执行","format":"MARKDOWN","status":"PUBLISHED","scope":{"type":"GLOBAL"},"tags":["场景包","恢复","幂等"],"sourceType":"MANUAL"},
+    {"id":530003,"file":"documents/scope-and-citation.md","title":"知识范围与引用规则","format":"MARKDOWN","status":"PUBLISHED","scope":{"type":"GLOBAL"},"tags":["范围","引用","拒答"],"sourceType":"MANUAL"},
+    {"id":530004,"file":"documents/security-boundary.md","title":"安全与脱敏边界","format":"MARKDOWN","status":"PUBLISHED","scope":{"type":"GLOBAL"},"tags":["安全","脱敏","离线模型"],"sourceType":"MANUAL"},
+    {"id":530005,"file":"documents/observability.md","title":"后台任务与检索可观测性","format":"MARKDOWN","status":"PUBLISHED","scope":{"type":"GLOBAL"},"tags":["日志","任务","可观测性"],"sourceType":"MANUAL"},
+    {"id":530101,"file":"documents/atlas-bootstrap.md","title":"Atlas 项目本地启动","format":"MARKDOWN","status":"PUBLISHED","scope":{"type":"PROJECT","project":"atlas"},"tags":["启动","开发环境"],"sourceType":"MANUAL"},
+    {"id":530102,"file":"documents/atlas-architecture.md","title":"Atlas 架构边界","format":"MARKDOWN","status":"PUBLISHED","scope":{"type":"PROJECT","project":"atlas"},"tags":["架构","分层"],"sourceType":"MANUAL"},
+    {"id":530103,"file":"documents/atlas-main-release.md","title":"Atlas main 分支发布流程","format":"MARKDOWN","status":"PUBLISHED","scope":{"type":"BRANCH","project":"atlas","branch":"main"},"tags":["发布","门禁"],"sourceType":"MANUAL"},
+    {"id":530104,"file":"documents/atlas-demo-release.md","title":"Atlas demo 分支演示发布","format":"MARKDOWN","status":"PUBLISHED","scope":{"type":"BRANCH","project":"atlas","branch":"demo"},"tags":["演示","发布"],"sourceType":"MANUAL"},
+    {"id":530201,"file":"documents/nebula-bootstrap.md","title":"Nebula 项目启动说明","format":"MARKDOWN","status":"PUBLISHED","scope":{"type":"PROJECT","project":"nebula"},"tags":["启动","资产"],"sourceType":"MANUAL"},
+    {"id":530202,"file":"documents/nebula-architecture.md","title":"Nebula 资产目录架构","format":"MARKDOWN","status":"PUBLISHED","scope":{"type":"PROJECT","project":"nebula"},"tags":["架构","资产"],"sourceType":"MANUAL"},
+    {"id":530203,"file":"documents/nebula-main-deployment.md","title":"Nebula main 部署检查","format":"MARKDOWN","status":"PUBLISHED","scope":{"type":"BRANCH","project":"nebula","branch":"main"},"tags":["部署","备份"],"sourceType":"MANUAL"},
+    {"id":530204,"file":"documents/nebula-demo-deployment.md","title":"Nebula demo 数据刷新","format":"MARKDOWN","status":"PUBLISHED","scope":{"type":"BRANCH","project":"nebula","branch":"demo"},"tags":["演示","刷新"],"sourceType":"MANUAL"},
+    {"id":530301,"file":"documents/draft-incident-note.md","title":"未审核事故处理草稿","format":"MARKDOWN","status":"DRAFT","scope":{"type":"GLOBAL"},"tags":["事故","草稿"],"sourceType":"MANUAL"},
+    {"id":530302,"file":"documents/archived-legacy-runbook.md","title":"已归档旧版运行手册","format":"MARKDOWN","status":"ARCHIVED","scope":{"type":"GLOBAL"},"tags":["旧版","归档"],"sourceType":"MANUAL"}
   ]
 }

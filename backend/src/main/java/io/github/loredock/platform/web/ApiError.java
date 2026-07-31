@@ -1,7 +1,6 @@
 package io.github.loredock.platform.web;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
-
 import java.time.OffsetDateTime;
 import java.util.List;
 

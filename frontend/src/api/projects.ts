@@ -11,10 +11,10 @@ import type {
 export interface ProjectApi {
   listProjects(): Promise<ProjectSummary[]>
   getProject(identifier: string, branch?: string): Promise<ProjectDetail>
-  getAdminProject(projectId: string): Promise<AdminProjectDetail>
+  getAdminProject(projectId: number): Promise<AdminProjectDetail>
   createProject(input: CreateProjectInput): Promise<AdminProjectDetail>
-  addBranch(projectId: string, name: string): Promise<BranchView>
-  changeStatus(projectId: string, status: ProjectStatus): Promise<AdminProjectDetail>
+  addBranch(projectId: number, name: string): Promise<BranchView>
+  changeStatus(projectId: number, status: ProjectStatus): Promise<AdminProjectDetail>
 }
 
 export const projectApi: ProjectApi = {

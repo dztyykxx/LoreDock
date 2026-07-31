@@ -10,8 +10,8 @@ import QaTrustBadge from './QaTrustBadge.vue'
 
 function question(overrides: Partial<QaQuestion> = {}): QaQuestion {
   return {
-    questionId: 'question-1',
-    runId: 'run-1',
+    questionId: 61,
+    runId: 71,
     scope: { projectIdentifier: 'network-designer', branch: 'main', commit: 'abc1234', codeSnapshotAvailable: true },
     createdAt: '2026-07-31T08:00:00Z',
     status: 'COMPLETED',
@@ -25,7 +25,7 @@ function question(overrides: Partial<QaQuestion> = {}): QaQuestion {
     stepCount: 3,
     modelCallCount: 1,
     lastEventSequence: 9,
-    messages: [{ id: 'message-1', role: 'USER', content: '为什么锁定范围？', resultType: null, refusalReason: null, createdAt: '2026-07-31T08:00:00Z' }],
+    messages: [{ id: 81, role: 'USER', content: '为什么锁定范围？', resultType: null, refusalReason: null, createdAt: '2026-07-31T08:00:00Z' }],
     citations: [],
     ...overrides,
   }
@@ -146,8 +146,8 @@ describe('project QA components', () => {
 
     const wrapper = mount(QaRecentSidebar, { props: { items: [question()], selectedId: null } })
     expect(wrapper.text()).toContain('为什么锁定范围？')
-    await wrapper.get('[data-testid="recent-question-question-1"]').trigger('click')
-    expect(wrapper.emitted('select')?.[0]).toEqual(['question-1'])
+    await wrapper.get('[data-testid="recent-question-61"]').trigger('click')
+    expect(wrapper.emitted('select')?.[0]).toEqual([61])
   })
 
   /**
@@ -156,7 +156,7 @@ describe('project QA components', () => {
   it('reuses the feedback key after a network failure and confirms success', async () => {
     const createKnowledgeGap = vi.fn()
       .mockRejectedValueOnce(new TypeError('network failed'))
-      .mockResolvedValueOnce({ feedbackId: 'gap-1', status: 'OPEN' })
+      .mockResolvedValueOnce({ feedbackId: 91, status: 'OPEN' })
     const api = { createKnowledgeGap } as unknown as QaApi
     const wrapper = mount(KnowledgeGapDialog, {
       props: {

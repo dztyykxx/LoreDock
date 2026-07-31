@@ -25,8 +25,8 @@ import type { KnowledgeDocumentSummary } from '../api/knowledge'
 import DocumentStatusBadge from './DocumentStatusBadge.vue'
 import IconGlyph from './IconGlyph.vue'
 
-defineProps<{ documents: KnowledgeDocumentSummary[]; selectedId: string | null }>()
-defineEmits<{ select: [documentId: string] }>()
+defineProps<{ documents: KnowledgeDocumentSummary[]; selectedId: number | null }>()
+defineEmits<{ select: [documentId: number] }>()
 
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium' }).format(new Date(value))

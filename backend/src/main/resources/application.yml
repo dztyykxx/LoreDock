@@ -11,6 +11,16 @@ spring:
       audio:
         speech: none
         transcription: none
+    openai:
+      api-key: ${LOREDOCK_AGENT_MODEL_API_KEY:}
+      base-url: ${LOREDOCK_AGENT_MODEL_BASE_URL:https://api.deepseek.com}
+      chat:
+        options:
+          model: ${LOREDOCK_AGENT_MODEL_NAME:deepseek-v4-flash}
+          temperature: 0.0
+          parallel-tool-calls: false
+          internal-tool-execution-enabled: false
+          stream-usage: true
   servlet:
     multipart:
       max-file-size: ${LOREDOCK_MULTIPART_MAX_FILE_SIZE:100MB}
@@ -84,8 +94,6 @@ loredock:
       max-retries: ${LOREDOCK_AGENT_MODEL_MAX_RETRIES:1}
     policy:
       output-schema-version: project-qa-v1
-      tool-policy-version: project-qa-readonly-v1
-      limit-policy-version: project-qa-policy-v1
     limits:
       max-steps: ${LOREDOCK_AGENT_MAX_STEPS:8}
       max-model-calls: ${LOREDOCK_AGENT_MAX_MODEL_CALLS:8}
@@ -103,7 +111,6 @@ loredock:
       shutdown-await: ${LOREDOCK_AGENT_EXECUTOR_SHUTDOWN_AWAIT:30s}
   qa:
     sse:
-      poll-interval: ${LOREDOCK_QA_SSE_POLL_INTERVAL:500ms}
       heartbeat-interval: ${LOREDOCK_QA_SSE_HEARTBEAT_INTERVAL:15s}
       max-duration: ${LOREDOCK_QA_SSE_MAX_DURATION:6m}
       batch-size: ${LOREDOCK_QA_SSE_BATCH_SIZE:200}
@@ -124,9 +131,6 @@ loredock:
           display-name: ${LOREDOCK_MEMBER_DISPLAY_NAME:}
           role: MEMBER
           password-hash: ${LOREDOCK_MEMBER_PASSWORD_HASH:}
-    mcp:
-      # 仅接受原始高熵 Token 的小写 SHA-256 摘要；缺失时服务拒绝就绪。
-      token-sha256: ${LOREDOCK_MCP_TOKEN_SHA256:}
   storage:
     root: ${LOREDOCK_STORAGE_ROOT:./data/objects}
   code:

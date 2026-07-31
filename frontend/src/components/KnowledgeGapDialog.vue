@@ -38,7 +38,7 @@ const props = defineProps<{
   snapshot: QaQuestion
   createIdempotencyKey?: () => string
 }>()
-const emit = defineEmits<{ close: []; submitted: [feedbackId: string] }>()
+const emit = defineEmits<{ close: []; submitted: [feedbackId: number] }>()
 const type = ref<KnowledgeGapType>(recommendedType(props.snapshot))
 const note = ref('')
 const submitting = ref(false)

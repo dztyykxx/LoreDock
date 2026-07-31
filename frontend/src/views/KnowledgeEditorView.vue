@@ -211,7 +211,7 @@ const selectedBranch = ref('main')
 const scopeProjects = ref<Array<{ identifier: string; name: string; branches: string[] }>>([])
 const currentDocument = ref<AdminKnowledgeDocumentView | null>(null)
 const replacementCandidates = ref<KnowledgeDocumentSummary[]>([])
-const replacementId = ref('')
+const replacementId = ref<number | ''>('')
 const loading = ref(true)
 const loadError = ref(false)
 const saving = ref(false)
@@ -250,7 +250,7 @@ async function initialize(): Promise<void> {
       await loadScopeProjects()
     }
     if (isEditMode.value) {
-      currentDocument.value = await api.getAdminDocument(String(route.params.documentId))
+      currentDocument.value = await api.getAdminDocument(Number(route.params.documentId))
       fillFromDocument(currentDocument.value)
       await loadReplacementCandidates(currentDocument.value)
     } else if (project.value) {
@@ -326,7 +326,7 @@ async function saveDocument(): Promise<void> {
   Object.keys(fieldErrors).forEach(key => delete fieldErrors[key])
   try {
     if (isEditMode.value) {
-      currentDocument.value = await api.updateDocument(String(route.params.documentId), writeInput())
+      currentDocument.value = await api.updateDocument(Number(route.params.documentId), writeInput())
     } else {
       currentDocument.value = await api.createDocument(writeInput())
       const editPath = project.value
@@ -410,7 +410,7 @@ async function submitImport(): Promise<void> {
   }
 }
 
-async function openImportedDocument(documentId: string): Promise<void> {
+async function openImportedDocument(documentId: number): Promise<void> {
   const target = project.value
     ? `/projects/${project.value.identifier}/knowledge/${documentId}/edit`
     : `/knowledge/${documentId}/edit`

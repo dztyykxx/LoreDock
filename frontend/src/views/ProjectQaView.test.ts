@@ -10,7 +10,7 @@ import type { SessionController } from '../session/useSession'
 import ProjectQaView from './ProjectQaView.vue'
 
 const project: ProjectDetail = {
-  id: 'project-1',
+  id: 1,
   identifier: 'network-designer',
   name: '网络设计工具',
   description: '网络拓扑设计',
@@ -18,19 +18,19 @@ const project: ProjectDetail = {
   defaultBranch: 'main',
   selectedBranch: 'main',
   branches: [
-    { id: 'branch-main', name: 'main', createdAt: '', updatedAt: '', createdBy: 'admin', updatedBy: 'admin' },
-    { id: 'branch-feature', name: 'feature/import', createdAt: '', updatedAt: '', createdBy: 'admin', updatedBy: 'admin' },
+    { id: 11, name: 'main', createdAt: '', updatedAt: '', createdBy: 'admin', updatedBy: 'admin' },
+    { id: 12, name: 'feature/import', createdAt: '', updatedAt: '', createdBy: 'admin', updatedBy: 'admin' },
   ],
 }
 
 function snapshot(overrides: Partial<QaQuestion> = {}): QaQuestion {
   return {
-    questionId: 'question-1', runId: 'run-1', createdAt: '2026-07-31T08:00:00Z',
+    questionId: 61, runId: 71, createdAt: '2026-07-31T08:00:00Z',
     scope: { projectIdentifier: 'network-designer', branch: 'feature/import', commit: 'abc1234', codeSnapshotAvailable: true },
     status: 'COMPLETED', resultType: 'ANSWER', trustState: 'RELIABLE_ANSWER', answerBasis: 'BUSINESS_RULE', refusalReason: null, errorCode: null,
     failureMessage: null,
     resultText: '服务端固定到运行创建时的范围。', stepCount: 2, modelCallCount: 1, lastEventSequence: 8,
-    messages: [{ id: 'message-1', role: 'USER', content: '当前范围是什么？', resultType: null, refusalReason: null, createdAt: '2026-07-31T08:00:00Z' }],
+    messages: [{ id: 81, role: 'USER', content: '当前范围是什么？', resultType: null, refusalReason: null, createdAt: '2026-07-31T08:00:00Z' }],
     citations: [], ...overrides,
   }
 }
@@ -92,7 +92,7 @@ describe('ProjectQaView', () => {
    */
   it('keeps the current snapshot scope while a branch change applies to the next question', async () => {
     const existing = snapshot()
-    const accepted = snapshot({ questionId: 'question-2', runId: 'run-2', status: 'ACCEPTED', resultType: null, trustState: 'IN_PROGRESS', answerBasis: null, resultText: null, scope: { ...existing.scope, branch: 'main' } })
+    const accepted = snapshot({ questionId: 64, runId: 72, status: 'ACCEPTED', resultType: null, trustState: 'IN_PROGRESS', answerBasis: null, resultText: null, scope: { ...existing.scope, branch: 'main' } })
     const qa = qaApi({
       history: vi.fn().mockResolvedValue({ items: [existing], nextCursor: null }),
       detail: vi.fn().mockResolvedValue(existing),

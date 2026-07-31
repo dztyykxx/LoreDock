@@ -1,8 +1,7 @@
 package io.github.loredock.platform.web;
 
-import org.springframework.stereotype.Component;
-
 import java.util.regex.Pattern;
+import org.springframework.stereotype.Component;
 
 /**
  * 在诊断信息进入日志或任务错误记录前集中移除常见凭据、连接串和绝对路径。

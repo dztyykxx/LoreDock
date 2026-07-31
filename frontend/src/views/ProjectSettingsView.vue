@@ -170,7 +170,7 @@ async function loadProject(branch?: string) {
   memberProject.value = null
   try {
     if (isAdministrator.value) {
-      const result = await api.getAdminProject(String(route.params.projectId))
+      const result = await api.getAdminProject(Number(route.params.projectId))
       adminProject.value = result
       selectedAdminBranch.value = branch && result.branches.some(item => item.name === branch)
         ? branch
@@ -202,7 +202,7 @@ async function addBranch() {
   addingBranch.value = true
   branchError.value = ''
   try {
-    await api.addBranch(String(route.params.projectId), branchName.value)
+    await api.addBranch(Number(route.params.projectId), branchName.value)
     showAddBranch.value = false
     branchName.value = ''
     await loadProject(selectedBranch.value)

@@ -209,7 +209,7 @@ async function loadPage() {
   loading.value = true
   loadError.value = false
   try {
-    const result = await projects.getAdminProject(String(route.params.projectId))
+    const result = await projects.getAdminProject(Number(route.params.projectId))
     project.value = result
     const requested = typeof route.query.branch === 'string' ? route.query.branch : ''
     selectedBranch.value = result.branches.some(branch => branch.name === requested)

@@ -1,5 +1,7 @@
 ## 1. 契约与失败测试
 
+> 协同说明：本 change 的终态、SSE、引用/拒答行为作为 `simplify-backend-mvc-runtime` 的兼容基线；后续包结构、接口、Agent Runtime、表结构和主键重构由该 change 接管，不在此继续固化旧分层。任务 4.4 的真实模型验证仍须独立完成。
+
 - [x] 1.1 先扩展后端 `WebQaQuestionResponse` 与前端 `QaQuestion` 契约，加入可空 `failureMessage`，并编写带中文业务说明的 HTTP 映射失败测试，证明完成结果不携带失败文案、失败/终止结果必须携带脱敏文案。
 - [x] 1.2 为 Agent 运行适配器编写失败测试：成功空检索后模型持续请求工具时应形成 `REFUSAL/INSUFFICIENT_EVIDENCE`；已有合格证据、工具异常、版本变化或模型异常时不得被转换为拒答，并输出与断言一致的步骤、模型调用、证据和终态日志。
 - [x] 1.3 为 Skill 引导编写失败测试，证明 `project_qa` 1.0.1 成为新运行启用版本、1.0.0 仍可读取、同版本内容冲突仍被拒绝。

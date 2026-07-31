@@ -10,13 +10,13 @@ import ScopeFields from './ScopeFields.vue'
 import TagInput from './TagInput.vue'
 
 const summary: KnowledgeDocumentSummary = {
-  id: 'document-1',
+  id: 51,
   format: 'MARKDOWN',
   title: '<img src=x onerror=alert(1)>',
   directory: '业务规则/导入',
   tags: ['场景包'],
   source: { type: 'UPLOAD', wikiUrl: null, originalFilename: '<script>steal()</script>.md', curationNote: null },
-  scope: { type: 'PROJECT', projectId: 'project-1', branchId: null },
+  scope: { type: 'PROJECT', projectId: 1, branchId: null },
   status: 'PUBLISHED',
   revision: 2,
   syncStatus: 'STALE',
@@ -127,7 +127,7 @@ describe('knowledge components', () => {
    */
   it('groups all import outcomes and renders untrusted filenames as text', () => {
     const batch: KnowledgeImportBatch = {
-      id: 'batch-1',
+      id: 41,
       originalFilename: '<img src=x onerror=alert(1)>.zip',
       scope: { type: 'GLOBAL', projectId: null, branchId: null },
       directoryPrefix: '',
@@ -136,7 +136,7 @@ describe('knowledge components', () => {
       failedCount: 1,
       ignoredCount: 1,
       items: [
-        { ordinal: 0, entryName: 'ok.md', status: 'SUCCEEDED', reason: 'IMPORTED', message: '已导入', documentId: 'document-1' },
+        { ordinal: 0, entryName: 'ok.md', status: 'SUCCEEDED', reason: 'IMPORTED', message: '已导入', documentId: 51 },
         { ordinal: 1, entryName: '<script>bad()</script>.md', status: 'FAILED', reason: 'INVALID_TEXT_ENCODING', message: '编码无效', documentId: null },
         { ordinal: 2, entryName: 'image.png', status: 'IGNORED', reason: 'UNSUPPORTED_FILE_TYPE', message: '格式不支持', documentId: null },
       ],

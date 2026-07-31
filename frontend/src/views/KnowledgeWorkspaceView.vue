@@ -177,7 +177,7 @@ const detailError = ref(false)
 const indexJob = ref<KnowledgeIndexJob | null>(null)
 const reindexBusy = ref(false)
 let indexPollController: AbortController | null = null
-const selectedDocumentId = computed(() => typeof route.params.documentId === 'string' ? route.params.documentId : null)
+const selectedDocumentId = computed(() => typeof route.params.documentId === 'string' ? Number(route.params.documentId) : null)
 const newTarget = computed(() => project.value ? `/projects/${project.value.identifier}/knowledge/new?branch=${encodeURIComponent(selectedBranch.value)}` : '/knowledge/new')
 const importTarget = computed(() => project.value ? `/projects/${project.value.identifier}/knowledge/import?branch=${encodeURIComponent(selectedBranch.value)}` : '/knowledge/import')
 const indexJobLabel = computed(() => ({
@@ -249,9 +249,9 @@ async function loadAdminDocuments(): Promise<void> {
       ]
     : [{ ...common, scopeType: 'GLOBAL' as const }]
   const pages = await Promise.all(filters.map(filter => api.listAdmin(filter)))
-  const unique = new Map<string, KnowledgeDocumentSummary>()
+  const unique = new Map<number, KnowledgeDocumentSummary>()
   pages.flatMap(result => result.items).forEach(item => unique.set(item.id, item))
-  const allItems = [...unique.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.id.localeCompare(right.id))
+  const allItems = [...unique.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.id - right.id)
   totalElements.value = allItems.length
   totalPages.value = Math.ceil(allItems.length / 20)
   documents.value = allItems.slice(page.value * 20, (page.value + 1) * 20)
@@ -270,7 +270,7 @@ function buildDirectories(items: KnowledgeDocumentSummary[]): KnowledgeDirectory
   return [...counts].map(([path, documentCount]) => ({ path, name: path.split('/').at(-1) ?? path, documentCount }))
 }
 
-async function loadDetail(documentId: string): Promise<void> {
+async function loadDetail(documentId: number): Promise<void> {
   detailLoading.value = true
   detailError.value = false
   detail.value = null
@@ -309,7 +309,7 @@ async function changePage(target: number): Promise<void> {
   await loadDocuments()
 }
 
-async function openDocument(documentId: string): Promise<void> {
+async function openDocument(documentId: number): Promise<void> {
   const target = project.value
     ? `/projects/${project.value.identifier}/knowledge/${documentId}`
     : `/knowledge/${documentId}`
@@ -359,7 +359,7 @@ function sourceLabel(source: string): string {
   return ({ MANUAL: '人工整理', WIKI: '原 Wiki', UPLOAD: '文件上传' } as Record<string, string>)[source] ?? source
 }
 
-function editTarget(documentId: string): string {
+function editTarget(documentId: number): string {
   return project.value
     ? `/projects/${project.value.identifier}/knowledge/${documentId}/edit?branch=${encodeURIComponent(selectedBranch.value)}`
     : `/knowledge/${documentId}/edit`

@@ -10,7 +10,7 @@ import ProjectListView from './ProjectListView.vue'
 
 const projects: ProjectSummary[] = [
   {
-    id: '11d24ab5-9274-4593-a2de-68b9f0eaa4e0',
+    id: 1,
     identifier: 'network-designer-api',
     name: '真实网络设计项目',
     description: '服务端返回的网络工具',
@@ -19,7 +19,7 @@ const projects: ProjectSummary[] = [
     branchCount: 3,
   },
   {
-    id: 'fa843017-89a1-45fd-93fd-fc031215e6ee',
+    id: 2,
     identifier: 'lightweight-comparison',
     name: '轻量对照项目',
     description: '检索隔离验收',

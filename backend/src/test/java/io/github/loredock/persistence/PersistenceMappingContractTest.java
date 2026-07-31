@@ -1,42 +1,34 @@
 package io.github.loredock.persistence;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
-import io.github.loredock.agent.infrastructure.persistence.AgentCitationEntity;
-import io.github.loredock.agent.infrastructure.persistence.AgentEvidenceEntity;
-import io.github.loredock.agent.infrastructure.persistence.AgentRunEntity;
-import io.github.loredock.agent.infrastructure.persistence.AgentRunEventEntity;
-import io.github.loredock.agent.infrastructure.persistence.AgentSkillVersionEntity;
-import io.github.loredock.agent.infrastructure.persistence.AgentToolCallEntity;
-import io.github.loredock.job.infrastructure.persistence.BackgroundJobEntity;
-import io.github.loredock.code.infrastructure.persistence.CodeIndexGenerationEntity;
-import io.github.loredock.code.infrastructure.persistence.CodeSnapshotEntity;
-import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeDocumentEntity;
-import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeDocumentTagEntity;
-import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeImportBatchEntity;
-import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeImportItemEntity;
-import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeIndexDocumentEntity;
-import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeIndexGenerationEntity;
-import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeSearchChunkEntity;
-import io.github.loredock.knowledge.infrastructure.persistence.KnowledgeSearchGenerationEntity;
-import io.github.loredock.knowledgegap.infrastructure.persistence.KnowledgeGapFeedbackCitationEntity;
-import io.github.loredock.knowledgegap.infrastructure.persistence.KnowledgeGapFeedbackEntity;
-import io.github.loredock.project.infrastructure.persistence.ProjectBranchEntity;
-import io.github.loredock.project.infrastructure.persistence.ProjectSpaceEntity;
-import io.github.loredock.qa.infrastructure.persistence.WebQaMessageEntity;
-import io.github.loredock.qa.infrastructure.persistence.WebQaQuestionEntity;
-import io.github.loredock.storage.infrastructure.persistence.StoredObjectEntity;
-import org.junit.jupiter.api.Test;
-
+import io.github.loredock.agent.model.entity.AgentEvidenceEntity;
+import io.github.loredock.agent.model.entity.AgentRunEntity;
+import io.github.loredock.agent.model.entity.AgentRunEventEntity;
+import io.github.loredock.code.model.entity.CodeIndexGenerationEntity;
+import io.github.loredock.code.model.entity.CodeSnapshotEntity;
+import io.github.loredock.feedback.model.entity.KnowledgeGapFeedbackCitationEntity;
+import io.github.loredock.feedback.model.entity.KnowledgeGapFeedbackEntity;
+import io.github.loredock.job.model.entity.BackgroundJobEntity;
+import io.github.loredock.knowledge.model.entity.KnowledgeDocumentEntity;
+import io.github.loredock.knowledge.model.entity.KnowledgeImportBatchEntity;
+import io.github.loredock.knowledge.model.entity.KnowledgeIndexGenerationEntity;
+import io.github.loredock.knowledge.model.entity.KnowledgeSearchChunkEntity;
+import io.github.loredock.project.model.entity.ProjectBranchEntity;
+import io.github.loredock.project.model.entity.ProjectSpaceEntity;
+import io.github.loredock.qa.model.entity.WebQaMessageEntity;
+import io.github.loredock.qa.model.entity.WebQaQuestionEntity;
+import io.github.loredock.storage.model.entity.StoredObjectEntity;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Modifier;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.Test;
 
 class PersistenceMappingContractTest {
 
@@ -52,19 +44,12 @@ class PersistenceMappingContractTest {
         assertExplicitMapping(ProjectSpaceEntity.class, "project_space");
         assertExplicitMapping(ProjectBranchEntity.class, "project_branch");
         assertExplicitMapping(KnowledgeDocumentEntity.class, "knowledge_document");
-        assertExplicitMapping(KnowledgeDocumentTagEntity.class, "knowledge_document_tag");
         assertExplicitMapping(KnowledgeImportBatchEntity.class, "knowledge_import_batch");
-        assertExplicitMapping(KnowledgeImportItemEntity.class, "knowledge_import_item");
         assertExplicitMapping(KnowledgeIndexGenerationEntity.class, "knowledge_index_generation");
-        assertExplicitMapping(KnowledgeIndexDocumentEntity.class, "knowledge_index_document");
-        assertExplicitMapping(KnowledgeSearchGenerationEntity.class, "knowledge_search_generation");
         assertExplicitMapping(KnowledgeSearchChunkEntity.class, "knowledge_search_chunk");
-        assertExplicitMapping(AgentSkillVersionEntity.class, "agent_skill_version");
         assertExplicitMapping(AgentRunEntity.class, "agent_run");
         assertExplicitMapping(AgentRunEventEntity.class, "agent_run_event");
-        assertExplicitMapping(AgentToolCallEntity.class, "agent_tool_call");
         assertExplicitMapping(AgentEvidenceEntity.class, "agent_evidence");
-        assertExplicitMapping(AgentCitationEntity.class, "agent_citation");
         assertExplicitMapping(WebQaQuestionEntity.class, "web_qa_question");
         assertExplicitMapping(WebQaMessageEntity.class, "web_qa_message");
         assertExplicitMapping(KnowledgeGapFeedbackEntity.class, "knowledge_gap_feedback");

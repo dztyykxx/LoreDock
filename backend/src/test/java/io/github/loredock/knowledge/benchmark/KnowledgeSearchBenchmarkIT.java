@@ -1,35 +1,23 @@
 package io.github.loredock.knowledge.benchmark;
 
-import io.github.loredock.knowledge.application.KnowledgeBrowseContextType;
-import io.github.loredock.knowledge.application.KnowledgeIndexRebuildProgress;
-import io.github.loredock.knowledge.application.KnowledgeIndexRebuildResult;
-import io.github.loredock.knowledge.application.KnowledgeIndexRebuilder;
-import io.github.loredock.knowledge.application.search.ActiveKnowledgeSearchGeneration;
-import io.github.loredock.knowledge.application.search.ActiveKnowledgeSearchGenerationReader;
-import io.github.loredock.knowledge.application.search.KnowledgeEmbeddingModelDescriptor;
-import io.github.loredock.knowledge.application.search.KnowledgeEmbeddingPort;
-import io.github.loredock.knowledge.application.search.KnowledgeSearchFilters;
-import io.github.loredock.knowledge.application.search.KnowledgeSearchMode;
-import io.github.loredock.knowledge.application.search.KnowledgeSearchQuery;
-import io.github.loredock.knowledge.application.search.KnowledgeSearchResponse;
-import io.github.loredock.knowledge.application.search.KnowledgeSearchUseCase;
-import io.github.loredock.knowledge.application.search.KnowledgeSearchWarning;
-import io.github.loredock.knowledge.domain.DocumentStatus;
-import io.github.loredock.knowledge.domain.KnowledgeScopeType;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.utility.DockerImageName;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.github.loredock.knowledge.model.enums.DocumentStatus;
+import io.github.loredock.knowledge.model.enums.KnowledgeBrowseContextType;
+import io.github.loredock.knowledge.model.enums.KnowledgeScopeType;
+import io.github.loredock.knowledge.model.enums.KnowledgeSearchMode;
+import io.github.loredock.knowledge.model.enums.KnowledgeSearchWarning;
+import io.github.loredock.knowledge.model.request.KnowledgeSearchFilters;
+import io.github.loredock.knowledge.model.request.KnowledgeSearchQuery;
+import io.github.loredock.knowledge.model.response.KnowledgeSearchResponse;
+import io.github.loredock.knowledge.model.result.ActiveKnowledgeSearchGeneration;
+import io.github.loredock.knowledge.model.result.KnowledgeEmbeddingModelDescriptor;
+import io.github.loredock.knowledge.model.result.KnowledgeIndexRebuildResult;
+import io.github.loredock.knowledge.service.KnowledgeIndexRebuildService;
+import io.github.loredock.knowledge.service.KnowledgeSearchIndexDataService;
+import io.github.loredock.knowledge.service.search.KnowledgeEmbeddingService;
+import io.github.loredock.knowledge.service.search.KnowledgeSearchService;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -42,9 +30,18 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
-
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.utility.DockerImageName;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @Testcontainers
@@ -70,16 +67,16 @@ class KnowledgeSearchBenchmarkIT {
             .withPassword("loredock_benchmark");
 
     @Autowired
-    private KnowledgeIndexRebuilder rebuilder;
+    private KnowledgeIndexRebuildService rebuilder;
 
     @Autowired
-    private KnowledgeSearchUseCase search;
+    private KnowledgeSearchService search;
 
     @Autowired
-    private ActiveKnowledgeSearchGenerationReader generations;
+    private KnowledgeSearchIndexDataService generations;
 
     @Autowired
-    private KnowledgeEmbeddingPort embedding;
+    private KnowledgeEmbeddingService embedding;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -89,7 +86,7 @@ class KnowledgeSearchBenchmarkIT {
 
     private KnowledgeSearchBenchmarkFixture.Fixture fixture;
     private Map<String, KnowledgeSearchBenchmarkFixture.Project> projects;
-    private Map<UUID, KnowledgeSearchBenchmarkFixture.Document> documents;
+    private Map<Long, KnowledgeSearchBenchmarkFixture.Document> documents;
 
     @DynamicPropertySource
     static void configure(DynamicPropertyRegistry registry) {
@@ -97,7 +94,6 @@ class KnowledgeSearchBenchmarkIT {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
-        registry.add("loredock.identity.mcp.token-sha256", () -> "a".repeat(64));
         registry.add("loredock.identity.web.accounts[0].username", () -> "admin");
         registry.add("loredock.identity.web.accounts[0].display-name", () -> "基准管理员");
         registry.add("loredock.identity.web.accounts[0].role", () -> "ADMIN");
@@ -140,7 +136,7 @@ class KnowledgeSearchBenchmarkIT {
         embedding.embedQuery("知识检索模型预热");
         long coldStartMillis = elapsedMillis(coldStarted);
 
-        UUID jobId = insertRebuildJob();
+        Long jobId = insertRebuildJob();
         long rebuildStarted = System.nanoTime();
         KnowledgeIndexRebuildResult rebuild = rebuilder.rebuild(jobId, noOpProgress());
         long rebuildMillis = elapsedMillis(rebuildStarted);
@@ -292,7 +288,7 @@ class KnowledgeSearchBenchmarkIT {
         if (!question.hasAnswer()) {
             return false;
         }
-        Set<UUID> expected = Set.copyOf(question.expectedDocumentIds());
+        Set<Long> expected = Set.copyOf(question.expectedDocumentIds());
         return results.stream().filter(result -> result.rank() <= 5)
                 .anyMatch(result -> expected.contains(result.documentId()));
     }
@@ -358,8 +354,8 @@ class KnowledgeSearchBenchmarkIT {
 
     private void seedDocuments() {
         for (var document : fixture.manifest().documents()) {
-            UUID projectId = projectId(document.scope().project());
-            UUID branchId = branchId(document.scope().project(), document.scope().branch());
+            Long projectId = projectId(document.scope().project());
+            Long branchId = branchId(document.scope().project(), document.scope().branch());
             Timestamp publishedAt = document.status() == DocumentStatus.DRAFT ? null : Timestamp.from(FIXTURE_TIME);
             Timestamp archivedAt = document.status() == DocumentStatus.ARCHIVED
                     ? Timestamp.from(FIXTURE_TIME.plusSeconds(60)) : null;
@@ -383,11 +379,11 @@ class KnowledgeSearchBenchmarkIT {
         }
     }
 
-    private UUID projectId(String identifier) {
+    private Long projectId(String identifier) {
         return identifier == null ? null : projects.get(identifier).id();
     }
 
-    private UUID branchId(String project, String branch) {
+    private Long branchId(String project, String branch) {
         if (project == null || branch == null) {
             return null;
         }
@@ -396,8 +392,8 @@ class KnowledgeSearchBenchmarkIT {
                 .findFirst().orElseThrow().id();
     }
 
-    private UUID insertRebuildJob() {
-        UUID jobId = UUID.fromString("54000000-0000-0000-0000-000000000001");
+    private Long insertRebuildJob() {
+        Long jobId = 5919793063548944386L;
         jdbcTemplate.update("""
                 insert into background_job(id, job_type, status, progress, started_at, heartbeat_at,
                     created_at, updated_at, created_by, updated_by)
@@ -407,16 +403,8 @@ class KnowledgeSearchBenchmarkIT {
         return jobId;
     }
 
-    private KnowledgeIndexRebuildProgress noOpProgress() {
-        return new KnowledgeIndexRebuildProgress() {
-            @Override
-            public void update(int percentage) {
-            }
-
-            @Override
-            public void heartbeat() {
-            }
-        };
+    private KnowledgeIndexRebuildService.Progress noOpProgress() {
+        return new KnowledgeIndexRebuildService.Progress(percentage -> { }, () -> { });
     }
 
     private void writeResult(BenchmarkResult result) throws IOException {
@@ -451,14 +439,14 @@ class KnowledgeSearchBenchmarkIT {
         return value == null ? "-" : value;
     }
 
-    record RankedResult(UUID documentId, int rank, String matchedBy, double relevance) {
+    record RankedResult(Long documentId, int rank, String matchedBy, double relevance) {
     }
 
     record QueryExecution(
             String questionId,
             KnowledgeSearchMode mode,
             boolean hasAnswer,
-            List<UUID> expectedDocumentIds,
+            List<Long> expectedDocumentIds,
             List<RankedResult> results,
             List<KnowledgeSearchWarning> warnings,
             int resultCount,
@@ -473,7 +461,7 @@ class KnowledgeSearchBenchmarkIT {
         }
     }
 
-    record IsolationViolation(String questionId, KnowledgeSearchMode mode, UUID documentId, String reason) {
+    record IsolationViolation(String questionId, KnowledgeSearchMode mode, Long documentId, String reason) {
     }
 
     record ModeSummary(long answerableCount, long topFiveHitCount, double topFiveRate, long p95Millis,
@@ -484,7 +472,7 @@ class KnowledgeSearchBenchmarkIT {
                        long maxHeapBytes, String postgresVersion, String databaseImage, String inferenceDevice) {
     }
 
-    record Configuration(String applicationVersion, String benchmarkVersion, UUID generationId, String modelId,
+    record Configuration(String applicationVersion, String benchmarkVersion, Long generationId, String modelId,
                          String modelChecksum, int vectorDimension, String chunkStrategyVersion,
                          String fusionConfigVersion, long documentCount, long chunkCount, boolean modelPrewarmed) {
     }

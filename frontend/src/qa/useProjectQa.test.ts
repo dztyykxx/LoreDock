@@ -9,8 +9,8 @@ import { createProjectQaController } from './useProjectQa'
 
 function question(overrides: Partial<QaQuestion> = {}): QaQuestion {
   return {
-    questionId: 'question-1',
-    runId: 'run-1',
+    questionId: 61,
+    runId: 71,
     scope: { projectIdentifier: 'network-designer', branch: 'main', commit: 'abc1234', codeSnapshotAvailable: true },
     createdAt: '2026-07-31T08:00:00Z',
     status: 'COMPLETED',
@@ -24,7 +24,7 @@ function question(overrides: Partial<QaQuestion> = {}): QaQuestion {
     stepCount: 2,
     modelCallCount: 1,
     lastEventSequence: 9,
-    messages: [{ id: 'message-1', role: 'USER', content: '为什么需要范围锁定？', resultType: null, refusalReason: null, createdAt: '2026-07-31T08:00:00Z' }],
+    messages: [{ id: 81, role: 'USER', content: '为什么需要范围锁定？', resultType: null, refusalReason: null, createdAt: '2026-07-31T08:00:00Z' }],
     citations: [],
     ...overrides,
   }
@@ -46,7 +46,7 @@ describe('createProjectQaController', () => {
    * 业务目的：页面加载与选择历史必须始终从服务端快照恢复，防止刷新后依赖上一次内存中的部分回答。
    */
   it('loads history and then restores the selected detail snapshot', async () => {
-    const selected = question({ questionId: 'question-history' })
+    const selected = question({ questionId: 62 })
     const qa = api({
       history: vi.fn().mockResolvedValue({ items: [selected], nextCursor: 'next-page' }),
       detail: vi.fn().mockResolvedValue(selected),
@@ -54,12 +54,12 @@ describe('createProjectQaController', () => {
     const controller = createProjectQaController(qa, 'network-designer', () => 'main')
 
     await controller.loadHistory()
-    await controller.selectQuestion('question-history')
+    await controller.selectQuestion(62)
 
     expect(controller.history.value).toEqual([selected])
     expect(controller.nextCursor.value).toBe('next-page')
-    expect(controller.current.value?.questionId).toBe('question-history')
-    expect(qa.detail).toHaveBeenCalledWith('network-designer', 'question-history')
+    expect(controller.current.value?.questionId).toBe(62)
+    expect(qa.detail).toHaveBeenCalledWith('network-designer', 62)
   })
 
   /**
@@ -109,14 +109,14 @@ describe('createProjectQaController', () => {
     await Promise.resolve()
 
     expect(controller.partialText.value).toBe('正在回答')
-    expect(qa.openEventStream).toHaveBeenLastCalledWith('network-designer', 'question-1', 1, expect.any(Object))
+    expect(qa.openEventStream).toHaveBeenLastCalledWith('network-designer', 61, 1, expect.any(Object))
     expect(streams[0].close).toHaveBeenCalledOnce()
 
     handlers[1].onEvent('run.completed', { version: 'v1', sequence: 3, occurredAt: '2026-07-31T08:00:03Z', phase: 'COMPLETED', resultType: 'ANSWER' })
     await Promise.resolve()
     await Promise.resolve()
 
-    expect(detail).toHaveBeenCalledWith('network-designer', 'question-1')
+    expect(detail).toHaveBeenCalledWith('network-designer', 61)
     expect(controller.current.value?.resultText).toBe('服务端终态正文')
     expect(streams[1].close).toHaveBeenCalledOnce()
   })
@@ -156,7 +156,7 @@ describe('createProjectQaController', () => {
     const openEventStream = vi.fn()
       .mockReturnValueOnce(firstStream)
       .mockReturnValueOnce(secondStream)
-    const createQuestion = vi.fn().mockResolvedValue(question({ questionId: 'question-retry', status: 'ACCEPTED', trustState: 'IN_PROGRESS', resultType: null, answerBasis: null, resultText: null }))
+    const createQuestion = vi.fn().mockResolvedValue(question({ questionId: 63, status: 'ACCEPTED', trustState: 'IN_PROGRESS', resultType: null, answerBasis: null, resultText: null }))
     const qa = api({ openEventStream, createQuestion })
     const keys = ['retry-key']
     const controller = createProjectQaController(qa, 'network-designer', () => 'main', {
@@ -164,7 +164,7 @@ describe('createProjectQaController', () => {
     })
 
     await controller.observe(question({ status: 'RUNNING', trustState: 'IN_PROGRESS', resultType: null, answerBasis: null, resultText: null }))
-    await controller.observe(question({ questionId: 'question-2', runId: 'run-2', status: 'RUNNING', trustState: 'IN_PROGRESS', resultType: null, answerBasis: null, resultText: null }))
+    await controller.observe(question({ questionId: 64, runId: 72, status: 'RUNNING', trustState: 'IN_PROGRESS', resultType: null, answerBasis: null, resultText: null }))
     expect(firstStream.close).toHaveBeenCalledOnce()
 
     controller.pendingIdempotencyKey.value = 'first-key'

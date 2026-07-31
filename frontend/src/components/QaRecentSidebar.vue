@@ -23,8 +23,8 @@
 <script setup lang="ts">
 import type { QaQuestion } from '../api/qa'
 
-defineProps<{ items: QaQuestion[]; selectedId: string | null }>()
-defineEmits<{ select: [questionId: string] }>()
+defineProps<{ items: QaQuestion[]; selectedId: number | null }>()
+defineEmits<{ select: [questionId: number] }>()
 
 function questionText(item: QaQuestion): string {
   return item.messages.find(message => message.role === 'USER')?.content ?? '未命名问题'

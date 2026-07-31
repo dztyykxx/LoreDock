@@ -11,7 +11,7 @@ import type { SessionController } from '../session/useSession'
 import KnowledgeEditorView from './KnowledgeEditorView.vue'
 
 const project: ProjectDetail = {
-  id: 'project-1',
+  id: 1,
   identifier: 'network-designer',
   name: '网络设计工具',
   description: '网络拓扑设计',
@@ -19,21 +19,21 @@ const project: ProjectDetail = {
   defaultBranch: 'main',
   selectedBranch: 'main',
   branches: [
-    { id: 'branch-main', name: 'main', createdAt: '', updatedAt: '', createdBy: 'admin', updatedBy: 'admin' },
-    { id: 'branch-feature', name: 'feature/import', createdAt: '', updatedAt: '', createdBy: 'admin', updatedBy: 'admin' },
+    { id: 11, name: 'main', createdAt: '', updatedAt: '', createdBy: 'admin', updatedBy: 'admin' },
+    { id: 12, name: 'feature/import', createdAt: '', updatedAt: '', createdBy: 'admin', updatedBy: 'admin' },
   ],
 }
 
 function adminDocument(overrides: Partial<AdminKnowledgeDocumentView> = {}): AdminKnowledgeDocumentView {
   return {
-    id: 'document-1',
+    id: 51,
     format: 'MARKDOWN',
     title: '场景包规则',
     body: '# 规则正文',
     directory: '业务规则/导入',
     tags: ['场景包'],
     source: { type: 'MANUAL', wikiUrl: null, originalFilename: null, curationNote: '人工整理' },
-    scope: { type: 'PROJECT', projectId: 'project-1', branchId: null },
+    scope: { type: 'PROJECT', projectId: 1, branchId: null },
     status: 'DRAFT',
     revision: 1,
     syncStatus: 'NOT_APPLICABLE',
@@ -50,7 +50,7 @@ function adminDocument(overrides: Partial<AdminKnowledgeDocumentView> = {}): Adm
   }
 }
 
-function summary(id: string, title: string): KnowledgeDocumentSummary {
+function summary(id: number, title: string): KnowledgeDocumentSummary {
   const document = adminDocument({ id, title, status: 'PUBLISHED', syncStatus: 'SYNCED' })
   return document
 }
@@ -170,7 +170,7 @@ describe('KnowledgeEditorView', () => {
    */
   it('submits unchanged values and makes archived documents readonly', async () => {
     const updateDocument = vi.fn().mockResolvedValue(adminDocument())
-    const wrapper = await mountView('/projects/network-designer/knowledge/document-1/edit', {
+    const wrapper = await mountView('/projects/network-designer/knowledge/51/edit', {
       username: 'admin', displayName: '管理员', role: 'ADMIN',
     }, createKnowledgeApi({ updateDocument }))
     await flushPromises()
@@ -178,7 +178,7 @@ describe('KnowledgeEditorView', () => {
     await flushPromises()
     expect(updateDocument).toHaveBeenCalledOnce()
 
-    const archived = await mountView('/projects/network-designer/knowledge/document-1/edit', {
+    const archived = await mountView('/projects/network-designer/knowledge/51/edit', {
       username: 'admin', displayName: '管理员', role: 'ADMIN',
     }, createKnowledgeApi({ getAdminDocument: vi.fn().mockResolvedValue(adminDocument({ status: 'ARCHIVED' })) }))
     await flushPromises()
@@ -219,13 +219,13 @@ describe('KnowledgeEditorView', () => {
       .mockResolvedValueOnce(adminDocument())
     const publishDocument = vi.fn().mockResolvedValue(adminDocument({ status: 'PUBLISHED', syncStatus: 'PENDING' }))
     const archiveDocument = vi.fn().mockResolvedValue(adminDocument({ status: 'ARCHIVED' }))
-    const wrapper = await mountView('/projects/network-designer/knowledge/document-1/edit', {
+    const wrapper = await mountView('/projects/network-designer/knowledge/51/edit', {
       username: 'admin', displayName: '管理员', role: 'ADMIN',
     }, createKnowledgeApi({
       updateDocument,
       publishDocument,
       archiveDocument,
-      listAdmin: vi.fn().mockResolvedValue({ items: [summary('old-1', '旧版规则')], page: 0, size: 100, totalElements: 1, totalPages: 1 }),
+      listAdmin: vi.fn().mockResolvedValue({ items: [summary(57, '旧版规则')], page: 0, size: 100, totalElements: 1, totalPages: 1 }),
     }))
     await flushPromises()
 
@@ -233,17 +233,17 @@ describe('KnowledgeEditorView', () => {
     await flushPromises()
     expect(wrapper.get('[data-testid="field-error-title"]').text()).toContain('标题不能为空')
 
-    await wrapper.get('[data-testid="replacement-select"]').setValue('old-1')
+    await wrapper.get('[data-testid="replacement-select"]').setValue('57')
     await wrapper.get('[data-testid="publish-document"]').trigger('click')
     await wrapper.get('[data-testid="confirm-dialog-submit"]').trigger('click')
     await flushPromises()
-    expect(publishDocument).toHaveBeenCalledWith('document-1', 'old-1')
+    expect(publishDocument).toHaveBeenCalledWith(51, 57)
     expect(wrapper.text()).toContain('索引待同步')
 
     await wrapper.get('[data-testid="archive-document"]').trigger('click')
     await wrapper.get('[data-testid="confirm-dialog-submit"]').trigger('click')
     await flushPromises()
-    expect(archiveDocument).toHaveBeenCalledWith('document-1')
+    expect(archiveDocument).toHaveBeenCalledWith(51)
     expect(wrapper.text()).toContain('归档文档只读')
   })
 
@@ -252,7 +252,7 @@ describe('KnowledgeEditorView', () => {
    */
   it('uploads one batch and preserves every partial outcome', async () => {
     const batch: KnowledgeImportBatch = {
-      id: 'batch-1',
+      id: 41,
       originalFilename: '<script>bad()</script>.zip',
       scope: { type: 'PROJECT', projectId: project.id, branchId: null },
       directoryPrefix: '导入',
@@ -261,7 +261,7 @@ describe('KnowledgeEditorView', () => {
       failedCount: 1,
       ignoredCount: 1,
       items: [
-        { ordinal: 0, entryName: 'ok.md', status: 'SUCCEEDED', reason: 'IMPORTED', message: '已导入', documentId: 'new-1' },
+        { ordinal: 0, entryName: 'ok.md', status: 'SUCCEEDED', reason: 'IMPORTED', message: '已导入', documentId: 52 },
         { ordinal: 1, entryName: 'bad.md', status: 'FAILED', reason: 'INVALID_TEXT_ENCODING', message: '编码无效', documentId: null },
         { ordinal: 2, entryName: 'pic.png', status: 'IGNORED', reason: 'UNSUPPORTED_FILE_TYPE', message: '格式不支持', documentId: null },
       ],

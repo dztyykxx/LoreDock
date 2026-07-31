@@ -9,7 +9,7 @@ import AppSidebar from './AppSidebar.vue'
 import type { ProjectSummary } from '../api/types'
 
 const project: ProjectSummary = {
-  id: 'a4f0a282-4911-4d36-84cd-135302001687',
+  id: 1,
   identifier: 'api-project',
   name: '接口返回项目',
   description: '来自服务端的项目简介',

@@ -20,7 +20,7 @@ export interface ApiErrorBody {
 }
 
 export interface BranchView {
-  id: string
+  id: number
   name: string
   createdAt: string
   updatedAt: string
@@ -29,7 +29,7 @@ export interface BranchView {
 }
 
 export interface ProjectSummary {
-  id: string
+  id: number
   identifier: string
   name: string
   description: string
@@ -39,7 +39,7 @@ export interface ProjectSummary {
 }
 
 export interface ProjectDetail {
-  id: string
+  id: number
   identifier: string
   name: string
   description: string
@@ -52,7 +52,7 @@ export interface ProjectDetail {
 export type ProjectStatus = 'ENABLED' | 'DISABLED'
 
 export interface AdminProjectDetail {
-  id: string
+  id: number
   identifier: string
   name: string
   description: string

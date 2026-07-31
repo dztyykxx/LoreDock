@@ -1,21 +1,20 @@
 package io.github.loredock.platform.web;
 
-import io.github.loredock.platform.time.TimeProvider;
-import org.slf4j.MDC;
-
+import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import org.slf4j.MDC;
 
 /**
  * 为 MVC 异常与前置安全过滤器创建相同的错误体和 trace ID 语义。
  */
 public final class SecurityErrorFactory {
 
-    private final TimeProvider timeProvider;
+    private final Clock timeProvider;
 
     /** @param timeProvider UTC 时间端口 */
-    public SecurityErrorFactory(TimeProvider timeProvider) {
+    public SecurityErrorFactory(Clock timeProvider) {
         this.timeProvider = timeProvider;
     }
 
@@ -28,7 +27,7 @@ public final class SecurityErrorFactory {
         return new ApiError(
                 code.name(),
                 code.publicMessage(),
-                OffsetDateTime.ofInstant(timeProvider.now(), ZoneOffset.UTC),
+                OffsetDateTime.ofInstant(timeProvider.instant(), ZoneOffset.UTC),
                 traceId(),
                 fieldErrors
         );

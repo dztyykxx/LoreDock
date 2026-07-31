@@ -1,12 +1,12 @@
 package io.github.loredock.platform.persistence;
 
-import org.apache.ibatis.type.BaseTypeHandler;
-import org.apache.ibatis.type.JdbcType;
 import java.sql.CallableStatement;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
+import org.apache.ibatis.type.BaseTypeHandler;
+import org.apache.ibatis.type.JdbcType;
 
 /** 将经过上层校验和长度限制的 JSON 字符串显式读写为 PostgreSQL JSONB。 */
 public class PostgresJsonbTypeHandler extends BaseTypeHandler<String> {

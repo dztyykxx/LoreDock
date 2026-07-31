@@ -156,7 +156,7 @@ async function loadMore(): Promise<void> {
   }
 }
 
-async function selectQuestion(questionId: string): Promise<void> {
+async function selectQuestion(questionId: number): Promise<void> {
   citationsOpen.value = false
   feedbackOpen.value = false
   try {

@@ -26,7 +26,7 @@ import { computed } from 'vue'
 import type { KnowledgeImportBatch, KnowledgeImportItemStatus } from '../api/knowledge'
 
 const props = defineProps<{ batch: KnowledgeImportBatch }>()
-defineEmits<{ openDocument: [documentId: string] }>()
+defineEmits<{ openDocument: [documentId: number] }>()
 
 const labels: Record<KnowledgeImportItemStatus, string> = { SUCCEEDED: '成功条目', FAILED: '失败条目', IGNORED: '忽略条目' }
 const groups = computed(() => (['SUCCEEDED', 'FAILED', 'IGNORED'] as const).map(status => ({

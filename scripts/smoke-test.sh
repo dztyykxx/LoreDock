@@ -9,6 +9,9 @@ java_home="/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home"
 node_bin="/opt/homebrew/opt/node@24/bin"
 backend_pid=""
 frontend_pid=""
+core_contract_tests="IdentityWebContractTest,ProjectWebContractTest,KnowledgeDocumentWebContractTest,KnowledgeSearchWebContractTest,CodeSnapshotWebContractTest,WebQaWebContractTest,WebQaSseContractTest,KnowledgeGapWebContractTest"
+# 公开测试夹具，仅用于让隔离冒烟进程满足固定 ADMIN/MEMBER 启动约束。
+smoke_password_hash='$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy'
 
 cleanup_processes() {
   if [[ -n "${frontend_pid}" ]]; then
@@ -60,6 +63,12 @@ start_backend() {
       LOREDOCK_DB_PASSWORD="loredock_local_only" \
       LOREDOCK_STORAGE_ROOT="${smoke_tmp}/objects" \
       LOREDOCK_BACKEND_PORT="8080" \
+      LOREDOCK_ADMIN_USERNAME="smoke-admin" \
+      LOREDOCK_ADMIN_DISPLAY_NAME="Smoke Admin" \
+      LOREDOCK_ADMIN_PASSWORD_HASH="${smoke_password_hash}" \
+      LOREDOCK_MEMBER_USERNAME="smoke-member" \
+      LOREDOCK_MEMBER_DISPLAY_NAME="Smoke Member" \
+      LOREDOCK_MEMBER_PASSWORD_HASH="${smoke_password_hash}" \
       "${java_home}/bin/java" -jar backend/target/loredock-backend-0.1.0-SNAPSHOT.jar
   ) >"${smoke_tmp}/backend.log" 2>&1 &
   backend_pid="$!"
@@ -73,12 +82,21 @@ start_frontend() {
   frontend_pid="$!"
 }
 
+run_core_contract_baseline() {
+  echo "执行核心 HTTP 契约基线：认证、项目/分支、知识、代码、问答、引用/拒答与知识缺口"
+  env JAVA_HOME="${java_home}" PATH="${java_home}/bin:${PATH}" \
+    "${repo_root}/backend/mvnw" -q -f "${repo_root}/backend/pom.xml" \
+    -Dtest="${core_contract_tests}" test
+  echo "核心 HTTP 契约基线通过：8 个代表性契约测试套件"
+}
+
 cleanup
 export LOREDOCK_DB_PORT=55432
 export LOREDOCK_DB_PASSWORD=loredock_local_only
 "${compose[@]}" up --detach --wait database
 mkdir -p "${smoke_tmp}/objects"
 
+run_core_contract_baseline
 env JAVA_HOME="${java_home}" PATH="${java_home}/bin:${PATH}" \
   "${repo_root}/backend/mvnw" -q -f "${repo_root}/backend/pom.xml" -DskipTests package
 env PATH="${node_bin}:${PATH}" npm --prefix "${repo_root}/frontend" ci --silent
@@ -89,6 +107,9 @@ wait_http "http://localhost:8080/actuator/health/liveness" '"status":"UP"'
 wait_http "http://localhost:8080/actuator/health/readiness" '"status":"UP"'
 wait_http "http://localhost:15173" 'LoreDock'
 wait_http "http://localhost:15173/api/v1/system/status" '"status":"UP"'
+echo "后端存活状态：$(curl --fail --silent http://localhost:8080/actuator/health/liveness)"
+echo "后端就绪状态：$(curl --fail --silent http://localhost:8080/actuator/health/readiness)"
+echo "前端代理状态：$(curl --fail --silent http://localhost:15173/api/v1/system/status)"
 
 # 空库必须由本地后端的 Flyway 建表并启用 vector。
 "${compose[@]}" exec -T database psql -U loredock -d loredock -v ON_ERROR_STOP=1 \
@@ -101,14 +122,14 @@ insert into stored_object(
   id, object_key, status, original_filename, content_type, size_bytes, sha256,
   created_at, updated_at, created_by, updated_by
 ) values (
-  '${marker_key}', '${marker_key}', 'AVAILABLE', 'smoke.txt', 'text/plain', 12,
+  111, '${marker_key}', 'AVAILABLE', 'smoke.txt', 'text/plain', 12,
   'c29e7f348f118c8b2d35e9a46c3c5595d9a021e29513cbb267df4a107a9908f7',
   now(), now(), 'SYSTEM', 'SYSTEM'
 );
 insert into background_job(
   id, job_type, status, progress, created_at, updated_at, created_by, updated_by
 ) values (
-  '22222222-2222-2222-2222-222222222222', 'SMOKE', 'PENDING', 0,
+  222, 'SMOKE', 'PENDING', 0,
   now(), now(), 'SYSTEM', 'SYSTEM'
 );
 SQL
@@ -125,7 +146,7 @@ wait_http "http://localhost:8080/actuator/health/readiness" '"status":"UP"'
 wait_http "http://localhost:15173" 'LoreDock'
 "${compose[@]}" exec -T database psql -U loredock -d loredock -v ON_ERROR_STOP=1 \
   -c "select count(*) from stored_object where object_key = '${marker_key}';" \
-  -c "select count(*) from background_job where id = '22222222-2222-2222-2222-222222222222';"
+  -c "select count(*) from background_job where id = 222;"
 grep --quiet smoke-marker "${smoke_tmp}/objects/11/${marker_key}"
 
 # 数据库失联时 Java 进程仍存活，但 readiness 必须失败。
