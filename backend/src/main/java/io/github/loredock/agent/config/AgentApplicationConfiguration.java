@@ -10,7 +10,7 @@ import io.github.loredock.agent.service.impl.SpringAiAlibabaAgentRuntime;
 import java.sql.SQLException;
 import javax.sql.DataSource;
 import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -38,10 +38,12 @@ public class AgentApplicationConfiguration {
     }
 
     /**
+     * OpenAI 模型显式启用时创建运行时；使用配置条件可避免按 Bean 注册先后判断而漏装生产运行时。
+     *
      * @return 使用 Spring AI 标准 ChatModel 的 Alibaba Agent Runtime
      */
     @Bean
-    @ConditionalOnBean(ChatModel.class)
+    @ConditionalOnProperty(name = "spring.ai.model.chat", havingValue = "openai")
     public AgentRuntime agentRuntime(
             ChatModel chatModel,
             ProjectQaToolService tools,

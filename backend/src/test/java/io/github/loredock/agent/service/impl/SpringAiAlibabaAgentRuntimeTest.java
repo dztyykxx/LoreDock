@@ -151,6 +151,38 @@ class SpringAiAlibabaAgentRuntimeTest {
     }
 
     /**
+     * 业务目的：真实模型会把最终 JSON 拆成多个流式分块，运行时必须完整拼接后再解析，
+     * 防止只保留最后一个右花括号而把有效回答误报为模型响应无效。
+     */
+    @Test
+    void concatenatesStreamedFinalResponseBeforeParsing() {
+        ChatModel model = new ChatModel() {
+            @Override
+            public ChatResponse call(Prompt prompt) {
+                throw new UnsupportedOperationException("本场景只允许流式调用");
+            }
+
+            @Override
+            public Flux<ChatResponse> stream(Prompt prompt) {
+                return Flux.just(
+                        answer("{\"resultType\":\"REFUSAL\",\"answerBasis\":null,"),
+                        answer("\"text\":\"当前知识库没有足够依据\",\"citations\":[],"),
+                        answer("\"refusalReason\":\"INSUFFICIENT_EVIDENCE\",\"sourceConflict\":false}"));
+            }
+        };
+        SpringAiAlibabaAgentRuntime adapter = new SpringAiAlibabaAgentRuntime(
+                model, mock(ProjectQaToolService.class));
+
+        AgentExecutionResult result = adapter.execute(
+                request(RUN_ID, "未知项目规则是什么？", limits(8, 8, 30)));
+
+        assertThat(result.modelResult().resultType()).isEqualTo(AgentResultType.REFUSAL);
+        assertThat(result.modelResult().refusalReason()).isEqualTo(AgentRefusalReason.INSUFFICIENT_EVIDENCE);
+        assertThat(result.modelResult().text()).isEqualTo("当前知识库没有足够依据");
+        System.out.println("测试证据：场景=真实流式JSON聚合，分块数=3，完整解析=true，结果=REFUSAL");
+    }
+
+    /**
      * 业务目的：下一次模型调用或总步骤将突破服务端固定上限时必须停止，模型参数不能提高限制。
      */
     @Test

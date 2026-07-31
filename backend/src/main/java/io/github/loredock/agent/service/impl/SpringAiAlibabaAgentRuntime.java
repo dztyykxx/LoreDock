@@ -93,19 +93,25 @@ public class SpringAiAlibabaAgentRuntime implements AgentRuntime {
             if (remaining.isNegative() || remaining.isZero()) {
                 throw new AgentExecutionException(AgentErrorCode.AGENT_RUN_TIMEOUT);
             }
-            AssistantMessage answer = Flux.from(agent.streamMessages(request.question()))
+            String answer = Flux.from(agent.streamMessages(request.question()))
                     .ofType(AssistantMessage.class)
                     .filter(message -> !message.hasToolCalls()
                             && message.getText() != null && !message.getText().isBlank())
-                    .last()
+                    .map(AssistantMessage::getText)
+                    .reduce(new StringBuilder(), (content, chunk) -> appendResponseChunk(
+                            content, chunk, request.limits().maxAnswerCharacters()))
+                    .map(StringBuilder::toString)
+                    .filter(content -> !content.isBlank())
+                    .switchIfEmpty(reactor.core.publisher.Mono.error(
+                            new AgentExecutionException(AgentErrorCode.AGENT_MODEL_RESPONSE_INVALID)))
                     .timeout(remaining)
                     .block();
             if (answer == null) {
                 throw new AgentExecutionException(AgentErrorCode.AGENT_MODEL_RESPONSE_INVALID);
             }
             System.out.println("project_qa.model_response");
-            System.out.println(answer.getText());
-            ProjectQaModelResult modelResult = parse(answer.getText(), request.limits());
+            System.out.println(answer);
+            ProjectQaModelResult modelResult = parse(answer, request.limits());
             long elapsed = Duration.ofNanos(System.nanoTime() - started).toMillis();
             AgentExecutionUsage usage = new AgentExecutionUsage(
                     metrics.steps(), metrics.modelCalls(), ledger.retrievalCount.get(), ledger.trimmed.get(),
@@ -279,6 +285,14 @@ public class SpringAiAlibabaAgentRuntime implements AgentRuntime {
                     json == null ? 0 : json.length(), exception.getClass().getSimpleName());
             throw new AgentExecutionException(AgentErrorCode.AGENT_MODEL_RESPONSE_INVALID);
         }
+    }
+
+    private StringBuilder appendResponseChunk(StringBuilder content, String chunk, int maximumCodePoints) {
+        if (content.codePointCount(0, content.length())
+                + chunk.codePointCount(0, chunk.length()) > maximumCodePoints) {
+            throw new AgentExecutionException(AgentErrorCode.AGENT_MODEL_RESPONSE_INVALID);
+        }
+        return content.append(chunk);
     }
 
     private String jsonObject(String value) {

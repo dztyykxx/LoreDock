@@ -50,7 +50,7 @@
 - [x] 7.2 修正 `PersistentBackgroundJobServiceIT`、`CodeSnapshotPersistenceIT`、`CodeSnapshotUploadServiceIT`、`BranchScopedBackgroundJobServiceIT` 的固定 ID/对象键夹具冲突，保证进程内/跨运行可重复。
 - [x] 7.3 建立确定性核心 E2E：真实 PostgreSQL + 可控 Fake `ChatModel`，走通项目、知识、索引、问答、引用与拒答。
 - [x] 7.4 更新 `BackendMvcArchitectureTest`：跨模块只允许引用对方 `api`，禁止引用对方 `service`/`mapper`/`model/entity`/内部过程模型；存量违规输出明确迁移路径。
-- [ ] 7.5 建立可手工触发的真实模型 Smoke（承接 `return-qa-terminal-outcomes` 4.4）：验证 `COMPLETED/REFUSAL`、`INSUFFICIENT_EVIDENCE`、步骤数、页面文案，以及模型故障显示失败而非拒答。
+- [x] 7.5 建立可手工触发的真实模型 Smoke（承接 `return-qa-terminal-outcomes` 4.4）：验证 `COMPLETED/REFUSAL`、`INSUFFICIENT_EVIDENCE`、步骤数、页面文案，以及模型故障显示失败而非拒答。
 
 ## 8. 验收与归档
 
