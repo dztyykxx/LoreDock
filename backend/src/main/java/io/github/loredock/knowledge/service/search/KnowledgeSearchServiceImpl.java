@@ -2,6 +2,10 @@ package io.github.loredock.knowledge.service.search;
 
 import io.github.loredock.code.model.enums.CodeSnapshotAvailability;
 import io.github.loredock.code.service.ActiveCodeSnapshotQueryService;
+import io.github.loredock.knowledge.api.KnowledgeMatch;
+import io.github.loredock.knowledge.api.KnowledgeMatches;
+import io.github.loredock.knowledge.api.KnowledgeQuery;
+import io.github.loredock.knowledge.api.KnowledgeSearchVersionChangedException;
 import io.github.loredock.knowledge.exception.KnowledgeEmbeddingUnavailableException;
 import io.github.loredock.knowledge.exception.KnowledgeIndexUnavailableException;
 import io.github.loredock.knowledge.model.enums.KnowledgeBrowseContextType;
@@ -34,6 +38,7 @@ import java.text.Normalizer;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,9 +50,9 @@ import org.springframework.stereotype.Service;
  * 最后通过事实表批量复核实时发布与范围资格。任何路径都不扩大范围或读取完整当前正文。
  */
 @Service
-public class KnowledgeSearchService {
+public class KnowledgeSearchServiceImpl implements io.github.loredock.knowledge.api.KnowledgeSearchService {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(KnowledgeSearchService.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(KnowledgeSearchServiceImpl.class);
     private static final int DEFAULT_LIMIT = 10;
     private static final int MAX_QUERY_CODE_POINTS = 500;
     private static final int MAX_TAGS = 10;
@@ -71,7 +76,7 @@ public class KnowledgeSearchService {
      * @param codeSnapshots 项目分支活动代码快照状态端口
      * @param fusion 固定版本 RRF 融合器
      */
-    public KnowledgeSearchService(
+    public KnowledgeSearchServiceImpl(
             ProjectKnowledgeScopeResolver scopes,
             KnowledgeSearchIndexDataService generations,
             KnowledgeCandidateDataService keywords,
@@ -89,6 +94,42 @@ public class KnowledgeSearchService {
         this.eligibility = eligibility;
         this.codeSnapshots = codeSnapshots;
         this.fusion = fusion;
+    }
+
+    @Override
+    public Optional<Long> findActiveIndexVersionId() {
+        try {
+            return generations.findActive().map(ActiveKnowledgeSearchGeneration::generationId);
+        } catch (RuntimeException exception) {
+            throw new KnowledgeIndexUnavailableException(exception);
+        }
+    }
+
+    @Override
+    public boolean isActiveIndexVersion(Long versionId) {
+        return versionId != null && findActiveIndexVersionId()
+                .map(versionId::equals)
+                .orElse(false);
+    }
+
+    @Override
+    public KnowledgeMatches search(KnowledgeQuery request) {
+        if (request == null || !isActiveIndexVersion(request.indexVersionId())) {
+            throw new KnowledgeSearchVersionChangedException();
+        }
+        KnowledgeSearchResponse response = search(new KnowledgeSearchQuery(
+                KnowledgeBrowseContextType.PROJECT,
+                request.projectIdentifier(),
+                request.branch(),
+                request.query(),
+                KnowledgeSearchMode.HYBRID,
+                new KnowledgeSearchFilters(List.of(), null, null),
+                request.limit()));
+        if (!request.indexVersionId().equals(response.generationId())
+                || !isActiveIndexVersion(request.indexVersionId())) {
+            throw new KnowledgeSearchVersionChangedException();
+        }
+        return toApiResponse(response);
     }
 
     public KnowledgeSearchResponse search(KnowledgeSearchQuery query) {
@@ -113,6 +154,26 @@ public class KnowledgeSearchService {
                     traceId, prepared.contextType(), prepared.mode(), elapsed(started));
             throw new KnowledgeIndexUnavailableException(exception);
         }
+    }
+
+    private KnowledgeMatches toApiResponse(KnowledgeSearchResponse response) {
+        List<KnowledgeMatches.Warning> warnings = response.warnings().stream()
+                .map(value -> KnowledgeMatches.Warning.valueOf(value.name()))
+                .toList();
+        List<KnowledgeMatch> results = response.results().stream()
+                .map(this::toApiResult)
+                .toList();
+        return new KnowledgeMatches(warnings, results);
+    }
+
+    private KnowledgeMatch toApiResult(KnowledgeSearchResult result) {
+        var scope = new KnowledgeMatch.Scope(
+                result.scope().type().name(), result.scope().projectIdentifier(), result.scope().branch());
+        var source = result.source() == null ? null : new KnowledgeMatch.Source(
+                result.source().type().name(), result.source().wikiUrl(), result.source().originalFilename());
+        return new KnowledgeMatch(
+                result.documentId(), scope, result.title(), result.snippet(), source,
+                result.sourceUpdatedAt(), result.relevance());
     }
 
     private KnowledgeSearchResponse execute(PreparedQuery query, String traceId, long started) {

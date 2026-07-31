@@ -22,13 +22,11 @@ import io.github.loredock.code.model.result.ActiveCodeSnapshotView;
 import io.github.loredock.code.service.ActiveCodeSnapshotQueryService;
 import io.github.loredock.code.service.CodeSearchService;
 import io.github.loredock.code.service.CodeSnippetService;
-import io.github.loredock.knowledge.model.enums.KnowledgeBrowseContextType;
-import io.github.loredock.knowledge.model.enums.KnowledgeSearchMode;
-import io.github.loredock.knowledge.model.request.KnowledgeSearchFilters;
-import io.github.loredock.knowledge.model.request.KnowledgeSearchQuery;
-import io.github.loredock.knowledge.model.result.KnowledgeSearchResult;
-import io.github.loredock.knowledge.service.KnowledgeSearchIndexDataService;
-import io.github.loredock.knowledge.service.search.KnowledgeSearchService;
+import io.github.loredock.knowledge.api.KnowledgeMatch;
+import io.github.loredock.knowledge.api.KnowledgeMatches;
+import io.github.loredock.knowledge.api.KnowledgeQuery;
+import io.github.loredock.knowledge.api.KnowledgeSearchService;
+import io.github.loredock.knowledge.api.KnowledgeSearchVersionChangedException;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -48,7 +46,6 @@ public class ProjectQaToolService {
     private static final int MAX_SNIPPET_LINES = 200;
     private final AgentRunService runs;
     private final KnowledgeSearchService knowledge;
-    private final KnowledgeSearchIndexDataService generations;
     private final CodeSearchService codeSearch;
     private final CodeSnippetService snippets;
     private final ActiveCodeSnapshotQueryService codeSnapshots;
@@ -60,7 +57,6 @@ public class ProjectQaToolService {
     /**
      * @param runs 运行固定范围事实
      * @param knowledge 已有三层已发布知识混合检索
-     * @param generations 活动知识 generation 读取端口
      * @param codeSearch 已有活动快照代码搜索
      * @param snippets 已有活动快照片段读取
      * @param codeSnapshots 活动代码快照状态
@@ -72,7 +68,6 @@ public class ProjectQaToolService {
     public ProjectQaToolService(
             AgentRunService runs,
             KnowledgeSearchService knowledge,
-            KnowledgeSearchIndexDataService generations,
             CodeSearchService codeSearch,
             CodeSnippetService snippets,
             ActiveCodeSnapshotQueryService codeSnapshots,
@@ -83,7 +78,6 @@ public class ProjectQaToolService {
     ) {
         this.runs = runs;
         this.knowledge = knowledge;
-        this.generations = generations;
         this.codeSearch = codeSearch;
         this.snippets = snippets;
         this.codeSnapshots = codeSnapshots;
@@ -105,25 +99,27 @@ public class ProjectQaToolService {
         }
         requireKnowledgeVersion(run);
         int limit = boundedLimit(request.limit());
-        var response = knowledge.search(new KnowledgeSearchQuery(
-                KnowledgeBrowseContextType.PROJECT, run.scope().projectIdentifier(), run.scope().branch(),
-                request.query(), KnowledgeSearchMode.HYBRID, new KnowledgeSearchFilters(List.of(), null, null), limit));
-        requireKnowledgeVersion(run);
-        if (!run.scope().knowledgeGenerationId().equals(response.generationId())) {
+        KnowledgeMatches response;
+        try {
+            response = knowledge.search(new KnowledgeQuery(
+                    run.scope().projectIdentifier(), run.scope().branch(), request.query(), limit,
+                    run.scope().knowledgeGenerationId()));
+        } catch (KnowledgeSearchVersionChangedException exception) {
             throw versionChanged();
         }
+        requireKnowledgeVersion(run);
 
         List<EvidenceContent> values = new ArrayList<>();
-        for (KnowledgeSearchResult result : response.results()) {
+        for (KnowledgeMatch result : response.results()) {
             requireKnowledgeScope(run, result);
             boolean relevant = result.relevance() >= configuration.minimumRelevance();
             values.add(new EvidenceContent(knowledgeEvidence(run, result, relevant), result.snippet(), relevant,
                     "title=" + safeLine(result.title())));
         }
         AgentToolResult result = boundedContext(runId, values);
-        log.info("agent_tool completed runId={} tool=knowledge_search project={} branch={} generationId={} "
+        log.info("agent_tool completed runId={} tool=knowledge_search project={} branch={} indexVersionId={} "
                         + "resultCount={} evidenceCount={} trimmedCharacters={}",
-                runId, run.scope().projectIdentifier(), run.scope().branch(), response.generationId(),
+                runId, run.scope().projectIdentifier(), run.scope().branch(), run.scope().knowledgeGenerationId(),
                 result.resultCount(), result.evidence().size(), result.trimmedCharacterCount());
         return result;
     }
@@ -211,8 +207,7 @@ public class ProjectQaToolService {
     }
 
     private void requireKnowledgeVersion(AgentRunSnapshot run) {
-        Long active = generations.findActive().map(value -> value.generationId()).orElse(null);
-        if (!Objects.equals(run.scope().knowledgeGenerationId(), active)) {
+        if (!knowledge.isActiveIndexVersion(run.scope().knowledgeGenerationId())) {
             throw versionChanged();
         }
     }
@@ -228,8 +223,8 @@ public class ProjectQaToolService {
         }
     }
 
-    private void requireKnowledgeScope(AgentRunSnapshot run, KnowledgeSearchResult result) {
-        String type = result.scope().type().name();
+    private void requireKnowledgeScope(AgentRunSnapshot run, KnowledgeMatch result) {
+        String type = result.scope().type();
         boolean allowed = run.scope().allowedKnowledgeScopes().contains(type);
         boolean projectMatches = result.scope().projectIdentifier() == null
                 || run.scope().projectIdentifier().equals(result.scope().projectIdentifier());
@@ -255,13 +250,13 @@ public class ProjectQaToolService {
         }
     }
 
-    private AgentEvidence knowledgeEvidence(AgentRunSnapshot run, KnowledgeSearchResult result, boolean retained) {
+    private AgentEvidence knowledgeEvidence(AgentRunSnapshot run, KnowledgeMatch result, boolean retained) {
         var source = result.source();
         EvidenceSourceMetadata metadata = source == null
                 ? EvidenceSourceMetadata.historicalUnknown()
                 : new EvidenceSourceMetadata(
                         EvidenceSourceMetadata.CURRENT_SCHEMA_VERSION,
-                        result.scope().type().name(), source.type().name(), source.wikiUrl(), source.originalFilename());
+                        result.scope().type(), source.type(), source.wikiUrl(), source.originalFilename());
         return new AgentEvidence(null, run.runId(), EvidenceSourceType.KNOWLEDGE, retained,
                 result.relevance(), result.documentId(), null, run.scope().projectIdentifier(), run.scope().branch(),
                 null, null, result.title(), result.sourceUpdatedAt(), metadata);

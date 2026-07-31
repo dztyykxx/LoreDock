@@ -11,10 +11,10 @@
 
 ## 2. knowledge 模块契约
 
-- [ ] 2.1 定义 `knowledge.api.KnowledgeSearchService`：只返回指定范围内已发布知识及来源，隐藏 generation、Mapper 与索引内部数据服务。
-- [ ] 2.2 为范围检索契约编写失败测试：项目/分支/发布状态强约束、无索引/无命中/嵌入不可用可区分、`CODE_SNAPSHOT_NOT_INDEXED` 警告保留。
-- [ ] 2.3 使现有检索 Service 实现契约，迁移 agent 对 `KnowledgeSearchService`/`KnowledgeSearchIndexDataService` 的直接引用。
-- [ ] 2.4 合并 knowledge 模块 Command/Result/DataService 转发小类，删除无调用方代码；运行契约、HTTP 与架构测试。
+- [x] 2.1 定义 `knowledge.api.KnowledgeSearchService`：只返回指定范围内已发布知识及来源，隐藏 generation、Mapper 与索引内部数据服务。
+- [x] 2.2 为范围检索契约编写失败测试：项目/分支/发布状态强约束、无索引/无命中/嵌入不可用可区分、`CODE_SNAPSHOT_NOT_INDEXED` 警告保留。
+- [x] 2.3 使现有检索 Service 实现契约，迁移 agent 对 `KnowledgeSearchService`/`KnowledgeSearchIndexDataService` 的直接引用。
+- [x] 2.4 合并 knowledge 模块 Command/Result/DataService 转发小类，删除无调用方代码；运行契约、HTTP 与架构测试。
 
 ## 3. code 模块契约
 

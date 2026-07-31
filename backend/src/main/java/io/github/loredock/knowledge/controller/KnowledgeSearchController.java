@@ -6,7 +6,7 @@ import io.github.loredock.knowledge.model.request.KnowledgeSearchFilters;
 import io.github.loredock.knowledge.model.request.KnowledgeSearchQuery;
 import io.github.loredock.knowledge.model.request.KnowledgeSearchRequest;
 import io.github.loredock.knowledge.model.response.KnowledgeSearchHttpResponse;
-import io.github.loredock.knowledge.service.search.KnowledgeSearchService;
+import io.github.loredock.knowledge.service.search.KnowledgeSearchServiceImpl;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
@@ -18,10 +18,10 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping(KnowledgeSearchHttpContract.BASE_PATH)
 public class KnowledgeSearchController {
 
-    private final KnowledgeSearchService searches;
+    private final KnowledgeSearchServiceImpl searches;
 
     /** @param searches 统一知识搜索应用用例 */
-    public KnowledgeSearchController(KnowledgeSearchService searches) {
+    public KnowledgeSearchController(KnowledgeSearchServiceImpl searches) {
         this.searches = searches;
     }
 

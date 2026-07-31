@@ -30,7 +30,7 @@ import io.github.loredock.knowledge.model.enums.KnowledgeSearchMode;
 import io.github.loredock.knowledge.model.request.KnowledgeSearchQuery;
 import io.github.loredock.knowledge.model.response.KnowledgeSearchResponse;
 import io.github.loredock.knowledge.model.result.KnowledgeSearchContext;
-import io.github.loredock.knowledge.service.search.KnowledgeSearchService;
+import io.github.loredock.knowledge.service.search.KnowledgeSearchServiceImpl;
 import io.github.loredock.platform.web.GlobalExceptionHandler;
 import io.github.loredock.platform.web.PlatformConfiguration;
 import io.github.loredock.platform.web.SensitiveDataRedactor;
@@ -85,7 +85,7 @@ class KnowledgeSearchWebContractTest {
     private MockMvc mockMvc;
 
     @MockitoBean
-    private KnowledgeSearchService searches;
+    private KnowledgeSearchServiceImpl searches;
 
     @BeforeEach
     void resetSessionsAndSearches() {
@@ -104,7 +104,7 @@ class KnowledgeSearchWebContractTest {
                         .queryParam("query", "发布流程").queryParam("context", "GLOBAL"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("AUTH_LOGIN_REQUIRED"));
-        verify(searches, never()).search(any());
+        verify(searches, never()).search(any(KnowledgeSearchQuery.class));
     }
 
     /**
@@ -112,7 +112,7 @@ class KnowledgeSearchWebContractTest {
      */
     @Test
     void memberCanSearchGlobalAndProjectKnowledgeWithAllPublicParameters() throws Exception {
-        when(searches.search(any())).thenReturn(response());
+        when(searches.search(any(KnowledgeSearchQuery.class))).thenReturn(response());
         Cookie member = loginCookie("member");
 
         mockMvc.perform(get(KnowledgeSearchHttpContract.BASE_PATH)
@@ -156,14 +156,15 @@ class KnowledgeSearchWebContractTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
 
-        doThrow(new ProjectNotFoundException()).when(searches).search(any());
+        doThrow(new ProjectNotFoundException()).when(searches).search(any(KnowledgeSearchQuery.class));
         search(member).andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("PROJECT_NOT_FOUND"));
-        doThrow(new BranchNotFoundException()).when(searches).search(any());
+        doThrow(new BranchNotFoundException()).when(searches).search(any(KnowledgeSearchQuery.class));
         search(member).andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("BRANCH_NOT_FOUND"));
-        doThrow(new KnowledgeIndexUnavailableException()).when(searches).search(any());
+        doThrow(new KnowledgeIndexUnavailableException()).when(searches).search(any(KnowledgeSearchQuery.class));
         search(member).andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("KNOWLEDGE_INDEX_UNAVAILABLE"));
-        doThrow(new KnowledgeEmbeddingUnavailableException()).when(searches).search(any());
+        doThrow(new KnowledgeEmbeddingUnavailableException()).when(searches)
+                .search(any(KnowledgeSearchQuery.class));
         search(member).andExpect(status().isServiceUnavailable())
                 .andExpect(jsonPath("$.code").value("KNOWLEDGE_EMBEDDING_UNAVAILABLE"));
     }
@@ -173,7 +174,7 @@ class KnowledgeSearchWebContractTest {
      */
     @Test
     void internalSearchParametersCannotControlRetrieval() throws Exception {
-        when(searches.search(any())).thenReturn(response());
+        when(searches.search(any(KnowledgeSearchQuery.class))).thenReturn(response());
         mockMvc.perform(get(KnowledgeSearchHttpContract.BASE_PATH)
                         .queryParam("query", "发布").queryParam("context", "GLOBAL")
                         .queryParam("generationId", "attacker-generation")

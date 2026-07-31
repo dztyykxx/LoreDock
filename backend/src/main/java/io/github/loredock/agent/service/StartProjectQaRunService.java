@@ -13,7 +13,7 @@ import io.github.loredock.agent.model.snapshot.AgentVersionSnapshot;
 import io.github.loredock.agent.skill.AgentDefinition;
 import io.github.loredock.code.model.enums.CodeSnapshotAvailability;
 import io.github.loredock.code.service.ActiveCodeSnapshotQueryService;
-import io.github.loredock.knowledge.service.KnowledgeSearchIndexDataService;
+import io.github.loredock.knowledge.api.KnowledgeSearchService;
 import io.github.loredock.project.api.ProjectScope;
 import io.github.loredock.project.api.ProjectService;
 import java.nio.charset.StandardCharsets;
@@ -41,7 +41,7 @@ public class StartProjectQaRunService {
     private final AgentDefinitionProvider definitions;
     private final ProjectService projects;
     private final ActiveCodeSnapshotQueryService codeSnapshots;
-    private final KnowledgeSearchIndexDataService knowledgeGenerations;
+    private final KnowledgeSearchService knowledge;
     private final AgentRunService runs;
     private final TransactionAwareAgentRunDispatchCoordinator dispatch;
     private final Clock timeProvider;
@@ -51,7 +51,7 @@ public class StartProjectQaRunService {
      * @param definitions classpath Agent 定义
      * @param projects 启用项目与分支查询
      * @param codeSnapshots 活动代码快照查询
-     * @param knowledgeGenerations 活动知识 generation 查询
+     * @param knowledge 知识检索与活动索引版本契约
      * @param runs 运行仓储
      * @param dispatch 最外层事务提交后调度器
      * @param timeProvider UTC 时间源
@@ -61,7 +61,7 @@ public class StartProjectQaRunService {
             AgentDefinitionProvider definitions,
             ProjectService projects,
             ActiveCodeSnapshotQueryService codeSnapshots,
-            KnowledgeSearchIndexDataService knowledgeGenerations,
+            KnowledgeSearchService knowledge,
             AgentRunService runs,
             TransactionAwareAgentRunDispatchCoordinator dispatch,
             Clock timeProvider
@@ -70,7 +70,7 @@ public class StartProjectQaRunService {
         this.definitions = definitions;
         this.projects = projects;
         this.codeSnapshots = codeSnapshots;
-        this.knowledgeGenerations = knowledgeGenerations;
+        this.knowledge = knowledge;
         this.runs = runs;
         this.dispatch = dispatch;
         this.timeProvider = timeProvider;
@@ -95,7 +95,7 @@ public class StartProjectQaRunService {
         }
         ProjectScope project = projects.resolveEnabledScope(input.projectIdentifier(), input.branch());
         var code = codeSnapshots.get(project.projectIdentifier(), project.branchName());
-        Long generationId = knowledgeGenerations.findActive().map(value -> value.generationId()).orElse(null);
+        Long generationId = knowledge.findActiveIndexVersionId().orElse(null);
         AgentScopeSnapshot scope = new AgentScopeSnapshot(
                 project.projectId(), project.projectIdentifier(), project.branchId(), project.branchName(),
                 code.status() == CodeSnapshotAvailability.INDEXED ? code.snapshotId() : null,

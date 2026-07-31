@@ -21,8 +21,7 @@ import io.github.loredock.agent.skill.AgentDefinition;
 import io.github.loredock.code.model.enums.CodeSnapshotAvailability;
 import io.github.loredock.code.model.result.ActiveCodeSnapshotView;
 import io.github.loredock.code.service.ActiveCodeSnapshotQueryService;
-import io.github.loredock.knowledge.model.result.ActiveKnowledgeSearchGeneration;
-import io.github.loredock.knowledge.service.KnowledgeSearchIndexDataService;
+import io.github.loredock.knowledge.api.KnowledgeSearchService;
 import io.github.loredock.project.api.ProjectScope;
 import io.github.loredock.project.api.ProjectService;
 import java.time.Clock;
@@ -46,7 +45,7 @@ class StartProjectQaRunServiceTest {
     private AgentDefinitionProvider definitions;
     private ProjectService projects;
     private ActiveCodeSnapshotQueryService code;
-    private KnowledgeSearchIndexDataService knowledge;
+    private KnowledgeSearchService knowledge;
     private AgentRunService runs;
     private BoundedAgentRunScheduler scheduler;
     private TransactionAwareAgentRunDispatchCoordinator dispatch;
@@ -60,7 +59,7 @@ class StartProjectQaRunServiceTest {
         definitions = mock(AgentDefinitionProvider.class);
         projects = mock(ProjectService.class);
         code = mock(ActiveCodeSnapshotQueryService.class);
-        knowledge = mock(KnowledgeSearchIndexDataService.class);
+        knowledge = mock(KnowledgeSearchService.class);
         runs = mock(AgentRunService.class);
         acceptedData = new AtomicReference<>();
         scheduledRequest = new AtomicReference<>();
@@ -78,8 +77,7 @@ class StartProjectQaRunServiceTest {
         when(code.get(any(), any())).thenReturn(new ActiveCodeSnapshotView(
                 "atlas", "main", CodeSnapshotAvailability.INDEXED, SNAPSHOT_ID, "abcdef1234567",
                 NOW, 12L, null));
-        when(knowledge.findActive()).thenReturn(Optional.of(new ActiveKnowledgeSearchGeneration(
-                GENERATION_ID, "embedding", "a".repeat(64), 512, "chunk-v1", "fusion-v1", 2, 3, NOW)));
+        when(knowledge.findActiveIndexVersionId()).thenReturn(Optional.of(GENERATION_ID));
         when(runs.accept(any())).thenAnswer(invocation -> {
             AgentRunCreateData data = invocation.getArgument(0);
             acceptedData.set(data);

@@ -69,7 +69,7 @@ class KnowledgeSearchServiceTest {
     private KnowledgeEmbeddingService embedding;
     private KnowledgeSearchEligibilityService eligibility;
     private ActiveCodeSnapshotQueryService codeSnapshots;
-    private KnowledgeSearchService service;
+    private KnowledgeSearchServiceImpl service;
 
     @BeforeEach
     void setUp() {
@@ -80,7 +80,7 @@ class KnowledgeSearchServiceTest {
         embedding = mock(KnowledgeEmbeddingService.class);
         eligibility = mock(KnowledgeSearchEligibilityService.class);
         codeSnapshots = mock(ActiveCodeSnapshotQueryService.class);
-        service = new KnowledgeSearchService(scopes, generations, keywords, semantics, embedding,
+        service = new KnowledgeSearchServiceImpl(scopes, generations, keywords, semantics, embedding,
                 eligibility, codeSnapshots, new ReciprocalRankFusion());
         when(scopes.resolveBrowse(KnowledgeBrowseContextType.PROJECT, "project-a", null))
                 .thenReturn(new KnowledgeBrowseContext(KnowledgeBrowseContextType.PROJECT, PROJECT_ID, BRANCH_ID));
@@ -103,6 +103,46 @@ class KnowledgeSearchServiceTest {
     @AfterEach
     void clearMdc() {
         MDC.clear();
+    }
+
+    /**
+     * 业务目的：跨模块调用方必须只依赖 knowledge.api 的稳定检索契约，不能再注入检索实现或索引数据服务。
+     */
+    @Test
+    void searchImplementationExposesStableCrossModuleContract() {
+        assertThat(service).isInstanceOf(io.github.loredock.knowledge.api.KnowledgeSearchService.class);
+        System.out.println("测试证据：场景=知识检索跨模块契约，实现已由knowledge.api暴露");
+    }
+
+    /**
+     * 业务目的：公开契约必须固定项目/main 和活动索引，只返回实时资格复核后的知识来源并保留代码未索引警告。
+     */
+    @Test
+    void publicContractReturnsOnlyEligibleScopedKnowledgeAndSafeSource() {
+        Long documentId = id(9);
+        when(scopes.resolveBrowse(KnowledgeBrowseContextType.PROJECT, "project-a", "main"))
+                .thenReturn(new KnowledgeBrowseContext(KnowledgeBrowseContextType.PROJECT, PROJECT_ID, BRANCH_ID));
+        when(keywords.findKeywordCandidates(any(), any())).thenReturn(List.of(
+                candidate(documentId, 0, 9, KnowledgeScope.branch(PROJECT_ID, BRANCH_ID))));
+
+        var response = ((io.github.loredock.knowledge.api.KnowledgeSearchService) service).search(
+                new io.github.loredock.knowledge.api.KnowledgeQuery(
+                        "project-a", "main", "恢复方案", 5, GENERATION_ID));
+
+        assertThat(response.warnings()).containsExactly(
+                io.github.loredock.knowledge.api.KnowledgeMatches.Warning.CODE_SNAPSHOT_NOT_INDEXED);
+        assertThat(response.results()).singleElement().satisfies(result -> {
+            assertThat(result.documentId()).isEqualTo(documentId);
+            assertThat(result.scope().type()).isEqualTo("BRANCH");
+            assertThat(result.scope().projectIdentifier()).isEqualTo("project-a");
+            assertThat(result.scope().branch()).isEqualTo("main");
+            assertThat(result.source().type()).isEqualTo("MANUAL");
+        });
+        verify(eligibility).retainEligible(any(), org.mockito.ArgumentMatchers.eq(
+                new KnowledgeSearchResolvedScope(KnowledgeBrowseContextType.PROJECT,
+                        "project-a", "main", PROJECT_ID, BRANCH_ID)));
+        System.out.printf("测试证据：场景=公开知识范围检索，项目=%s，分支=%s，已发布结果=%d，警告=%s%n",
+                "project-a", "main", response.results().size(), response.warnings());
     }
 
     /**
@@ -321,7 +361,7 @@ class KnowledgeSearchServiceTest {
         String privateQuery = "内部恢复问题-绝不能进入日志";
         Long documentId = id(60);
         when(keywords.findKeywordCandidates(any(), any())).thenReturn(List.of(candidate(documentId, 0, 9)));
-        Logger logger = (Logger) LoggerFactory.getLogger(KnowledgeSearchService.class);
+        Logger logger = (Logger) LoggerFactory.getLogger(KnowledgeSearchServiceImpl.class);
         ListAppender<ILoggingEvent> appender = new ListAppender<>();
         appender.start();
         logger.addAppender(appender);

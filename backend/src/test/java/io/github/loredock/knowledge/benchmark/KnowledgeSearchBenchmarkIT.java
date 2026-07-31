@@ -17,7 +17,7 @@ import io.github.loredock.knowledge.model.result.KnowledgeIndexRebuildResult;
 import io.github.loredock.knowledge.service.KnowledgeIndexRebuildService;
 import io.github.loredock.knowledge.service.KnowledgeSearchIndexDataService;
 import io.github.loredock.knowledge.service.search.KnowledgeEmbeddingService;
-import io.github.loredock.knowledge.service.search.KnowledgeSearchService;
+import io.github.loredock.knowledge.service.search.KnowledgeSearchServiceImpl;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -70,7 +70,7 @@ class KnowledgeSearchBenchmarkIT {
     private KnowledgeIndexRebuildService rebuilder;
 
     @Autowired
-    private KnowledgeSearchService search;
+    private KnowledgeSearchServiceImpl search;
 
     @Autowired
     private KnowledgeSearchIndexDataService generations;
