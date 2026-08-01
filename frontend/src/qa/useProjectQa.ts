@@ -199,7 +199,7 @@ export function createProjectQaController(
     closeStream()
     current.value = snapshot
     processEvents.value = [...snapshot.processEvents].sort((left, right) => left.sequence - right.sequence)
-    partialText.value = snapshot.resultText ?? ''
+    partialText.value = snapshot.resultText ?? restoredPartialText(processEvents.value)
     phase.value = snapshot.status
     lastSequence = snapshot.lastEventSequence
     if (!isTerminal(snapshot.status)) {
@@ -354,6 +354,13 @@ export function createProjectQaController(
 
 function isTerminal(status: QaQuestion['status']): boolean {
   return status === 'COMPLETED' || status === 'FAILED' || status === 'TERMINATED'
+}
+
+function restoredPartialText(events: QaProcessEvent[]): string {
+  return events
+    .filter(event => event.type === 'ANSWER_DELTA' && event.payload.textDelta)
+    .map(event => event.payload.textDelta)
+    .join('')
 }
 
 function toProcessEvent(name: QaSseEventName, event: QaSseEvent): QaProcessEvent | null {

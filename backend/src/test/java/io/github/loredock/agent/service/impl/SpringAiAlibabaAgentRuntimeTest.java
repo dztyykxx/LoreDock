@@ -199,6 +199,48 @@ class SpringAiAlibabaAgentRuntimeTest {
     }
 
     /**
+     * 业务目的：结构化结果尚未生成完时就要公开 text 增量，防止引用校验阻塞用户看到模型回答。
+     */
+    @Test
+    void publishesAnswerTextBeforeStructuredResponseCompletes() {
+        String firstText = "这是尚未完成引用校验的流式回答。".repeat(8);
+        AtomicInteger deliveredChunks = new AtomicInteger();
+        ChatModel model = new ChatModel() {
+            @Override
+            public ChatResponse call(Prompt prompt) {
+                throw new UnsupportedOperationException("本场景只允许流式调用");
+            }
+
+            @Override
+            public Flux<ChatResponse> stream(Prompt prompt) {
+                return Flux.just(
+                                answer("{\"text\":\"" + firstText),
+                                answer("已生成完成\",\"resultType\":\"ANSWER\",\"answerBasis\":null,"),
+                                answer("\"citations\":[],\"refusalReason\":null,\"sourceConflict\":false}"))
+                        .doOnNext(ignored -> deliveredChunks.incrementAndGet());
+            }
+        };
+        SpringAiAlibabaAgentRuntime adapter = new SpringAiAlibabaAgentRuntime(
+                model, mock(ProjectQaToolService.class));
+        List<String> deltas = new ArrayList<>();
+        List<Integer> deliveryPositions = new ArrayList<>();
+
+        AgentExecutionResult result = adapter.execute(
+                request(RUN_ID, "我之前问过几次？", limits(8, 8, 30)), delta -> {
+                    deltas.add(delta);
+                    deliveryPositions.add(deliveredChunks.get());
+                });
+
+        assertThat(String.join("", deltas)).isEqualTo(firstText + "已生成完成");
+        assertThat(deliveryPositions).isNotEmpty();
+        assertThat(deliveryPositions.getFirst()).isLessThan(3);
+        assertThat(result.modelResult().basis()).isNull();
+        assertThat(result.modelResult().citationEvidenceIds()).isEmpty();
+        System.out.printf("测试证据：场景=校验前流式正文，首次增量位于第%d/%d分块，deltaCount=%d%n",
+                deliveryPositions.getFirst(), deliveredChunks.get(), deltas.size());
+    }
+
+    /**
      * 业务目的：下一次模型调用或总步骤将突破服务端固定上限时必须停止，模型参数不能提高限制。
      */
     @Test

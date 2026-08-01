@@ -2,6 +2,8 @@ package io.github.loredock.agent.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -9,11 +11,13 @@ import static org.mockito.Mockito.when;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import io.github.loredock.agent.api.AgentEvent;
 import io.github.loredock.agent.config.AgentRuntimeLimits;
 import io.github.loredock.agent.converter.ProjectQaResultConverter;
 import io.github.loredock.agent.exception.AgentExecutionException;
 import io.github.loredock.agent.exception.AgentToolException;
 import io.github.loredock.agent.model.enums.AgentErrorCode;
+import io.github.loredock.agent.model.enums.AgentEventType;
 import io.github.loredock.agent.model.enums.AgentResultType;
 import io.github.loredock.agent.model.enums.AnswerBasis;
 import io.github.loredock.agent.model.enums.EvidenceSourceType;
@@ -49,7 +53,7 @@ class ProjectQaRunTaskExecutorTest {
         when(runs.markRunning(any(), any())).thenReturn(true);
         when(runs.finishWithError(any(), any(), org.mockito.ArgumentMatchers.anyBoolean(), any(), any()))
                 .thenReturn(true);
-        when(execution.execute(any())).thenThrow(
+        when(execution.execute(any(), any())).thenThrow(
                 new AgentToolException(AgentErrorCode.AGENT_EVIDENCE_VERSION_CHANGED));
         ProjectQaRunTaskExecutor executor = new ProjectQaRunTaskExecutor(Optional.of(execution), runs, events,
                 mock(ProjectQaResultConverter.class), time);
@@ -84,7 +88,7 @@ class ProjectQaRunTaskExecutorTest {
                     .thenReturn(true);
             RuntimeException failure = code == AgentErrorCode.AGENT_TOOL_NOT_ALLOWED
                     ? new AgentToolException(code) : new AgentExecutionException(code, usage);
-            when(execution.execute(any())).thenThrow(failure);
+            when(execution.execute(any(), any())).thenThrow(failure);
             ProjectQaRunTaskExecutor executor = new ProjectQaRunTaskExecutor(
                     Optional.of(execution), runs, events, mock(ProjectQaResultConverter.class), time);
             AgentExecutionRequest request = request(now.plusSeconds(30));
@@ -143,6 +147,58 @@ class ProjectQaRunTaskExecutorTest {
                 "tokenUsageKnown=true", "elapsedMs=90");
         assertThat(logs).doesNotContain(sensitive, "sk-", "https://", "/Users/", "objectKey");
         System.out.printf("测试证据：场景=执行日志脱敏，runId=%s，计数可核验=true，敏感正文出现=false%n",
+                request.runId());
+    }
+
+    /**
+     * 业务目的：模型正文增量必须在最终引用校验前写为未校验事件，普通对话随后仍能以零引用回答完成。
+     */
+    @Test
+    void streamsUnverifiedDeltaBeforeCompletingGeneralConversationAnswer() {
+        AgentRunService runs = mock(AgentRunService.class);
+        AgentEventService events = mock(AgentEventService.class);
+        Clock time = mock(Clock.class);
+        Instant now = Instant.parse("2026-07-30T04:00:00Z");
+        when(time.instant()).thenReturn(now);
+        when(runs.markRunning(any(), any())).thenReturn(true);
+        when(runs.complete(any(), any(), any(), any())).thenReturn(true);
+        AgentRuntime execution = new AgentRuntime() {
+            @Override
+            public AgentExecutionResult execute(AgentExecutionRequest request) {
+                throw new AssertionError("编排器必须使用流式观察入口");
+            }
+
+            @Override
+            public AgentExecutionResult execute(
+                    AgentExecutionRequest request,
+                    java.util.function.Consumer<String> observer
+            ) {
+                observer.accept("会话历史回答");
+                return new AgentExecutionResult(
+                        new ProjectQaModelResult(AgentResultType.ANSWER, null,
+                                "会话历史回答", null, List.of()),
+                        List.of(), AgentExecutionUsage.none());
+            }
+        };
+        AgentExecutionRequest request = request(now.plusSeconds(30));
+
+        new ProjectQaRunTaskExecutor(Optional.of(execution), runs, events,
+                new ProjectQaResultConverter(), time).execute(request);
+
+        verify(events).append(eq(request.runId()), eq(AgentEventType.ANSWER_DELTA),
+                eq(io.github.loredock.agent.api.AgentEvent.SubjectType.MODEL),
+                argThat((AgentEvent.Payload payload) -> "UNVERIFIED".equals(payload.status())
+                        && "会话历史回答".equals(payload.textDelta())
+                        && payload.resultType() == null), eq(now));
+        verify(events).append(eq(request.runId()), eq(AgentEventType.CITATION_VALIDATION),
+                eq(io.github.loredock.agent.api.AgentEvent.SubjectType.VALIDATOR),
+                argThat((AgentEvent.Payload payload) -> "NOT_REQUIRED".equals(payload.status())
+                        && payload.count() == 0), eq(now));
+        verify(runs).complete(eq(request.runId()),
+                argThat(result -> result.resultType() == AgentResultType.ANSWER
+                        && result.basis() == null && result.citations().isEmpty()),
+                eq(AgentExecutionUsage.none()), eq(now));
+        System.out.printf("测试证据：场景=校验前正文事件，runId=%s，eventStatus=UNVERIFIED，最终引用=0%n",
                 request.runId());
     }
 

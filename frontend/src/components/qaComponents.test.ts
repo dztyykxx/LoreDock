@@ -141,6 +141,23 @@ describe('project QA components', () => {
   })
 
   /**
+   * 业务目的：模型正文生成时必须立即展示，并明确其仍待最终校验，避免用户把中间内容误认成可信终态。
+   */
+  it('shows provisional streamed text with a validation notice', () => {
+    const wrapper = mount(QaAnswerPanel, {
+      props: {
+        snapshot: question({ status: 'RUNNING', trustState: 'IN_PROGRESS', resultType: null, answerBasis: null, resultText: null }),
+        partialText: '正在流式生成的回答',
+        connectionState: 'open',
+      },
+    })
+
+    expect(wrapper.text()).toContain('正在流式生成的回答')
+    expect(wrapper.text()).toContain('内容仍在生成并等待最终校验')
+    expect(wrapper.text()).toContain('最终结果以校验后的回答为准')
+  })
+
+  /**
    * 业务目的：处理过程默认折叠，展开后按真实主体展示 Tool、来源和引用校验；模型摘要必须带公开摘要标签。
    */
   it('renders a keyboard-accessible collapsed process timeline with typed facts', async () => {

@@ -37,6 +37,41 @@ class ProjectQaResultConverterTest {
     }
 
     /**
+     * 业务目的：闲聊和会话历史类问题不需要项目知识证据，模型明确选择直接回答时不能被引用校验误砍。
+     */
+    @Test
+    void generalConversationAnswerDoesNotRequireKnowledgeEvidence() {
+        ProjectQaModelResult result = new ProjectQaModelResult(
+                AgentResultType.ANSWER, null, "本轮之前你提问过两次。", null, List.of());
+
+        TrustedProjectQaResult trusted = validator.validate(runId, result, List.of());
+
+        assertThat(trusted.resultType()).isEqualTo(AgentResultType.ANSWER);
+        assertThat(trusted.basis()).isNull();
+        assertThat(trusted.citations()).isEmpty();
+        assertThat(trusted.text()).isEqualTo("本轮之前你提问过两次。");
+        System.out.printf("测试证据：场景=无需RAG的普通对话，runId=%s，citationCount=%d，结果=%s%n",
+                runId, trusted.citations().size(), trusted.resultType());
+    }
+
+    /**
+     * 业务目的：已经执行过知识检索的回答不能伪装成普通对话绕过引用门禁，防止项目事实失去来源。
+     */
+    @Test
+    void retrievedProjectAnswerCannotBypassCitationValidationAsConversation() {
+        AgentEvidence knowledge = evidence(EvidenceSourceType.KNOWLEDGE, true, runId);
+        ProjectQaModelResult result = new ProjectQaModelResult(
+                AgentResultType.ANSWER, null, "没有引用的项目回答", null, List.of());
+
+        TrustedProjectQaResult trusted = validator.validate(runId, result, List.of(knowledge));
+
+        assertThat(trusted.resultType()).isEqualTo(AgentResultType.REFUSAL);
+        assertThat(trusted.refusalReason()).isEqualTo(AgentRefusalReason.AGENT_CITATION_INVALID);
+        System.out.printf("测试证据：场景=检索后禁止绕过引用，runId=%s，evidenceCount=1，reason=%s%n",
+                runId, trusted.refusalReason());
+    }
+
+    /**
      * 业务目的：即使底层仍存在历史代码证据，问答也不得形成当前实现回答。
      */
     @Test

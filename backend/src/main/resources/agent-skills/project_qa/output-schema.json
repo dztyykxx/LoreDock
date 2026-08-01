@@ -3,16 +3,16 @@
   "$id": "project-qa-v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["resultType", "answerBasis", "text", "citations", "refusalReason", "sourceConflict"],
+  "required": ["text", "resultType", "answerBasis", "citations", "refusalReason", "sourceConflict"],
   "properties": {
+    "text": {"type": "string", "minLength": 1, "maxLength": 12000},
     "resultType": {"type": "string", "enum": ["ANSWER", "REFUSAL"]},
     "answerBasis": {"type": ["string", "null"], "enum": [null, "BUSINESS_RULE"]},
-    "text": {"type": "string", "minLength": 1, "maxLength": 12000},
     "citations": {
       "type": "array",
       "maxItems": 20,
       "uniqueItems": true,
-      "items": {"type": "string", "format": "uuid"}
+      "items": {"type": "string", "pattern": "^[0-9]+$"}
     },
     "refusalReason": {
       "type": ["string", "null"],

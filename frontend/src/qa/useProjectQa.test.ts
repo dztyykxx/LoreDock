@@ -137,11 +137,17 @@ describe('createProjectQaController', () => {
   it('restores process events from snapshot and appends typed SSE facts once', async () => {
     const handlers: QaEventStreamHandlers[] = []
     const snapshot = question({
-      status: 'RUNNING', trustState: 'IN_PROGRESS', resultType: null, answerBasis: null,
-      processEvents: [{
-        sequence: 2, type: 'TOOL_STARTED', subjectType: 'TOOL', occurredAt: '2026-07-31T08:00:01Z',
-        payload: { phase: 'RETRIEVING', name: 'knowledge_search', purpose: '搜索已发布知识', parameterSummary: 'queryLength=4', resultSummary: null, count: null, durationMillis: null, status: 'STARTED', sources: [], summary: null, textDelta: null, resultType: null, errorCode: null, modelGenerated: false, truncated: false },
-      }],
+      status: 'RUNNING', trustState: 'IN_PROGRESS', resultType: null, answerBasis: null, resultText: null,
+      processEvents: [
+        {
+          sequence: 1, type: 'ANSWER_DELTA', subjectType: 'MODEL', occurredAt: '2026-07-31T08:00:00Z',
+          payload: { phase: 'ANSWERING', name: null, purpose: null, parameterSummary: null, resultSummary: null, count: null, durationMillis: null, status: 'UNVERIFIED', sources: [], summary: null, textDelta: '已恢复的部分回答', resultType: null, errorCode: null, modelGenerated: true, truncated: false },
+        },
+        {
+          sequence: 2, type: 'TOOL_STARTED', subjectType: 'TOOL', occurredAt: '2026-07-31T08:00:01Z',
+          payload: { phase: 'RETRIEVING', name: 'knowledge_search', purpose: '搜索已发布知识', parameterSummary: 'queryLength=4', resultSummary: null, count: null, durationMillis: null, status: 'STARTED', sources: [], summary: null, textDelta: null, resultType: null, errorCode: null, modelGenerated: false, truncated: false },
+        },
+      ],
       lastEventSequence: 2,
     })
     const qa = api({
@@ -162,9 +168,10 @@ describe('createProjectQaController', () => {
       eventType: 'PUBLIC_DECISION_SUMMARY', subjectType: 'MODEL', summary: '重复事件', modelGenerated: true,
     })
 
-    expect(controller.processEvents.value.map(event => event.sequence)).toEqual([2, 3])
-    expect(controller.processEvents.value[1]?.subjectType).toBe('MODEL')
-    expect(controller.processEvents.value[1]?.payload.summary).toBe('继续检索以核实限制')
+    expect(controller.processEvents.value.map(event => event.sequence)).toEqual([1, 2, 3])
+    expect(controller.partialText.value).toBe('已恢复的部分回答')
+    expect(controller.processEvents.value[2]?.subjectType).toBe('MODEL')
+    expect(controller.processEvents.value[2]?.payload.summary).toBe('继续检索以核实限制')
   })
 
   /**

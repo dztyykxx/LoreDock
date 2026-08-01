@@ -47,6 +47,9 @@
 
     <template v-if="snapshot.trustState === 'IN_PROGRESS'">
       <p class="qa-answer__progress">{{ partialText || '正在检索当前范围内的已发布知识…' }}</p>
+      <small v-if="partialText" class="qa-answer__validation-notice">
+        内容仍在生成并等待最终校验，最终结果以校验后的回答为准。
+      </small>
     </template>
     <template v-else-if="snapshot.trustState === 'FAILED'">
       <h3>{{ failureTitle }}</h3>
@@ -92,7 +95,8 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ retry: []; openCitations: [trigger: HTMLElement]; feedback: [] }>()
 const processOpen = ref(false)
-const visibleProcessEvents = computed(() => props.processEvents ?? props.snapshot.processEvents)
+const visibleProcessEvents = computed(() => (props.processEvents ?? props.snapshot.processEvents)
+  .filter(event => event.type !== 'ANSWER_DELTA'))
 
 function openCitations(event: MouseEvent): void {
   emit('openCitations', event.currentTarget as HTMLElement)

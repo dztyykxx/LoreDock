@@ -389,20 +389,22 @@ class AgentRuntimePersistenceIT {
             assertThat(citation.branch()).isEqualTo("main");
             assertThat(citation.sourceUpdatedAt()).isNotNull();
         });
-        assertThat(published).noneMatch(event -> event.payload().contains(answer));
+        assertThat(published).filteredOn(event -> event.type() == AgentEventType.ANSWER_DELTA)
+                .singleElement().satisfies(event -> assertThat(event.payload())
+                        .contains("\"status\":\"UNVERIFIED\"", answer));
         assertThat(published).extracting(event -> event.sequence()).isSorted().doesNotHaveDuplicates();
         assertThat(published).extracting(event -> event.type()).containsSubsequence(
                 AgentEventType.RUN_STARTED, AgentEventType.MODEL_STARTED)
                 .endsWith(AgentEventType.RUN_COMPLETED);
-        System.out.printf("测试证据：场景=Fake Model可信文档回答，项目=atlas，分支=main，证据=1，引用=%d，正文事件=0，状态=%s%n",
+        System.out.printf("测试证据：场景=Fake Model可信文档回答，项目=atlas，分支=main，证据=1，引用=%d，正文增量=1，状态=%s%n",
                 snapshot.citations().size(), snapshot.status());
     }
 
     /**
-     * 业务目的：伪造或被裁剪的引用即使来自模型最终文本，也只能落为稳定拒答，绝不能产生可信回答增量。
+     * 业务目的：伪造或被裁剪的引用即使已经流式展示，也只能以未校验增量存在，最终快照必须稳定收敛为拒答。
      */
     @Test
-    void invalidModelCitationPersistsRefusalWithoutAnswerDelta() {
+    void invalidModelCitationCorrectsUnverifiedDeltaToRefusal() {
         Long runId = 8000000000000000216L;
         AgentEvidence trimmed = knowledgeEvidence(runId, false);
         ProjectQaModelResult forged = new ProjectQaModelResult(
@@ -420,9 +422,31 @@ class AgentRuntimePersistenceIT {
         assertThat(published).filteredOn(event -> event.type() == AgentEventType.RUN_COMPLETED)
                 .singleElement().extracting(event -> event.payload())
                 .isEqualTo(AgentResultType.REFUSAL.name());
+        assertThat(published).filteredOn(event -> event.type() == AgentEventType.ANSWER_DELTA)
+                .singleElement().satisfies(event -> assertThat(event.payload())
+                        .contains("\"status\":\"UNVERIFIED\"", "不可信模型答案"));
         assertThat(published).noneMatch(event -> event.payload().contains(ProjectQaResultConverter.REFUSAL_TEXT));
-        System.out.printf("测试证据：场景=非法引用降级拒答，runId=%s，reason=%s，正文事件=0，引用=0%n",
+        System.out.printf("测试证据：场景=非法引用降级拒答，runId=%s，reason=%s，未校验正文事件=1，最终引用=0%n",
                 runId, snapshot.refusalReason());
+    }
+
+    /**
+     * 业务目的：无需 RAG 的普通对话必须以零依据、零引用回答完整持久化和读取，防止终态刷新再次报错。
+     */
+    @Test
+    void generalConversationAnswerRoundTripsWithoutCitations() {
+        Long runId = 8000000000000000222L;
+        var snapshot = executeFake(runId, "general-conversation", false,
+                new ProjectQaModelResult(AgentResultType.ANSWER, null,
+                        "本轮之前你提问过两次。", null, List.of()), List.of());
+
+        assertThat(snapshot.status()).isEqualTo(AgentRunStatus.COMPLETED);
+        assertThat(snapshot.resultType()).isEqualTo(AgentResultType.ANSWER);
+        assertThat(snapshot.answerBasis()).isNull();
+        assertThat(snapshot.resultText()).isEqualTo("本轮之前你提问过两次。");
+        assertThat(snapshot.citations()).isEmpty();
+        System.out.printf("测试证据：场景=普通对话持久化往返，runId=%s，basis=null，citationCount=0，状态=%s%n",
+                runId, snapshot.status());
     }
 
     /**

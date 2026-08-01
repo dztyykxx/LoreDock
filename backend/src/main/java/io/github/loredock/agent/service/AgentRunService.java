@@ -226,7 +226,8 @@ public class AgentRunService {
         if (code) {
             return AnswerBasis.CURRENT_IMPLEMENTATION;
         }
-        throw new IllegalStateException("completed answer has no safe citation type for basis derivation");
+        // 闲聊与会话历史问答允许零引用完成；项目事实回答仍由结果校验器强制要求知识依据。
+        return null;
     }
 
     private List<AgentCitationSnapshot> citationViews(Long runId) {

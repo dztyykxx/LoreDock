@@ -47,6 +47,14 @@ public final class ProjectQaResultConverter {
             return refusal(AgentRefusalReason.AGENT_CITATION_INVALID);
         }
         if (modelResult.resultType() == AgentResultType.ANSWER) {
+            if (modelResult.basis() == null
+                    && cited.isEmpty()
+                    && modelResult.citationEvidenceIds().isEmpty()
+                    && evidenceLedger.isEmpty()) {
+                // 普通对话由模型自主选择不检索；一旦本轮产生过证据，就不能借此分支绕过项目事实引用门禁。
+                return new TrustedProjectQaResult(
+                        AgentResultType.ANSWER, null, requiredText(modelResult.text()), null, List.of());
+            }
             if (modelResult.basis() != AnswerBasis.BUSINESS_RULE
                     || cited.isEmpty() || !containsOnlyKnowledge(cited)) {
                 return refusal(AgentRefusalReason.AGENT_CITATION_INVALID);
