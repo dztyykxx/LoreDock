@@ -1666,9 +1666,14 @@ a {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
 }
 
-.document-directory-tree button {
+.document-directory-tree__all,
+.document-directory-tree__select {
   min-height: 38px;
   display: grid;
   grid-template-columns: 17px minmax(0, 1fr) auto;
@@ -1683,10 +1688,65 @@ a {
   cursor: pointer;
 }
 
-.document-directory-tree button[aria-current="page"] {
+.document-directory-tree__all {
+  width: 100%;
+  flex: 0 0 auto;
+}
+
+.document-directory-tree__row {
+  width: max-content;
+  min-width: 100%;
+  display: flex;
+  align-items: center;
+  padding-left: calc(var(--directory-depth, 0) * 16px);
+}
+
+.document-directory-tree__toggle,
+.document-directory-tree__toggle-spacer {
+  width: 20px;
+  height: 38px;
+  flex: 0 0 20px;
+}
+
+.document-directory-tree__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  padding: 0;
+  color: var(--quiet);
+  background: transparent;
+  cursor: pointer;
+}
+
+.document-directory-tree__toggle .icon-glyph {
+  width: 13px;
+  height: 13px;
+  transition: transform 120ms ease;
+}
+
+.document-directory-tree__toggle[aria-expanded="true"] .icon-glyph {
+  transform: rotate(90deg);
+}
+
+.document-directory-tree__select {
+  width: 148px;
+  flex: 0 0 148px;
+  padding-left: 8px;
+}
+
+.document-directory-tree__all[aria-current="page"],
+.document-directory-tree__select[aria-current="page"] {
   color: var(--ink);
   background: var(--accent-soft);
   font-weight: 650;
+}
+
+.document-directory-tree__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .document-directory-tree small {
