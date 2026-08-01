@@ -51,7 +51,6 @@ function createProjectApi(overrides: Partial<ProjectApi> = {}): ProjectApi {
     getProject: vi.fn(),
     getAdminProject: vi.fn(),
     createProject: vi.fn(),
-    addBranch: vi.fn(),
     changeStatus: vi.fn(),
     ...overrides,
   }
@@ -86,7 +85,7 @@ describe('ProjectListView', () => {
   beforeEach(() => vi.restoreAllMocks())
 
   /**
-   * 业务目的：项目名称、标识、默认分支和数量必须来自普通 API，知识数量才允许使用无接口的设计样例。
+   * 业务目的：项目卡片展示真实项目字段，但不得暴露后端保留的默认分支和分支数量。
    */
   it('renders real project fields with isolated design samples', async () => {
     const wrapper = await mountList('MEMBER', createProjectApi())
@@ -94,8 +93,8 @@ describe('ProjectListView', () => {
     expect(wrapper.text()).toContain('2 个项目')
     expect(wrapper.text()).toContain('真实网络设计项目')
     expect(wrapper.text()).toContain('network-designer-api')
-    expect(wrapper.text()).toContain('3 个分支')
-    expect(wrapper.text()).toContain('默认 main')
+    expect(wrapper.text()).not.toContain('3 个分支')
+    expect(wrapper.text()).not.toContain('默认 main')
     expect(wrapper.text()).toContain('26 篇知识')
     expect(wrapper.text()).not.toContain('sample-service')
   })

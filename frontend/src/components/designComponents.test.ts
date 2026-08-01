@@ -52,7 +52,7 @@ describe('design components', () => {
   })
 
   /**
-   * 业务目的：项目卡片中的项目与分支事实必须以 API 响应为准，设计样例只能填补后端尚未提供的知识数量。
+   * 业务目的：项目卡片只展示 MVP 需要的项目事实，后端保留的分支字段不得成为前端能力。
    */
   it('keeps real project fields while rendering the design knowledge sample', async () => {
     const router = createRouter({
@@ -66,8 +66,8 @@ describe('design components', () => {
 
     expect(wrapper.text()).toContain('接口返回项目')
     expect(wrapper.text()).toContain('api-project')
-    expect(wrapper.text()).toContain('5 个分支')
-    expect(wrapper.text()).toContain('默认 develop')
+    expect(wrapper.text()).not.toContain('5 个分支')
+    expect(wrapper.text()).not.toContain('默认 develop')
     expect(wrapper.text()).toContain('26 篇知识')
     expect(wrapper.text()).not.toContain('network-designer')
   })
@@ -89,7 +89,7 @@ describe('design components', () => {
   })
 
   /**
-   * 业务目的：项目页签必须保留当前分支并把知识与设置导向真实路由，同时不再展示代码快照入口。
+   * 业务目的：项目页签必须使用无分支参数的真实路由，同时不再展示代码快照入口。
    */
   it('renders real project tab navigation with role-aware settings', () => {
     const router = createRouter({
@@ -105,12 +105,11 @@ describe('design components', () => {
         role: 'ADMIN',
         projectIdentifier: 'api-project',
         projectId: project.id,
-        branch: 'feature/import',
       },
       global: { plugins: [router] },
     })
 
-    expect(wrapper.get('[data-tab="knowledge"]').attributes('href')).toContain('branch=feature/import')
+    expect(wrapper.get('[data-tab="knowledge"]').attributes('href')).toBe('/projects/api-project')
     expect(wrapper.get('[data-tab="settings"]').attributes('href')).toBe(`/projects/${project.id}/settings`)
     expect(wrapper.find('[data-tab="code-snapshots"]').exists()).toBe(false)
   })

@@ -9,9 +9,6 @@
     <main class="app-main snapshot-main">
       <AppTopBar
         :project-name="project?.name ?? '代码快照'"
-        :selected-branch="selectedBranch"
-        :branches="branchNames"
-        @branch-change="changeBranch"
       />
 
       <div v-if="loading" class="settings-state" aria-live="polite">正在加载代码快照…</div>
@@ -33,18 +30,17 @@
           :role="identity.role"
           :project-identifier="project.identifier"
           :project-id="project.id"
-          :branch="selectedBranch"
         />
         <PageHeader
           breadcrumb="项目 / 代码快照"
           title="上传与索引"
-          description="把指定 Commit 的代码 ZIP 建立为当前分支唯一活动快照。"
+          description="把指定 Commit 的代码 ZIP 建立为项目默认范围的活动快照。"
         />
 
         <section class="snapshot-metrics" aria-label="代码快照概览">
           <article class="snapshot-metric">
             <span class="snapshot-metric__icon"><IconGlyph name="branch" /></span>
-            <div><small>当前分支</small><strong>{{ selectedBranch }}</strong><span>查询范围已锁定</span></div>
+            <div><small>项目范围</small><strong>默认范围</strong><span>由服务端解析</span></div>
           </article>
           <article class="snapshot-metric">
             <span class="snapshot-metric__icon"><IconGlyph name="save" /></span>
@@ -59,7 +55,7 @@
         <div class="snapshot-workspace">
           <section class="snapshot-upload-card">
             <header>
-              <div><h2>替换 {{ selectedBranch }} 分支活动快照</h2><p>上传成功后，旧快照不再进入问答和搜索范围。</p></div>
+              <div><h2>替换项目活动快照</h2><p>上传成功后，旧快照不再进入问答和搜索范围。</p></div>
               <span>ZIP · 最大 100MB</span>
             </header>
 
@@ -83,12 +79,6 @@
               </label>
 
               <div class="snapshot-form-grid">
-                <label>
-                  <span>目标分支</span>
-                  <select data-testid="snapshot-branch" :value="selectedBranch" :disabled="jobBusy" @change="changeBranch(($event.target as HTMLSelectElement).value)">
-                    <option v-for="branch in project.branches" :key="branch.id" :value="branch.name">{{ branch.name }}</option>
-                  </select>
-                </label>
                 <label>
                   <span>Git Commit</span>
                   <input
@@ -129,7 +119,7 @@
                 </p>
               </template>
               <p v-else-if="active?.status === 'INDEXED'">当前快照已可用于代码搜索和项目问答。</p>
-              <p v-else>当前分支还没有代码快照，请上传 ZIP 开始建立索引。</p>
+              <p v-else>当前项目还没有代码快照，请上传 ZIP 开始建立索引。</p>
               <AppButton
                 v-if="active?.status === 'INDEXED' && active.snapshotId"
                 data-testid="reindex-snapshot"
@@ -142,7 +132,7 @@
 
             <section class="snapshot-boundary-card">
               <h2>检索边界</h2>
-              <p>代码只做文件路径和文本关键词索引，不进入知识向量索引。问答只读取当前项目、分支和活动 Commit 的有限片段。</p>
+              <p>代码只做文件路径和文本关键词索引，不进入知识向量索引。问答只读取当前项目和活动 Commit 的有限片段。</p>
             </section>
           </aside>
         </div>
@@ -186,7 +176,6 @@ const submitting = ref(false)
 const formError = ref('')
 let pollTimer: number | null = null
 
-const branchNames = computed(() => project.value?.branches.map(branch => branch.name) ?? [])
 const selectedBranchView = computed(() => project.value?.branches.find(branch => branch.name === selectedBranch.value))
 const jobBusy = computed(() => submitting.value
   || currentJob.value?.status === 'PENDING'
@@ -211,10 +200,7 @@ async function loadPage() {
   try {
     const result = await projects.getAdminProject(Number(route.params.projectId))
     project.value = result
-    const requested = typeof route.query.branch === 'string' ? route.query.branch : ''
-    selectedBranch.value = result.branches.some(branch => branch.name === requested)
-      ? requested
-      : result.defaultBranch
+    selectedBranch.value = result.defaultBranch
     await loadActive()
   } catch {
     project.value = null
@@ -228,22 +214,6 @@ async function loadPage() {
 async function loadActive() {
   if (!project.value || !selectedBranch.value) return
   active.value = await api.getActive(project.value.identifier, selectedBranch.value)
-}
-
-async function changeBranch(branch: string) {
-  if (!project.value || branch === selectedBranch.value || jobBusy.value) return
-  selectedBranch.value = branch
-  active.value = null
-  currentJob.value = null
-  selectedFile.value = null
-  formError.value = ''
-  clearPoll()
-  await router.replace({ query: branch === project.value.defaultBranch ? {} : { branch } })
-  try {
-    await loadActive()
-  } catch {
-    formError.value = '活动快照读取失败，请稍后重试。'
-  }
 }
 
 function chooseFile(event: Event) {

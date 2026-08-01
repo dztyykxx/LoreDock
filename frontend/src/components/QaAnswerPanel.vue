@@ -73,7 +73,7 @@ const failureDescription = computed(() => (
 const refusalDescription = computed(() => (
   ({
     INSUFFICIENT_EVIDENCE: '当前范围内没有足以回答该问题的证据。',
-    OUT_OF_SCOPE: '问题超出当前项目与分支范围。',
+    OUT_OF_SCOPE: '问题超出当前项目范围。',
     SOURCE_CONFLICT: '已发布文档之间存在冲突，无法安全选择其中一方。',
   } as Record<string, string>)[props.snapshot.refusalReason ?? '']
   ?? '本次运行未形成可公开回答。'

@@ -75,7 +75,6 @@ function createProjectApi(overrides: Partial<ProjectApi> = {}): ProjectApi {
     getProject: vi.fn().mockResolvedValue(memberProject),
     getAdminProject: vi.fn().mockResolvedValue(adminProject),
     createProject: vi.fn(),
-    addBranch: vi.fn(),
     changeStatus: vi.fn(),
     ...overrides,
   }
@@ -112,56 +111,35 @@ describe('ProjectSettingsView', () => {
   beforeEach(() => vi.restoreAllMocks())
 
   /**
-   * 业务目的：管理员设置页必须展示管理 API 的真实字段和只读基本信息，同时保留设计稿允许的未来快照样例。
+   * 业务目的：管理员设置页只展示 MVP 仍开放的项目字段与状态操作，不暴露后端保留的分支数据。
    */
-  it('renders real administrator details with read-only fields and design samples', async () => {
+  it('renders project details without branch management controls', async () => {
     const api = createProjectApi()
     const { wrapper } = await mountSettings('ADMIN', api)
 
     expect(api.getAdminProject).toHaveBeenCalledWith(adminProject.id)
     expect(wrapper.text()).toContain('真实网络设计项目')
     expect(wrapper.text()).toContain('network-designer-api')
-    expect(wrapper.text()).toContain('feature/import-export')
-    expect(wrapper.text()).toContain('活动快照 a41e9c7')
+    expect(wrapper.text()).not.toContain('feature/import-export')
     expect(wrapper.get('#project-name').attributes('readonly')).toBeDefined()
-    expect(wrapper.find('[data-testid="open-add-branch"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="branch-selector"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="open-add-branch"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="change-project-status"]').exists()).toBe(true)
   })
 
   /**
-   * 业务目的：成员必须通过普通详情接口只读查看和切换分支，不能看到任何创建分支或启停操作。
+   * 业务目的：成员通过普通详情接口只读查看项目时，前端不得传递查询分支或显示分支操作。
    */
-  it('degrades members to read-only detail and reloads the selected branch', async () => {
-    const getProject = vi.fn()
-      .mockResolvedValueOnce(memberProject)
-      .mockResolvedValueOnce({ ...memberProject, selectedBranch: 'feature/import-export' })
+  it('loads member details through the default project scope', async () => {
+    const getProject = vi.fn().mockResolvedValue(memberProject)
     const api = createProjectApi({ getProject })
     const { wrapper } = await mountSettings('MEMBER', api)
 
-    await wrapper.get('[data-testid="branch-selector"]').setValue('feature/import-export')
-    await flushPromises()
-
-    expect(getProject).toHaveBeenNthCalledWith(1, memberProject.identifier, undefined)
-    expect(getProject).toHaveBeenNthCalledWith(2, memberProject.identifier, 'feature/import-export')
+    expect(getProject).toHaveBeenCalledOnce()
+    expect(getProject).toHaveBeenCalledWith(memberProject.identifier)
+    expect(wrapper.find('[data-testid="branch-selector"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="open-add-branch"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="change-project-status"]').exists()).toBe(false)
-  })
-
-  /**
-   * 业务目的：管理员添加分支后必须重新读取管理详情，确保并发冲突和服务端规范化结果不会被客户端猜测覆盖。
-   */
-  it('adds a branch and refreshes from the administrator endpoint', async () => {
-    const addBranch = vi.fn().mockResolvedValue(branches[1])
-    const getAdminProject = vi.fn().mockResolvedValue(adminProject)
-    const { wrapper } = await mountSettings('ADMIN', createProjectApi({ addBranch, getAdminProject }))
-
-    await wrapper.get('[data-testid="open-add-branch"]').trigger('click')
-    await wrapper.get('#branch-name').setValue('feature/new-flow')
-    await wrapper.get('[data-testid="add-branch-form"]').trigger('submit')
-    await flushPromises()
-
-    expect(addBranch).toHaveBeenCalledWith(adminProject.id, 'feature/new-flow')
-    expect(getAdminProject).toHaveBeenCalledTimes(2)
   })
 
   /**
@@ -195,20 +173,6 @@ describe('ProjectSettingsView', () => {
     await wrapper.get('[data-testid="retry-project-detail"]').trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('真实网络设计项目')
-  })
-
-  /**
-   * 业务目的：添加分支对话框必须让键盘焦点进入首字段并支持 Escape 关闭，避免管理员在遮罩层后继续误操作页面。
-   */
-  it('provides an initial focus target and escape close for the branch dialog', async () => {
-    const { wrapper } = await mountSettings('ADMIN', createProjectApi())
-
-    await wrapper.get('[data-testid="open-add-branch"]').trigger('click')
-    const branchField = wrapper.get('#branch-name')
-
-    expect(branchField.attributes('autofocus')).toBeDefined()
-    await branchField.trigger('keydown', { key: 'Escape' })
-    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
   })
 
   /**

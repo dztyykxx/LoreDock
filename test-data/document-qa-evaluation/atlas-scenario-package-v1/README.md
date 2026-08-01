@@ -7,20 +7,19 @@
 - 项目名称：Atlas 网络场景编排平台
 - 项目标识：`atlas`
 - 默认分支：`main`
-- 演示分支：`feature/scenario-package-v2`
 
-请先在 LoreDock 中创建上述项目和两个分支。
+请只在 LoreDock 中创建上述项目。当前前端不提供分支管理或选择入口，导入、检索和问答均使用服务端解析的默认范围。
 
 ## 可直接上传的压缩包
 
-`dist/` 中包含四个知识导入包：
+`dist/` 中包含四个知识导入包。除通用规范外，其余三个包都导入同一 PROJECT 范围；V2 只是 Atlas 业务规则版本，不是 LoreDock 分支：
 
-| 文件 | 导入范围 | 项目 | 分支 | 建议目录前缀 | 建议标签 |
-|---|---|---|---|---|---|
-| `atlas-global-knowledge.zip` | GLOBAL | — | — | `测试资料/通用规范` | `测试数据,通用规范` |
-| `atlas-project-knowledge.zip` | PROJECT | `atlas` | — | `测试资料/Atlas` | `测试数据,场景包` |
-| `atlas-main-knowledge.zip` | BRANCH | `atlas` | `main` | `测试资料/Atlas/main` | `测试数据,main` |
-| `atlas-feature-v2-knowledge.zip` | BRANCH | `atlas` | `feature/scenario-package-v2` | `测试资料/Atlas/feature-v2` | `测试数据,增量导入` |
+| 文件 | 导入范围 | 项目 | 建议目录前缀 | 建议标签 |
+|---|---|---|---|---|
+| `atlas-global-knowledge.zip` | GLOBAL | — | `测试资料/通用规范` | `测试数据,通用规范` |
+| `atlas-project-knowledge.zip` | PROJECT | `atlas` | `测试资料/Atlas` | `测试数据,场景包` |
+| `atlas-runtime-knowledge.zip` | PROJECT | `atlas` | `测试资料/Atlas/稳定规则` | `测试数据,稳定规则` |
+| `atlas-v2-knowledge.zip` | PROJECT | `atlas` | `测试资料/Atlas/V2` | `测试数据,增量导入` |
 
 导入后文档处于草稿状态。请人工发布全部文档，再执行一次知识索引重建。两个“审计记录留存期限”文档故意互相冲突，不要设置替代关系；它们用于验证冲突拒答和后续 `knowledge_curator` 整理能力。
 
@@ -30,7 +29,7 @@
 - `qa/qa-dataset-schema.json`：字段结构约束；
 - `qa/qa-dataset.md`：人工评测清单与评分方法。
 
-共 20 题：16 题有文档依据，1 题来源冲突，3 题无依据；其中包含 2 题口语表达和 4 题分支规则题。
+共 20 题：16 题有文档依据，1 题来源冲突，3 题无依据；其中包含 2 题口语表达和 4 题业务版本规则题。全部问题都在项目默认范围执行。
 
 建议以来源命中和事实覆盖为主，不要求模型逐字匹配参考答案：
 
@@ -38,7 +37,7 @@
 2. `requiredFacts` 全部出现或语义等价，且不得出现 `forbiddenClaims`；
 3. 冲突题必须返回 `REFUSAL / SOURCE_CONFLICT` 并同时引用两份冲突文档；
 4. 无依据题必须拒答，不得使用模型常识补造项目事实；
-5. main 分支不得引用演示分支文档，演示分支可以同时检索项目级和自身分支级知识。
+5. 业务版本题必须根据文档中明确的“稳定规则”或“V2 规则”作答，不得把 V2 试验结论说成已正式上线。
 
 ## 源文件与总包
 

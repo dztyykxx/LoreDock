@@ -8,7 +8,7 @@
         <p>集中管理业务知识、设计原因与历史经验，为开发者和本地 Agent 提供可检索、可引用的项目上下文。</p>
       </div>
       <ul class="login-trust-list">
-        <li><span><IconGlyph name="check" /></span>项目与分支严格隔离</li>
+        <li><span><IconGlyph name="check" /></span>项目知识严格隔离</li>
         <li><span><IconGlyph name="check" /></span>回答始终附带来源</li>
         <li><span><IconGlyph name="check" /></span>证据不足时明确拒答</li>
       </ul>

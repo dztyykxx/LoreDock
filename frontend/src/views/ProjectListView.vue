@@ -25,7 +25,7 @@
         <PageHeader
           breadcrumb="工作空间 / 项目"
           title="选择一个知识空间"
-          description="项目与分支决定检索边界，LoreDock 不会跨范围拼接答案。"
+          description="项目决定检索边界，LoreDock 不会跨项目拼接答案。"
         >
           <template v-if="identity.role === 'ADMIN'" #actions>
             <AppButton data-testid="open-create-project" icon="plus" @click="showCreate = true">创建项目</AppButton>
@@ -70,7 +70,7 @@
 
     <div v-if="showCreate" class="dialog-backdrop" @click.self="showCreate = false">
       <section class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="create-project-title" @keydown.esc="showCreate = false">
-        <header><div><h2 id="create-project-title">创建项目</h2><p>创建后将自动生成默认 main 分支。</p></div><button type="button" aria-label="关闭" @click="showCreate = false">×</button></header>
+        <header><div><h2 id="create-project-title">创建项目</h2><p>创建后即可导入和维护项目知识。</p></div><button type="button" aria-label="关闭" @click="showCreate = false">×</button></header>
         <form data-testid="create-project-form" @submit.prevent="createProject">
           <FormField id="project-name" v-model="createInput.name" label="项目名称" required autofocus :disabled="creating" />
           <FormField id="project-identifier" v-model="createInput.identifier" label="项目标识" help="使用小写字母、数字和单连字符" required :disabled="creating" />

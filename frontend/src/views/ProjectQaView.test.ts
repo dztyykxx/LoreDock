@@ -59,8 +59,8 @@ async function mountView(path: string, qa: QaApi) {
   }
   const projects: ProjectApi = {
     listProjects: vi.fn(),
-    getProject: vi.fn().mockImplementation(async (_identifier, branch) => ({ ...project, selectedBranch: branch ?? 'main' })),
-    getAdminProject: vi.fn(), createProject: vi.fn(), addBranch: vi.fn(), changeStatus: vi.fn(),
+    getProject: vi.fn().mockResolvedValue(project),
+    getAdminProject: vi.fn(), createProject: vi.fn(), changeStatus: vi.fn(),
   }
   await router.push(path)
   await router.isReady()
@@ -73,24 +73,26 @@ async function mountView(path: string, qa: QaApi) {
 
 describe('ProjectQaView', () => {
   /**
-   * 业务目的：直接刷新项目问答路由时必须恢复项目与查询分支，并以真实空历史展示可用输入，不能混入设计样例。
+   * 业务目的：即使旧链接仍带分支参数，项目问答也必须忽略它并使用默认项目范围。
    */
-  it('loads the route branch and renders a usable empty workspace', async () => {
+  it('ignores legacy branch queries and renders a usable empty workspace', async () => {
     const qa = qaApi()
     const { wrapper, projects } = await mountView('/projects/network-designer/qa?branch=feature%2Fimport', qa)
 
-    expect(projects.getProject).toHaveBeenCalledWith('network-designer', 'feature/import')
+    expect(projects.getProject).toHaveBeenCalledWith('network-designer')
     expect(qa.history).toHaveBeenCalledWith('network-designer', undefined)
     expect(wrapper.text()).toContain('网络设计工具')
     expect(wrapper.text()).toContain('还没有问答')
     expect(wrapper.find('textarea').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="qa-branch-selector"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('feature/import')
     expect(wrapper.text()).not.toContain('场景包导入后为何刷新拓扑')
   })
 
   /**
-   * 业务目的：已存在问答必须持续显示服务端固定分支；切换选择只能影响下一题，不能重写当前回答的范围或来源。
+   * 业务目的：问答创建请求不得包含分支参数，服务端响应中的历史分支也不能重新成为前端操作入口。
    */
-  it('keeps the current snapshot scope while a branch change applies to the next question', async () => {
+  it('creates questions without exposing or sending branch scope', async () => {
     const existing = snapshot()
     const accepted = snapshot({ questionId: 64, runId: 72, status: 'ACCEPTED', resultType: null, trustState: 'IN_PROGRESS', answerBasis: null, resultText: null, scope: { ...existing.scope, branch: 'main' } })
     const qa = qaApi({
@@ -100,14 +102,14 @@ describe('ProjectQaView', () => {
     })
     const { wrapper } = await mountView('/projects/network-designer/qa?branch=feature%2Fimport', qa)
 
-    expect(wrapper.get('[data-testid="locked-scope"]').text()).toContain('feature/import')
+    expect(wrapper.get('[data-testid="locked-scope"]').text()).not.toContain('feature/import')
     expect(wrapper.get('[data-testid="locked-scope"]').text()).toContain('仅使用已发布文档')
-    await wrapper.get('[data-testid="qa-branch-selector"]').setValue('main')
-    expect(wrapper.get('[data-testid="locked-scope"]').text()).toContain('feature/import')
-    await wrapper.get('textarea').setValue('下一题使用哪个分支？')
+    expect(wrapper.find('[data-testid="qa-branch-selector"]').exists()).toBe(false)
+    await wrapper.get('textarea').setValue('下一题使用哪些项目文档？')
     await wrapper.get('textarea').trigger('keydown', { key: 'Enter' })
     await flushPromises()
 
-    expect(qa.createQuestion).toHaveBeenCalledWith('network-designer', expect.objectContaining({ branch: 'main', question: '下一题使用哪个分支？' }))
+    expect(qa.createQuestion).toHaveBeenCalledWith('network-designer', expect.objectContaining({ question: '下一题使用哪些项目文档？' }))
+    expect(qa.createQuestion).toHaveBeenCalledWith('network-designer', expect.not.objectContaining({ branch: expect.anything() }))
   })
 })

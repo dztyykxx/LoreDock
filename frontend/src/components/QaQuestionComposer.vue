@@ -17,7 +17,7 @@
         <IconGlyph name="arrowRight" />
       </button>
     </div>
-    <p id="qa-question-help">回答只基于当前项目、分支与已发布知识；证据不足时会明确拒答。Shift + Enter 换行。</p>
+    <p id="qa-question-help">回答只基于当前项目与已发布知识；证据不足时会明确拒答。Shift + Enter 换行。</p>
     <p v-if="error" id="qa-question-error" role="alert">{{ error }}</p>
   </form>
 </template>

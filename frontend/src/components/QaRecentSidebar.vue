@@ -15,7 +15,7 @@
       @click="$emit('select', item.questionId)"
     >
       <span>{{ questionText(item) }}</span>
-      <small>{{ item.scope.branch }} · {{ formatTime(item.createdAt) }}</small>
+      <small>{{ formatTime(item.createdAt) }}</small>
     </button>
   </section>
 </template>

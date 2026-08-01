@@ -10,9 +10,6 @@
       <AppTopBar
         v-if="project"
         :project-name="project.name"
-        :selected-branch="selectedBranch"
-        :branches="project.branches.map(branch => branch.name)"
-        @branch-change="changeBranch"
       />
       <header v-else class="list-topbar">
         <div><span>工作空间</span><IconGlyph name="chevronRight" /><strong>通用业务知识</strong></div>
@@ -37,14 +34,13 @@
           :role="identity.role"
           :project-identifier="project.identifier"
           :project-id="project.id"
-          :branch="selectedBranch"
           :knowledge-count="totalElements"
         />
 
         <PageHeader
-          :breadcrumb="project ? `项目 / ${selectedBranch} / 知识文档` : '工作空间 / 通用业务知识'"
+          :breadcrumb="project ? '项目 / 知识文档' : '工作空间 / 通用业务知识'"
           :title="project ? '知识文档' : '通用业务知识'"
-          :description="project ? '当前项目和分支决定浏览边界，切换分支会重新加载全部结果。' : '这里只展示明确属于全局范围的业务术语、流程和规范。'"
+          :description="project ? '当前项目决定浏览边界，所有 Web 操作使用后端默认范围。' : '这里只展示明确属于全局范围的业务术语、流程和规范。'"
         >
           <template v-if="isAdministrator && !project" #actions>
             <RouterLink to="/knowledge/import"><AppButton data-testid="import-knowledge" variant="secondary" icon="file">导入资料</AppButton></RouterLink>
@@ -105,7 +101,7 @@
             <div v-if="detailLoading" class="knowledge-detail-state" aria-live="polite">正在加载文档…</div>
             <div v-else-if="detailError" data-testid="detail-error" class="knowledge-detail-state knowledge-detail-state--error" role="alert">
               <strong>当前范围内找不到该文档</strong>
-              <p>文档可能已归档、属于其他项目或不适用于当前分支。</p>
+              <p>文档可能已归档或属于其他项目。</p>
             </div>
             <article v-else-if="detail" data-testid="knowledge-detail" class="knowledge-detail">
               <header>
@@ -162,7 +158,6 @@ const identity = computed(() => session.identity.value)
 const isAdministrator = computed(() => identity.value?.role === 'ADMIN')
 const isProjectContext = computed(() => typeof route.params.identifier === 'string')
 const project = ref<ProjectDetail | null>(null)
-const selectedBranch = ref('main')
 const currentDirectory = ref('')
 const page = ref(0)
 const documents = ref<KnowledgeDocumentSummary[]>([])
@@ -178,8 +173,8 @@ const indexJob = ref<KnowledgeIndexJob | null>(null)
 const reindexBusy = ref(false)
 let indexPollController: AbortController | null = null
 const selectedDocumentId = computed(() => typeof route.params.documentId === 'string' ? Number(route.params.documentId) : null)
-const newTarget = computed(() => project.value ? `/projects/${project.value.identifier}/knowledge/new?branch=${encodeURIComponent(selectedBranch.value)}` : '/knowledge/new')
-const importTarget = computed(() => project.value ? `/projects/${project.value.identifier}/knowledge/import?branch=${encodeURIComponent(selectedBranch.value)}` : '/knowledge/import')
+const newTarget = computed(() => project.value ? `/projects/${project.value.identifier}/knowledge/new` : '/knowledge/new')
+const importTarget = computed(() => project.value ? `/projects/${project.value.identifier}/knowledge/import` : '/knowledge/import')
 const indexJobLabel = computed(() => ({
   PENDING: '重新索引已排队',
   RUNNING: '正在重新索引',
@@ -190,8 +185,7 @@ const indexJobLabel = computed(() => ({
 async function initialize(): Promise<void> {
   if (isProjectContext.value) {
     try {
-      project.value = await projects.getProject(String(route.params.identifier), queryBranch())
-      selectedBranch.value = project.value.selectedBranch || project.value.defaultBranch
+      project.value = await projects.getProject(String(route.params.identifier))
     } catch {
       loadError.value = true
       loading.value = false
@@ -214,7 +208,6 @@ async function loadDocuments(): Promise<void> {
       const result = await api.browse({
         context: project.value ? 'PROJECT' : 'GLOBAL',
         project: project.value?.identifier,
-        branch: project.value ? selectedBranch.value : undefined,
         directory: currentDirectory.value || undefined,
         page: page.value,
         size: 20,
@@ -244,7 +237,7 @@ async function loadAdminDocuments(): Promise<void> {
           ...common,
           scopeType: 'BRANCH' as const,
           projectId: project.value.id,
-          branchId: project.value.branches.find(branch => branch.name === selectedBranch.value)?.id,
+          branchId: project.value.branches.find(branch => branch.name === project.value?.defaultBranch)?.id,
         },
       ]
     : [{ ...common, scopeType: 'GLOBAL' as const }]
@@ -280,22 +273,12 @@ async function loadDetail(documentId: number): Promise<void> {
       : await api.getDocument(documentId, {
           context: project.value ? 'PROJECT' : 'GLOBAL',
           project: project.value?.identifier,
-          branch: project.value ? selectedBranch.value : undefined,
         })
   } catch {
     detailError.value = true
   } finally {
     detailLoading.value = false
   }
-}
-
-async function changeBranch(branch: string): Promise<void> {
-  selectedBranch.value = branch
-  page.value = 0
-  documents.value = []
-  detail.value = null
-  await router.replace({ query: branch === project.value?.defaultBranch ? {} : { branch } })
-  await loadDocuments()
 }
 
 async function selectDirectory(path: string): Promise<void> {
@@ -343,16 +326,12 @@ async function startReindex(): Promise<void> {
   }
 }
 
-function queryBranch(): string | undefined {
-  return typeof route.query.branch === 'string' ? route.query.branch : undefined
-}
-
 function formatLabel(format: string): string {
   return format === 'MARKDOWN' ? 'Markdown' : '纯文本'
 }
 
 function scopeLabel(scope: string): string {
-  return ({ GLOBAL: '通用范围', PROJECT: '项目范围', BRANCH: '分支范围' } as Record<string, string>)[scope] ?? scope
+  return ({ GLOBAL: '通用范围', PROJECT: '项目范围', BRANCH: '项目范围' } as Record<string, string>)[scope] ?? scope
 }
 
 function sourceLabel(source: string): string {
@@ -361,7 +340,7 @@ function sourceLabel(source: string): string {
 
 function editTarget(documentId: number): string {
   return project.value
-    ? `/projects/${project.value.identifier}/knowledge/${documentId}/edit?branch=${encodeURIComponent(selectedBranch.value)}`
+    ? `/projects/${project.value.identifier}/knowledge/${documentId}/edit`
     : `/knowledge/${documentId}/edit`
 }
 

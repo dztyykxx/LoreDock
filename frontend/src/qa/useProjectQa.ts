@@ -35,7 +35,6 @@ export interface ProjectQaController {
 export function createProjectQaController(
   api: QaApi,
   identifier: string,
-  selectedBranch: () => string,
   options: ProjectQaControllerOptions = {},
 ): ProjectQaController {
   const history = ref<QaQuestion[]>([])
@@ -92,8 +91,7 @@ export function createProjectQaController(
     if (!question || [...question].length > 2000) {
       throw new Error('问题需为 1～2000 个字符。')
     }
-    const branch = selectedBranch()
-    const signature = `${branch}\n${question}`
+    const signature = question
     if (!pendingIdempotencyKey.value || pendingRequestSignature !== signature) {
       pendingIdempotencyKey.value = makeKey()
       pendingRequestSignature = signature
@@ -104,7 +102,6 @@ export function createProjectQaController(
     try {
       const snapshot = await api.createQuestion(identifier, {
         idempotencyKey: pendingIdempotencyKey.value,
-        branch,
         question,
       })
       pendingIdempotencyKey.value = null

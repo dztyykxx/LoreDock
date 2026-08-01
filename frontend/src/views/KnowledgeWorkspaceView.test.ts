@@ -66,10 +66,9 @@ function createKnowledgeApi(overrides: Partial<KnowledgeApi> = {}): KnowledgeApi
 function createProjectApi(): ProjectApi {
   return {
     listProjects: vi.fn(),
-    getProject: vi.fn().mockImplementation(async (_identifier, branch) => ({ ...project, selectedBranch: branch ?? 'main' })),
+    getProject: vi.fn().mockResolvedValue(project),
     getAdminProject: vi.fn(),
     createProject: vi.fn(),
-    addBranch: vi.fn(),
     changeStatus: vi.fn(),
   }
 }
@@ -177,27 +176,20 @@ describe('KnowledgeWorkspaceView', () => {
   })
 
   /**
-   * 业务目的：切换项目分支时必须立即退出旧分支列表，并以新分支重新查询，防止响应等待期间把 main 文档误标为 feature 文档。
+   * 业务目的：项目知识页必须只按项目范围查询，旧分支参数不能影响请求或重新出现选择控件。
    */
-  it('does not mix documents while switching project branches', async () => {
-    let resolveFeature!: (value: KnowledgeBrowseResult) => void
-    const browse = vi.fn().mockImplementation((input: { branch?: string }) => input.branch === 'feature/import'
-      ? new Promise<KnowledgeBrowseResult>(resolve => { resolveFeature = resolve })
-      : Promise.resolve(browseResult([{ ...published, title: 'main 文档' }])))
-    const { wrapper } = await mountView('/projects/network-designer', {
+  it('ignores legacy branch queries and browses the project scope', async () => {
+    const browse = vi.fn().mockResolvedValue(browseResult([{ ...published, title: '项目文档' }]))
+    const projects = createProjectApi()
+    const { wrapper } = await mountView('/projects/network-designer?branch=feature%2Fimport', {
       username: 'member', displayName: '组内成员', role: 'MEMBER',
-    }, createKnowledgeApi({ browse }))
-    await flushPromises()
-    expect(wrapper.text()).toContain('main 文档')
-
-    await wrapper.get('[data-testid="branch-selector"]').setValue('feature/import')
-    expect(wrapper.text()).not.toContain('main 文档')
-    await flushPromises()
-    resolveFeature(browseResult([{ ...published, id: 55, title: 'feature 文档' }]))
+    }, createKnowledgeApi({ browse }), projects)
     await flushPromises()
 
-    expect(wrapper.text()).toContain('feature 文档')
-    expect(browse).toHaveBeenLastCalledWith(expect.objectContaining({ branch: 'feature/import' }))
+    expect(projects.getProject).toHaveBeenCalledWith('network-designer')
+    expect(wrapper.text()).toContain('项目文档')
+    expect(wrapper.find('[data-testid="branch-selector"]').exists()).toBe(false)
+    expect(browse).toHaveBeenLastCalledWith(expect.not.objectContaining({ branch: expect.anything() }))
   })
 
   /**
@@ -221,7 +213,7 @@ describe('KnowledgeWorkspaceView', () => {
   })
 
   /**
-   * 业务目的：跨范围详情被后端统一拒绝为 404 时必须隐藏正文并保留当前项目和分支上下文，防止泄露旧详情或让用户迷失范围。
+   * 业务目的：跨范围详情被后端统一拒绝为 404 时必须隐藏正文并保留当前项目上下文，防止泄露旧详情或让用户迷失范围。
    */
   it('keeps project context while hiding an out-of-scope detail', async () => {
     const api = createKnowledgeApi({
@@ -234,7 +226,7 @@ describe('KnowledgeWorkspaceView', () => {
     await flushPromises()
 
     expect(wrapper.text()).toContain('网络设计工具')
-    expect(wrapper.text()).toContain('main')
+    expect(wrapper.text()).not.toContain('feature/import')
     expect(wrapper.get('[data-testid="detail-error"]').text()).toContain('当前范围内找不到该文档')
     expect(wrapper.find('[data-testid="knowledge-detail"]').exists()).toBe(false)
   })

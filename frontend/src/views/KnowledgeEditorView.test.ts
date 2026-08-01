@@ -88,7 +88,6 @@ function createProjectApi(): ProjectApi {
     getProject: vi.fn().mockResolvedValue(project),
     getAdminProject: vi.fn(),
     createProject: vi.fn(),
-    addBranch: vi.fn(),
     changeStatus: vi.fn(),
   }
 }
@@ -188,25 +187,26 @@ describe('KnowledgeEditorView', () => {
   })
 
   /**
-   * 业务目的：新建页的项目与分支范围必须联动并提交业务标识，防止把可见的分支选择遗留成 GLOBAL 或项目级写入。
+   * 业务目的：新建页只允许通用或项目范围，不能显示或提交已退出 MVP 的分支范围。
    */
-  it('creates a branch-scoped draft from linked scope fields', async () => {
+  it('creates a project-scoped draft without branch controls', async () => {
     const createDocument = vi.fn().mockResolvedValue(adminDocument())
     const wrapper = await mountView('/knowledge/new', {
       username: 'admin', displayName: '管理员', role: 'ADMIN',
     }, createKnowledgeApi({ createDocument }))
     await flushPromises()
 
-    await wrapper.get('[data-testid="document-title"]').setValue('分支规则')
-    await wrapper.get('[data-testid="document-body"]').setValue('仅适用于导入分支')
-    await wrapper.get('[data-testid="scope-type"]').setValue('BRANCH')
+    await wrapper.get('[data-testid="document-title"]').setValue('项目规则')
+    await wrapper.get('[data-testid="document-body"]').setValue('适用于当前项目')
+    await wrapper.get('[data-testid="scope-type"]').setValue('PROJECT')
     await wrapper.get('[data-testid="scope-project"]').setValue('network-designer')
-    await wrapper.get('[data-testid="scope-branch"]').setValue('feature/import')
+    expect(wrapper.find('[data-testid="scope-branch"]').exists()).toBe(false)
+    expect(wrapper.find('option[value="BRANCH"]').exists()).toBe(false)
     await wrapper.get('[data-testid="save-document"]').trigger('click')
     await flushPromises()
 
     expect(createDocument).toHaveBeenCalledWith(expect.objectContaining({
-      scope: { type: 'BRANCH', project: 'network-designer', branch: 'feature/import' },
+      scope: { type: 'PROJECT', project: 'network-designer', branch: null },
     }))
   })
 

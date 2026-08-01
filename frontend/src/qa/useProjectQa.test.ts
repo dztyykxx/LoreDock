@@ -51,7 +51,7 @@ describe('createProjectQaController', () => {
       history: vi.fn().mockResolvedValue({ items: [selected], nextCursor: 'next-page' }),
       detail: vi.fn().mockResolvedValue(selected),
     })
-    const controller = createProjectQaController(qa, 'network-designer', () => 'main')
+    const controller = createProjectQaController(qa, 'network-designer')
 
     await controller.loadHistory()
     await controller.selectQuestion(62)
@@ -70,7 +70,7 @@ describe('createProjectQaController', () => {
       .mockRejectedValueOnce(new TypeError('network failed'))
       .mockResolvedValueOnce(question({ status: 'ACCEPTED', trustState: 'IN_PROGRESS', resultType: null, answerBasis: null, resultText: null }))
     const qa = api({ createQuestion })
-    const controller = createProjectQaController(qa, 'network-designer', () => 'feature/import', {
+    const controller = createProjectQaController(qa, 'network-designer', {
       createIdempotencyKey: () => 'stable-key',
     })
 
@@ -78,8 +78,9 @@ describe('createProjectQaController', () => {
     expect(controller.pendingIdempotencyKey.value).toBe('stable-key')
     await controller.submit('当前实现在哪里？')
 
-    expect(createQuestion).toHaveBeenNthCalledWith(1, 'network-designer', expect.objectContaining({ idempotencyKey: 'stable-key', branch: 'feature/import' }))
-    expect(createQuestion).toHaveBeenNthCalledWith(2, 'network-designer', expect.objectContaining({ idempotencyKey: 'stable-key', branch: 'feature/import' }))
+    expect(createQuestion).toHaveBeenNthCalledWith(1, 'network-designer', expect.objectContaining({ idempotencyKey: 'stable-key' }))
+    expect(createQuestion).toHaveBeenNthCalledWith(2, 'network-designer', expect.objectContaining({ idempotencyKey: 'stable-key' }))
+    expect(createQuestion.mock.calls[0]?.[1]).not.toHaveProperty('branch')
     expect(controller.pendingIdempotencyKey.value).toBeNull()
   })
 
@@ -100,7 +101,7 @@ describe('createProjectQaController', () => {
         return stream
       }),
     })
-    const controller = createProjectQaController(qa, 'network-designer', () => 'main', { reconnectDelayMs: 0 })
+    const controller = createProjectQaController(qa, 'network-designer', { reconnectDelayMs: 0 })
 
     await controller.observe(question({ status: 'RUNNING', trustState: 'IN_PROGRESS', resultType: null, answerBasis: null, resultText: '', lastEventSequence: 0 }))
     handlers[0].onEvent('answer.delta', { version: 'v1', sequence: 1, occurredAt: '2026-07-31T08:00:01Z', phase: 'COMPOSING', textDelta: '正在回答' })
@@ -134,7 +135,7 @@ describe('createProjectQaController', () => {
         return { close: vi.fn() }
       }),
     })
-    const controller = createProjectQaController(qa, 'network-designer', () => 'main')
+    const controller = createProjectQaController(qa, 'network-designer')
 
     await controller.observe(question({ status: 'RUNNING', resultType: null, trustState: 'IN_PROGRESS', answerBasis: null, resultText: null, lastEventSequence: 0 }))
     handlers[0].onEvent('answer.delta', { version: 'v1', sequence: 1, occurredAt: '2026-07-31T08:00:01Z', phase: 'COMPOSING', textDelta: '未校验内容' })
@@ -159,7 +160,7 @@ describe('createProjectQaController', () => {
     const createQuestion = vi.fn().mockResolvedValue(question({ questionId: 63, status: 'ACCEPTED', trustState: 'IN_PROGRESS', resultType: null, answerBasis: null, resultText: null }))
     const qa = api({ openEventStream, createQuestion })
     const keys = ['retry-key']
-    const controller = createProjectQaController(qa, 'network-designer', () => 'main', {
+    const controller = createProjectQaController(qa, 'network-designer', {
       createIdempotencyKey: () => keys.shift() ?? 'unexpected-key',
     })
 

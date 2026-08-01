@@ -10,7 +10,7 @@
 
     <section class="qa-citation-scope" aria-label="固定查询范围">
       <strong>查询范围已锁定</strong>
-      <span>{{ snapshot.scope.projectIdentifier }} / {{ snapshot.scope.branch }}</span>
+      <span>{{ snapshot.scope.projectIdentifier }}</span>
       <span>仅使用已发布文档</span>
     </section>
 
@@ -60,7 +60,7 @@ function citationTitle(citation: QaCitation): string {
 }
 
 function scopeLabel(scope: string | null): string {
-  return ({ GLOBAL: '通用', PROJECT: '当前项目', BRANCH: '当前分支' } as Record<string, string>)[scope ?? ''] ?? '运行时范围'
+  return ({ GLOBAL: '通用', PROJECT: '当前项目', BRANCH: '当前项目' } as Record<string, string>)[scope ?? ''] ?? '运行时范围'
 }
 
 function formatTime(value: string): string {

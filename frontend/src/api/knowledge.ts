@@ -23,11 +23,9 @@ export interface KnowledgeScopeView {
   branchId: number | null
 }
 
-export interface KnowledgeScopeInput {
-  type: KnowledgeScopeType
-  project?: string | null
-  branch?: string | null
-}
+export type KnowledgeScopeInput =
+  | { type: 'GLOBAL'; project?: null; branch?: null }
+  | { type: 'PROJECT'; project: string | null; branch?: null }
 
 export interface DocumentSourceView {
   type: DocumentSourceType
@@ -89,7 +87,6 @@ export interface KnowledgeBrowseResult {
 export interface BrowseKnowledgeInput {
   context: 'GLOBAL' | 'PROJECT'
   project?: string
-  branch?: string
   directory?: string
   page?: number
   size?: number
@@ -163,7 +160,7 @@ export interface KnowledgeIndexPollOptions {
 
 export interface KnowledgeApi {
   browse(input: BrowseKnowledgeInput): Promise<KnowledgeBrowseResult>
-  getDocument(documentId: number, input: Pick<BrowseKnowledgeInput, 'context' | 'project' | 'branch'>): Promise<KnowledgeDocumentView>
+  getDocument(documentId: number, input: Pick<BrowseKnowledgeInput, 'context' | 'project'>): Promise<KnowledgeDocumentView>
   listAdmin(input?: AdminKnowledgeFilter): Promise<PageResult<KnowledgeDocumentSummary>>
   getAdminDocument(documentId: number): Promise<AdminKnowledgeDocumentView>
   createDocument(input: KnowledgeDocumentWriteInput): Promise<AdminKnowledgeDocumentView>
@@ -188,7 +185,6 @@ export const knowledgeApi: KnowledgeApi = {
     const query = new URLSearchParams()
     appendQuery(query, 'context', input.context)
     appendQuery(query, 'project', input.project)
-    appendQuery(query, 'branch', input.branch)
     appendQuery(query, 'directory', input.directory)
     appendQuery(query, 'page', input.page)
     appendQuery(query, 'size', input.size)
@@ -198,7 +194,6 @@ export const knowledgeApi: KnowledgeApi = {
     const query = new URLSearchParams()
     appendQuery(query, 'context', input.context)
     appendQuery(query, 'project', input.project)
-    appendQuery(query, 'branch', input.branch)
     return requestJson<KnowledgeDocumentView>(
       `/api/knowledge-documents/${encodeURIComponent(documentId)}?${query}`,
     )

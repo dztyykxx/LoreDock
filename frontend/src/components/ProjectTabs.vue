@@ -36,7 +36,6 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import type { WebRole } from '../api/types'
 import { DESIGN_SAMPLES } from '../designSamples'
@@ -46,22 +45,15 @@ const props = withDefaults(defineProps<{
   role?: WebRole
   projectIdentifier?: string
   projectId?: number
-  branch?: string
   knowledgeCount?: number
 }>(), {
   role: 'MEMBER',
   projectIdentifier: '',
   projectId: 0,
-  branch: 'main',
   knowledgeCount: 0,
 })
 
-const knowledgeTarget = computed(() => {
-  const path = props.projectIdentifier ? `/projects/${props.projectIdentifier}` : '/knowledge'
-  return props.branch && props.branch !== 'main' ? { path, query: { branch: props.branch } } : path
-})
-const qaTarget = computed(() => props.branch && props.branch !== 'main'
-  ? { path: `/projects/${props.projectIdentifier}/qa`, query: { branch: props.branch } }
-  : `/projects/${props.projectIdentifier}/qa`)
+const knowledgeTarget = props.projectIdentifier ? `/projects/${props.projectIdentifier}` : '/knowledge'
+const qaTarget = `/projects/${props.projectIdentifier}/qa`
 const futureTabs = DESIGN_SAMPLES.tabs.filter(tab => tab.id !== 'knowledge' && tab.id !== 'settings')
 </script>

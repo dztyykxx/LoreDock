@@ -93,7 +93,6 @@ export interface QaQuestionPage {
 
 export interface CreateQaQuestionInput {
   idempotencyKey: string
-  branch?: string
   question: string
 }
 

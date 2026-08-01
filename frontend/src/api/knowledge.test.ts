@@ -16,7 +16,7 @@ describe('knowledgeApi', () => {
   })
 
   /**
-   * 业务目的：项目、分支和目录属于强检索边界，查询参数必须逐项编码，防止斜杠或中文把一次查询改写到其他范围。
+   * 业务目的：项目和目录属于前端可选检索边界，查询参数必须逐项编码且不能携带分支。
    */
   it('encodes every browse boundary in the query string', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
@@ -28,14 +28,13 @@ describe('knowledgeApi', () => {
     await knowledgeApi.browse({
       context: 'PROJECT',
       project: 'network/designer',
-      branch: 'feature/导入',
       directory: '规则/核心',
       page: 1,
       size: 20,
     })
 
     const [path, options] = fetchMock.mock.calls[0] as [string, RequestInit]
-    expect(path).toBe('/api/knowledge-documents?context=PROJECT&project=network%2Fdesigner&branch=feature%2F%E5%AF%BC%E5%85%A5&directory=%E8%A7%84%E5%88%99%2F%E6%A0%B8%E5%BF%83&page=1&size=20')
+    expect(path).toBe('/api/knowledge-documents?context=PROJECT&project=network%2Fdesigner&directory=%E8%A7%84%E5%88%99%2F%E6%A0%B8%E5%BF%83&page=1&size=20')
     expect(options.credentials).toBe('include')
   })
 

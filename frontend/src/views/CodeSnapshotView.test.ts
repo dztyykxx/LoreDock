@@ -65,7 +65,6 @@ function projects(): ProjectApi {
     getProject: vi.fn(),
     getAdminProject: vi.fn().mockResolvedValue(project),
     createProject: vi.fn(),
-    addBranch: vi.fn(),
     changeStatus: vi.fn(),
   }
 }

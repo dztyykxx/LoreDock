@@ -16,7 +16,7 @@ describe('qaApi', () => {
   })
 
   /**
-   * 业务目的：项目、分支与幂等键必须原样进入问答契约，防止页面在重试时意外创建另一个范围的运行。
+   * 业务目的：项目与幂等键必须原样进入问答契约，前端不得再发送分支范围。
    */
   it('encodes the project path and sends a scoped idempotent question', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ questionId: 61 }, 202))
@@ -24,7 +24,6 @@ describe('qaApi', () => {
 
     await qaApi.createQuestion('network/designer', {
       idempotencyKey: 'qa-key-1',
-      branch: 'feature/导入',
       question: '为什么需要范围锁定？',
     })
 
@@ -33,7 +32,6 @@ describe('qaApi', () => {
     expect(request.method).toBe('POST')
     expect(JSON.parse(String(request.body))).toEqual({
       idempotencyKey: 'qa-key-1',
-      branch: 'feature/导入',
       question: '为什么需要范围锁定？',
     })
   })
@@ -75,7 +73,6 @@ describe('qaApi', () => {
 
     await expect(qaApi.createQuestion('network-designer', {
       idempotencyKey: 'reused-key',
-      branch: 'main',
       question: '新问题',
     })).rejects.toMatchObject({
       status: 409,

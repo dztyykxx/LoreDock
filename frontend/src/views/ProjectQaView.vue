@@ -24,13 +24,6 @@
           <div><strong>{{ project?.name || '正在加载项目' }}</strong><small>{{ identifier }}</small></div>
         </div>
         <div class="qa-topbar__controls">
-          <label class="branch-selector">
-            <span class="sr-only">下一题使用的分支</span>
-            <IconGlyph name="branch" />
-            <select data-testid="qa-branch-selector" :value="selectedBranch" :disabled="!project" @change="changeBranch(($event.target as HTMLSelectElement).value)">
-              <option v-for="branch in project?.branches ?? []" :key="branch.id" :value="branch.name">{{ branch.name }}</option>
-            </select>
-          </label>
           <span class="qa-scope-status"><IconGlyph name="lock" />范围已锁定</span>
           <button v-if="current" ref="topSourceButton" class="qa-source-count" type="button" @click="openCitations($event.currentTarget as HTMLElement)">
             来源 {{ current.citations.length }}
@@ -45,7 +38,7 @@
       <template v-else>
         <section v-if="current" data-testid="locked-scope" class="qa-range-lock">
           <div><IconGlyph name="lock" /><strong>本次问答范围</strong></div>
-          <span>{{ current.scope.projectIdentifier }}</span><code>{{ current.scope.branch }}</code>
+          <span>{{ current.scope.projectIdentifier }}</span>
           <span>仅使用已发布文档</span>
         </section>
 
@@ -57,11 +50,11 @@
           <div v-else-if="!current" class="qa-empty-state">
             <span><IconGlyph name="message" /></span>
             <h1>还没有问答</h1>
-            <p>向 {{ project?.name || identifier }} 提出一个具体问题。每次问题只使用所选项目和分支内已发布的知识文档。</p>
+            <p>向 {{ project?.name || identifier }} 提出一个具体问题。每次问题只使用所选项目内已发布的知识文档。</p>
           </div>
           <template v-else>
             <article class="qa-user-message">
-              <div><strong>你</strong><small>{{ current.scope.branch }}</small></div>
+              <div><strong>你</strong></div>
               <p>{{ currentQuestion }}</p>
             </article>
             <QaAnswerPanel
@@ -112,14 +105,13 @@ const session = useSession()
 const projects = useProjectApi()
 const api = useQaApi()
 const identifier = String(route.params.identifier)
-const selectedBranch = ref(queryBranch() ?? 'main')
 const project = ref<ProjectDetail | null>(null)
 const projectError = ref(false)
 const citationsOpen = ref(false)
 const feedbackOpen = ref(false)
 const citationTrigger = ref<HTMLElement | null>(null)
 const composer = ref<InstanceType<typeof QaQuestionComposer> | null>(null)
-const qa = createProjectQaController(api, identifier, () => selectedBranch.value)
+const qa = createProjectQaController(api, identifier)
 const { history, nextCursor, current, loading, submitting, loadError, submitError, connectionState, partialText } = qa
 const identity = computed(() => session.identity.value)
 const currentQuestion = computed(() => current.value?.messages.find(message => message.role === 'USER')?.content ?? '未保存问题正文')
@@ -127,8 +119,7 @@ const currentQuestion = computed(() => current.value?.messages.find(message => m
 async function initialize(): Promise<void> {
   loading.value = true
   try {
-    project.value = await projects.getProject(identifier, queryBranch())
-    selectedBranch.value = project.value.selectedBranch || project.value.defaultBranch
+    project.value = await projects.getProject(identifier)
   } catch {
     projectError.value = true
     loading.value = false
@@ -190,11 +181,6 @@ async function retryCurrent(): Promise<void> {
   }
 }
 
-async function changeBranch(branch: string): Promise<void> {
-  selectedBranch.value = branch
-  await router.replace({ query: branch === project.value?.defaultBranch ? {} : { branch } })
-}
-
 function openCitations(trigger: HTMLElement): void {
   citationTrigger.value = trigger
   citationsOpen.value = true
@@ -210,10 +196,6 @@ async function closeCitations(): Promise<void> {
 async function logout(): Promise<void> {
   await session.logout()
   await router.replace('/login')
-}
-
-function queryBranch(): string | undefined {
-  return typeof route.query.branch === 'string' ? route.query.branch : undefined
 }
 
 onMounted(initialize)

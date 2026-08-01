@@ -8,8 +8,6 @@
     <code>{{ project.identifier }}</code>
     <p>{{ project.technologyStack }}<template v-if="project.description"> · {{ project.description }}</template></p>
     <div class="project-card__meta">
-      <span><IconGlyph name="branch" />{{ project.branchCount }} 个分支</span>
-      <span>默认 {{ project.defaultBranch }}</span>
       <span><IconGlyph name="file" />{{ sampleKnowledgeCount }} 篇知识</span>
     </div>
   </RouterLink>

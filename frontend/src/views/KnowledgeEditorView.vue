@@ -10,9 +10,6 @@
       <AppTopBar
         v-if="project"
         :project-name="project.name"
-        :selected-branch="selectedBranch"
-        :branches="project.branches.map(branch => branch.name)"
-        @branch-change="selectedBranch = $event"
       />
       <header v-else class="list-topbar"><div><span>工作空间</span><IconGlyph name="chevronRight" /><strong>通用业务知识</strong></div></header>
 
@@ -34,7 +31,6 @@
           role="ADMIN"
           :project-identifier="project.identifier"
           :project-id="project.id"
-          :branch="selectedBranch"
         />
 
         <PageHeader
@@ -207,8 +203,7 @@ const identity = computed(() => session.identity.value)
 const isImportMode = computed(() => String(route.name).endsWith('-import'))
 const isEditMode = computed(() => String(route.name).endsWith('-edit'))
 const project = ref<ProjectDetail | null>(null)
-const selectedBranch = ref('main')
-const scopeProjects = ref<Array<{ identifier: string; name: string; branches: string[] }>>([])
+const scopeProjects = ref<Array<{ identifier: string; name: string }>>([])
 const currentDocument = ref<AdminKnowledgeDocumentView | null>(null)
 const replacementCandidates = ref<KnowledgeDocumentSummary[]>([])
 const replacementId = ref<number | ''>('')
@@ -230,21 +225,17 @@ const directory = ref('')
 const tags = ref<string[]>([])
 const source = reactive<DocumentSourceInput>({ type: 'MANUAL', wikiUrl: null, originalFilename: null, curationNote: null })
 const readOnly = computed(() => currentDocument.value?.status === 'ARCHIVED')
-const backTarget = computed(() => project.value
-  ? { path: `/projects/${project.value.identifier}`, query: selectedBranch.value === project.value.defaultBranch ? {} : { branch: selectedBranch.value } }
-  : '/knowledge')
+const backTarget = computed(() => project.value ? `/projects/${project.value.identifier}` : '/knowledge')
 
 async function initialize(): Promise<void> {
   loading.value = true
   loadError.value = false
   try {
     if (typeof route.params.identifier === 'string') {
-      project.value = await projects.getProject(String(route.params.identifier), queryBranch())
-      selectedBranch.value = project.value.selectedBranch || project.value.defaultBranch
+      project.value = await projects.getProject(String(route.params.identifier))
       scopeProjects.value = [{
         identifier: project.value.identifier,
         name: project.value.name,
-        branches: project.value.branches.map(branch => branch.name),
       }]
     } else {
       await loadScopeProjects()
@@ -269,7 +260,6 @@ async function loadScopeProjects(): Promise<void> {
   scopeProjects.value = details.map(item => ({
     identifier: item.identifier,
     name: item.name,
-    branches: item.branches.map(branch => branch.name),
   }))
 }
 
@@ -283,9 +273,7 @@ function fillFromDocument(document: AdminKnowledgeDocumentView): void {
   if (document.scope.type === 'GLOBAL') {
     scope.value = { type: 'GLOBAL', project: null, branch: null }
   } else {
-    const contextProject = project.value
-    const branch = contextProject?.branches.find(item => item.id === document.scope.branchId)?.name ?? null
-    scope.value = { type: document.scope.type, project: contextProject?.identifier ?? null, branch }
+    scope.value = { type: 'PROJECT', project: project.value?.identifier ?? null, branch: null }
   }
 }
 
@@ -415,10 +403,6 @@ async function openImportedDocument(documentId: number): Promise<void> {
     ? `/projects/${project.value.identifier}/knowledge/${documentId}/edit`
     : `/knowledge/${documentId}/edit`
   await router.push(target)
-}
-
-function queryBranch(): string | undefined {
-  return typeof route.query.branch === 'string' ? route.query.branch : undefined
 }
 
 async function logout(): Promise<void> {

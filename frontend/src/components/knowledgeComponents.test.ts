@@ -74,13 +74,13 @@ describe('knowledge components', () => {
   })
 
   /**
-   * 业务目的：三级范围切换必须立即清理不再适用的项目和分支值，防止隐藏字段把文档写入错误范围。
+   * 业务目的：项目范围切换为通用范围时必须清理项目值，并始终保持分支为空。
    */
-  it('clears project and branch when switching to global scope', async () => {
+  it('clears project scope when switching to global scope', async () => {
     const wrapper = mount(ScopeFields, {
       props: {
-        modelValue: { type: 'BRANCH', project: 'network-designer', branch: 'feature/import' },
-        projects: [{ identifier: 'network-designer', name: '网络设计工具', branches: ['main', 'feature/import'] }],
+        modelValue: { type: 'PROJECT', project: 'network-designer', branch: null },
+        projects: [{ identifier: 'network-designer', name: '网络设计工具' }],
       },
     })
 

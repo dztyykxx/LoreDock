@@ -12,8 +12,4 @@ export const DESIGN_SAMPLES = {
     { id: 'reports', label: '整理报告', count: 2 },
     { id: 'settings', label: '项目设置' },
   ],
-  branchMetadata: {
-    main: '活动快照 a41e9c7 · 26 篇知识',
-    secondary: '活动快照 8fd12a4 · 7 篇知识',
-  },
 } as const

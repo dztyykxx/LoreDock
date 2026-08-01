@@ -6,7 +6,7 @@
     </header>
     <div class="knowledge-gap-scope">
       <strong>确认固定范围</strong>
-      <span>{{ snapshot.scope.projectIdentifier }} / {{ snapshot.scope.branch }}</span>
+      <span>{{ snapshot.scope.projectIdentifier }}</span>
       <p>{{ userQuestion }}</p>
     </div>
     <div v-if="submitted" class="knowledge-gap-success" role="status">

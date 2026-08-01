@@ -20,7 +20,7 @@
     "id": { "type": "string", "pattern": "^ATLAS-QA-[0-9]{3}$" },
     "category": {
       "type": "string",
-      "enum": ["FACT", "PROCESS", "PERMISSION", "FAILURE_RECOVERY", "BRANCH_RULE", "GOVERNANCE", "CONFLICT", "UNANSWERABLE"]
+      "enum": ["FACT", "PROCESS", "PERMISSION", "FAILURE_RECOVERY", "VERSION_RULE", "GOVERNANCE", "CONFLICT", "UNANSWERABLE"]
     },
     "colloquial": { "type": "boolean", "default": false },
     "scope": {
@@ -29,7 +29,7 @@
       "additionalProperties": false,
       "properties": {
         "project": { "const": "atlas" },
-        "branch": { "enum": ["main", "feature/scenario-package-v2"] }
+        "branch": { "const": "main", "description": "前端不选择分支；评测统一使用服务端默认范围。" }
       }
     },
     "question": { "type": "string", "minLength": 1 },
