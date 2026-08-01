@@ -10,6 +10,7 @@ import java.util.List;
  */
 public record WebQaQuestionResponse(
         Long questionId,
+        Long conversationId,
         Long runId,
         WebQaScopeResponse scope,
         Instant createdAt,
@@ -24,10 +25,12 @@ public record WebQaQuestionResponse(
         int stepCount,
         int modelCallCount,
         long lastEventSequence,
+        List<WebQaProcessEventResponse> processEvents,
         List<WebQaMessageResponse> messages,
         List<WebQaCitationResponse> citations
 ) {
     public WebQaQuestionResponse {
+        processEvents = processEvents == null ? List.of() : List.copyOf(processEvents);
         messages = messages == null ? List.of() : List.copyOf(messages);
         citations = citations == null ? List.of() : List.copyOf(citations);
     }

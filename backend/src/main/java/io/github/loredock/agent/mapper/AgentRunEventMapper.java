@@ -25,15 +25,42 @@ public interface AgentRunEventMapper extends BaseMapper<AgentRunEventEntity> {
                 where id = #{runId}
                 returning event_sequence as sequence
             )
-            insert into agent_run_event(run_id, sequence, event_type, payload, created_at)
-            select #{runId}, next_value.sequence, #{eventType}, cast(#{payload} as jsonb), #{createdAt}
+            insert into agent_run_event(run_id, sequence, event_type, subject_type, payload, created_at)
+            select #{runId}, next_value.sequence, #{eventType}, #{subjectType}, cast(#{payload} as jsonb), #{createdAt}
             from next_value
-            returning id, run_id as "runId", sequence, event_type as "eventType",
+            returning id, run_id as "runId", sequence, event_type as "eventType", subject_type as "subjectType",
                       payload::text as payload, created_at as "createdAt"
             """)
     AgentRunEventEntity appendReturning(
             @Param("runId") Long runId,
             @Param("eventType") String eventType,
+            @Param("subjectType") String subjectType,
+            @Param("payload") String payload,
+            @Param("createdAt") Instant createdAt
+    );
+
+    /**
+     * 只在运行仍为 RUNNING 时追加过程事件；终态后迟到的模型或 Tool 结果不占用序号。
+     *
+     * @return 新事件；运行已终态时为 null
+     */
+    @Select("""
+            with next_value as (
+                update agent_run
+                set event_sequence = event_sequence + 1
+                where id = #{runId} and status = 'RUNNING'
+                returning event_sequence as sequence
+            )
+            insert into agent_run_event(run_id, sequence, event_type, subject_type, payload, created_at)
+            select #{runId}, next_value.sequence, #{eventType}, #{subjectType}, cast(#{payload} as jsonb), #{createdAt}
+            from next_value
+            returning id, run_id as "runId", sequence, event_type as "eventType", subject_type as "subjectType",
+                      payload::text as payload, created_at as "createdAt"
+            """)
+    AgentRunEventEntity appendWhileRunningReturning(
+            @Param("runId") Long runId,
+            @Param("eventType") String eventType,
+            @Param("subjectType") String subjectType,
             @Param("payload") String payload,
             @Param("createdAt") Instant createdAt
     );

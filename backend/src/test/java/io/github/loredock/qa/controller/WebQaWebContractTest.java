@@ -19,6 +19,7 @@ import cn.dev33.satoken.spring.SaBeanInject;
 import cn.dev33.satoken.spring.SaBeanRegister;
 import cn.dev33.satoken.spring.SaTokenContextRegister;
 import io.github.loredock.agent.api.AgentRequestException;
+import io.github.loredock.agent.api.AgentEvent;
 import io.github.loredock.agent.api.AgentRun;
 import io.github.loredock.agent.api.AgentService;
 import io.github.loredock.auth.TestAuthFactory;
@@ -61,7 +62,8 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @WebMvcTest(
-        controllers = {AuthController.class, WebQaController.class, WebQaSseController.class},
+        controllers = {AuthController.class, WebQaController.class, WebQaConversationController.class,
+                WebQaSseController.class},
         properties = {
                 "sa-token.token-name=loredock_session",
                 "sa-token.is-read-header=false",
@@ -247,6 +249,59 @@ class WebQaWebContractTest {
         verify(questions).detail(new QaService.DetailQuery("member", "atlas", QUESTION_ID));
         System.out.printf("测试证据：场景=问答安全响应，questionId=%s，事件末序号=7，内部字段泄露=false%n",
                 QUESTION_ID);
+    }
+
+    /**
+     * 业务目的：问题详情必须带有界持久化过程事件和末序号，确保刷新后的 REST 快照可以校正 SSE 内存状态。
+     */
+    @Test
+    void detailReturnsPersistedSafeProcessEventsForSnapshotRecovery() throws Exception {
+        when(questions.detail(any())).thenReturn(snapshot());
+        AgentEvent.Payload payload = new AgentEvent.Payload(
+                "RETRIEVING", "knowledge_search", "搜索已发布知识", "queryLength=4", "命中 1 篇文档",
+                1, 15L, "COMPLETED", List.of(), null, null, null, null, false, false);
+        when(agents.listEvents(RUN_ID, "member", 0, 200)).thenReturn(List.of(new AgentEvent(
+                8000000000000000172L, RUN_ID, 4, AgentEvent.Type.TOOL_COMPLETED,
+                AgentEvent.SubjectType.TOOL, payload, NOW)));
+        when(agents.lastEventSequence(RUN_ID, "member")).thenReturn(4L);
+
+        mockMvc.perform(get("/api/projects/atlas/qa/questions/{questionId}", QUESTION_ID)
+                        .cookie(loginCookie("member")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.lastEventSequence").value(4))
+                .andExpect(jsonPath("$.processEvents.length()").value(1))
+                .andExpect(jsonPath("$.processEvents[0].sequence").value(4))
+                .andExpect(jsonPath("$.processEvents[0].subjectType").value("TOOL"))
+                .andExpect(jsonPath("$.processEvents[0].payload.name").value("knowledge_search"));
+        System.out.println("测试证据：场景=详情快照校正，持久化过程事件数=1，末序号=4，主体=TOOL");
+    }
+
+    /**
+     * 业务目的：会话列表和详情必须使用 URL 项目与服务端身份授权，并为每轮返回可刷新恢复的独立快照。
+     */
+    @Test
+    void conversationEndpointsReturnScopedSummaryAndStableRounds() throws Exception {
+        var summary = new QaService.ConversationSummary(
+                51L, "atlas", "为什么必须校验引用？", "它还有哪些限制？",
+                QaQuestion.Status.COMPLETED, NOW.minusSeconds(10), NOW, NOW);
+        when(questions.conversations(any())).thenReturn(new QaService.ConversationPage(List.of(summary), null));
+        when(questions.conversation(any())).thenReturn(new QaService.Conversation(summary, List.of(snapshot())));
+        when(agents.lastEventSequence(RUN_ID, "member")).thenReturn(4L);
+        when(agents.listEvents(RUN_ID, "member", 0, 200)).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/projects/atlas/qa/conversations").cookie(loginCookie("member")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].conversationId").value("51"))
+                .andExpect(jsonPath("$.items[0].lastQuestion").value("它还有哪些限制？"));
+        mockMvc.perform(get("/api/projects/atlas/qa/conversations/51").cookie(loginCookie("member")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.conversation.title").value("为什么必须校验引用？"))
+                .andExpect(jsonPath("$.rounds.length()").value(1))
+                .andExpect(jsonPath("$.rounds[0].questionId").value(QUESTION_ID.toString()));
+
+        verify(questions).conversations(new QaService.ConversationHistoryQuery("member", "atlas", null, 20));
+        verify(questions).conversation(new QaService.ConversationDetailQuery("member", "atlas", 51L));
+        System.out.println("测试证据：场景=会话接口范围授权，conversationId=51，稳定轮次=1，项目=atlas");
     }
 
     /**

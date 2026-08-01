@@ -8,7 +8,7 @@
       <RouterLink v-if="project" class="qa-project-back" :to="`/projects/${project.identifier}`">
         <IconGlyph name="folder" /><span><strong>{{ project.name }}</strong><small>返回项目知识</small></span>
       </RouterLink>
-      <QaRecentSidebar :items="history" :selected-id="current?.questionId ?? null" @select="selectQuestion" />
+      <QaRecentSidebar :items="conversations" :selected-id="currentConversation?.conversationId ?? null" @select="selectConversation" />
       <button v-if="nextCursor" class="qa-load-more" type="button" :disabled="loading" @click="loadMore">加载更早记录</button>
       <div class="sidebar-profile">
         <span class="sidebar-avatar">{{ identity.role === 'ADMIN' ? '管' : '阅' }}</span>
@@ -44,8 +44,8 @@
 
         <section class="qa-conversation">
           <div v-if="loading && !project" class="qa-page-state" aria-live="polite">正在加载项目范围…</div>
-          <div v-else-if="loadError && history.length === 0" class="qa-page-state qa-page-state--error" role="alert">
-            <strong>问答历史加载失败</strong><p>{{ loadError }}</p><button type="button" @click="reloadHistory">重新加载</button>
+          <div v-else-if="loadError && conversations.length === 0" class="qa-page-state qa-page-state--error" role="alert">
+            <strong>问答历史加载失败</strong><p>{{ loadError }}</p><button type="button" @click="reloadConversations">重新加载</button>
           </div>
           <div v-else-if="!current" class="qa-empty-state">
             <span><IconGlyph name="message" /></span>
@@ -53,18 +53,21 @@
             <p>向 {{ project?.name || identifier }} 提出一个具体问题。每次问题只使用所选项目内已发布的知识文档。</p>
           </div>
           <template v-else>
+            <div v-for="round in rounds" :key="round.questionId" class="qa-round">
             <article class="qa-user-message">
               <div><strong>你</strong></div>
-              <p>{{ currentQuestion }}</p>
+              <p>{{ questionText(round) }}</p>
             </article>
             <QaAnswerPanel
-              :snapshot="current"
-              :partial-text="partialText"
-              :connection-state="connectionState"
-              @retry="retryCurrent"
-              @open-citations="openCitations"
-              @feedback="feedbackOpen = true"
+              :snapshot="round"
+              :partial-text="round.questionId === current?.questionId ? partialText : (round.resultText ?? '')"
+              :process-events="round.questionId === current?.questionId ? processEvents : round.processEvents"
+              :connection-state="round.questionId === current?.questionId ? connectionState : 'idle'"
+              @retry="retryRound(round)"
+              @open-citations="openRoundCitations(round, $event)"
+              @feedback="openRoundFeedback(round)"
             />
+            </div>
           </template>
         </section>
 
@@ -75,13 +78,13 @@
     </main>
 
     <QaCitationDrawer
-      v-if="citationsOpen && current"
-      :snapshot="current"
+      v-if="citationsOpen && detailTarget"
+      :snapshot="detailTarget"
       :return-focus-to="citationTrigger"
       @close="closeCitations"
     />
-    <div v-if="feedbackOpen && current" class="qa-modal-backdrop" @click.self="feedbackOpen = false">
-      <KnowledgeGapDialog :api="api" :snapshot="current" @close="feedbackOpen = false" />
+    <div v-if="feedbackOpen && detailTarget" class="qa-modal-backdrop" @click.self="feedbackOpen = false">
+      <KnowledgeGapDialog :api="api" :snapshot="detailTarget" @close="feedbackOpen = false" />
     </div>
   </div>
 </template>
@@ -90,6 +93,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import type { ProjectDetail } from '../api/types'
+import type { QaQuestion } from '../api/qa'
 import { useProjectApi, useQaApi, useSession } from '../appContext'
 import IconGlyph from '../components/IconGlyph.vue'
 import KnowledgeGapDialog from '../components/KnowledgeGapDialog.vue'
@@ -110,11 +114,14 @@ const projectError = ref(false)
 const citationsOpen = ref(false)
 const feedbackOpen = ref(false)
 const citationTrigger = ref<HTMLElement | null>(null)
+const detailTarget = ref<QaQuestion | null>(null)
 const composer = ref<InstanceType<typeof QaQuestionComposer> | null>(null)
 const qa = createProjectQaController(api, identifier)
-const { history, nextCursor, current, loading, submitting, loadError, submitError, connectionState, partialText } = qa
+const {
+  conversations, currentConversation, rounds, processEvents, nextCursor, current, loading, submitting,
+  loadError, submitError, connectionState, partialText,
+} = qa
 const identity = computed(() => session.identity.value)
-const currentQuestion = computed(() => current.value?.messages.find(message => message.role === 'USER')?.content ?? '未保存问题正文')
 
 async function initialize(): Promise<void> {
   loading.value = true
@@ -125,7 +132,7 @@ async function initialize(): Promise<void> {
     loading.value = false
     return
   }
-  await reloadHistory()
+  await reloadConversations()
   if (route.query.new === '1') {
     const query = { ...route.query }
     delete query.new
@@ -135,10 +142,12 @@ async function initialize(): Promise<void> {
   }
 }
 
-async function reloadHistory(): Promise<void> {
+async function reloadConversations(): Promise<void> {
   try {
-    await qa.loadHistory()
-    if (route.query.new !== '1' && !current.value && history.value[0]) await qa.selectQuestion(history.value[0].questionId)
+    await qa.loadConversations()
+    if (route.query.new !== '1' && !current.value && conversations.value[0]) {
+      await qa.selectConversation(conversations.value[0].conversationId)
+    }
   } catch {
     // composable 已保存可展示的稳定错误，不覆盖已成功加载的项目范围。
   }
@@ -147,17 +156,17 @@ async function reloadHistory(): Promise<void> {
 async function loadMore(): Promise<void> {
   if (!nextCursor.value) return
   try {
-    await qa.loadHistory(nextCursor.value)
+    await qa.loadConversations(nextCursor.value)
   } catch {
     // 保留已有历史，页面错误状态允许用户再次尝试。
   }
 }
 
-async function selectQuestion(questionId: number): Promise<void> {
+async function selectConversation(conversationId: number): Promise<void> {
   citationsOpen.value = false
   feedbackOpen.value = false
   try {
-    await qa.selectQuestion(questionId)
+    await qa.selectConversation(conversationId)
   } catch {
     // 当前范围内的统一错误由页面状态显示，不复用上一条详情。
   }
@@ -166,6 +175,9 @@ async function selectQuestion(questionId: number): Promise<void> {
 function startNewQuestion(): void {
   qa.dispose()
   current.value = null
+  currentConversation.value = null
+  rounds.value = []
+  processEvents.value = []
   partialText.value = ''
   citationsOpen.value = false
   feedbackOpen.value = false
@@ -180,17 +192,33 @@ async function submitQuestion(question: string): Promise<void> {
   }
 }
 
-async function retryCurrent(): Promise<void> {
+async function retryRound(round: QaQuestion): Promise<void> {
   try {
-    await qa.retry(currentQuestion.value)
+    await qa.retry(questionText(round))
   } catch {
-    // 主动重试错误保留在当前页面，且下一次主动重试仍会生成新键。
+    // 主动重试始终使用新幂等键，失败时保留当前会话以便再次尝试。
   }
 }
 
 function openCitations(trigger: HTMLElement): void {
+  detailTarget.value = current.value
   citationTrigger.value = trigger
   citationsOpen.value = true
+}
+
+function openRoundCitations(round: QaQuestion, trigger: HTMLElement): void {
+  detailTarget.value = round
+  citationTrigger.value = trigger
+  citationsOpen.value = true
+}
+
+function openRoundFeedback(round: QaQuestion): void {
+  detailTarget.value = round
+  feedbackOpen.value = true
+}
+
+function questionText(round: QaQuestion): string {
+  return round.messages.find(message => message.role === 'USER')?.content ?? '未保存问题正文'
 }
 
 async function closeCitations(): Promise<void> {

@@ -16,6 +16,7 @@ import io.github.loredock.project.api.ProjectService;
 import io.github.loredock.qa.converter.WebQaCursorCodec;
 import io.github.loredock.qa.api.QaQuestionNotFoundException;
 import io.github.loredock.qa.model.result.WebQaQuestionRecord;
+import io.github.loredock.qa.model.result.WebQaConversationRecord;
 import io.github.loredock.qa.model.snapshot.WebQaCursor;
 import java.time.Instant;
 import java.util.List;
@@ -29,6 +30,7 @@ class QaServiceQueryTest {
     private static final Instant NOW = Instant.parse("2026-07-30T05:00:00Z");
     private ProjectService projects;
     private AgentService agents;
+    private WebQaConversationDataService conversations;
     private WebQaQuestionDataService questions;
     private WebQaMessageDataService messages;
     private DefaultWebQaAssistantMessageMaterializer materializer;
@@ -38,11 +40,42 @@ class QaServiceQueryTest {
     void setUp() {
         projects = mock(ProjectService.class);
         agents = mock(AgentService.class);
+        conversations = mock(WebQaConversationDataService.class);
         questions = mock(WebQaQuestionDataService.class);
         messages = mock(WebQaMessageDataService.class);
         materializer = mock(DefaultWebQaAssistantMessageMaterializer.class);
         when(projects.resolveEnabledScope("atlas", null)).thenReturn(project());
-        service = new QaServiceImpl(projects, agents, questions, messages, materializer, java.time.Clock.systemUTC());
+        service = new QaServiceImpl(
+                projects, agents, conversations, questions, messages, materializer, java.time.Clock.systemUTC());
+    }
+
+    /**
+     * 业务目的：会话详情必须按创建时间和稳定 questionId 正序返回独立轮次，防止相同时间戳导致刷新后顺序漂移。
+     */
+    @Test
+    void conversationDetailReturnsRoundsInStableAscendingOrder() {
+        Long conversationId = 8000000000000000084L;
+        WebQaConversationRecord conversation = new WebQaConversationRecord(
+                conversationId, "member", PROJECT_ID, "atlas", "首轮问题", NOW.minusSeconds(10), NOW, NOW);
+        WebQaQuestionRecord first = new WebQaQuestionRecord(
+                8000000000000000085L, conversationId, "member", "round-1", "a".repeat(64),
+                PROJECT_ID, "atlas", BRANCH_ID, "main", 1101L, NOW);
+        WebQaQuestionRecord second = new WebQaQuestionRecord(
+                8000000000000000086L, conversationId, "member", "round-2", "b".repeat(64),
+                PROJECT_ID, "atlas", BRANCH_ID, "main", 1102L, NOW);
+        when(conversations.findVisible(conversationId, "member", PROJECT_ID)).thenReturn(Optional.of(conversation));
+        when(questions.findByConversation(conversationId, 101)).thenReturn(List.of(first, second));
+        when(agents.get(any(), org.mockito.ArgumentMatchers.eq("member"))).thenAnswer(invocation ->
+                run(invocation.getArgument(0)));
+        when(messages.findByQuestionId(any())).thenReturn(List.of());
+
+        QaService.Conversation result = service.conversation(
+                new QaService.ConversationDetailQuery("member", "atlas", conversationId));
+
+        assertThat(result.rounds()).extracting(QaQuestion::questionId)
+                .containsExactly(first.id(), second.id());
+        System.out.printf("测试证据：场景=会话稳定轮次顺序，conversationId=%s，questionIds=%s%n",
+                conversationId, result.rounds().stream().map(QaQuestion::questionId).toList());
     }
 
     /**

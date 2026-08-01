@@ -25,10 +25,10 @@ const project: ProjectDetail = {
 
 function snapshot(overrides: Partial<QaQuestion> = {}): QaQuestion {
   return {
-    questionId: 61, runId: 71, createdAt: '2026-07-31T08:00:00Z',
+    questionId: 61, conversationId: 51, runId: 71, createdAt: '2026-07-31T08:00:00Z',
     scope: { projectIdentifier: 'network-designer', branch: 'feature/import', commit: null, codeSnapshotAvailable: false },
     status: 'COMPLETED', resultType: 'ANSWER', trustState: 'RELIABLE_ANSWER', answerBasis: 'BUSINESS_RULE', refusalReason: null, errorCode: null,
-    failureMessage: null,
+    failureMessage: null, processEvents: [],
     resultText: '服务端固定到运行创建时的范围。', stepCount: 2, modelCallCount: 1, lastEventSequence: 8,
     messages: [{ id: 81, role: 'USER', content: '当前范围是什么？', resultType: null, refusalReason: null, createdAt: '2026-07-31T08:00:00Z' }],
     citations: [], ...overrides,
@@ -37,9 +37,24 @@ function snapshot(overrides: Partial<QaQuestion> = {}): QaQuestion {
 
 function qaApi(overrides: Partial<QaApi> = {}): QaApi {
   return {
+    conversations: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+    conversation: vi.fn(),
     history: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
     detail: vi.fn(), createQuestion: vi.fn(), createKnowledgeGap: vi.fn(),
     openEventStream: vi.fn().mockReturnValue({ close: vi.fn() }), ...overrides,
+  }
+}
+
+function conversationSummary() {
+  return {
+    conversationId: 51,
+    projectIdentifier: 'network-designer',
+    title: '当前范围是什么？',
+    lastQuestion: '当前范围是什么？',
+    status: 'COMPLETED' as const,
+    createdAt: '2026-07-31T08:00:00Z',
+    updatedAt: '2026-07-31T08:00:00Z',
+    lastQuestionAt: '2026-07-31T08:00:00Z',
   }
 }
 
@@ -80,7 +95,7 @@ describe('ProjectQaView', () => {
     const { wrapper, projects } = await mountView('/projects/network-designer/qa?branch=feature%2Fimport', qa)
 
     expect(projects.getProject).toHaveBeenCalledWith('network-designer')
-    expect(qa.history).toHaveBeenCalledWith('network-designer', undefined)
+    expect(qa.conversations).toHaveBeenCalledWith('network-designer', undefined)
     expect(wrapper.text()).toContain('网络设计工具')
     expect(wrapper.text()).toContain('还没有问答')
     expect(wrapper.find('textarea').exists()).toBe(true)
@@ -95,13 +110,13 @@ describe('ProjectQaView', () => {
   it('opens an empty composer when new question navigation is requested', async () => {
     const existing = snapshot()
     const qa = qaApi({
-      history: vi.fn().mockResolvedValue({ items: [existing], nextCursor: null }),
-      detail: vi.fn().mockResolvedValue(existing),
+      conversations: vi.fn().mockResolvedValue({ items: [conversationSummary()], nextCursor: null }),
+      conversation: vi.fn().mockResolvedValue({ conversation: conversationSummary(), rounds: [existing] }),
     })
     const { wrapper, router } = await mountView('/projects/network-designer/qa?new=1', qa)
 
-    expect(qa.history).toHaveBeenCalled()
-    expect(qa.detail).not.toHaveBeenCalled()
+    expect(qa.conversations).toHaveBeenCalled()
+    expect(qa.conversation).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('还没有问答')
     expect(wrapper.find('textarea').exists()).toBe(true)
     expect(router.currentRoute.value.query.new).toBeUndefined()
@@ -114,8 +129,8 @@ describe('ProjectQaView', () => {
     const existing = snapshot()
     const accepted = snapshot({ questionId: 64, runId: 72, status: 'ACCEPTED', resultType: null, trustState: 'IN_PROGRESS', answerBasis: null, resultText: null, scope: { ...existing.scope, branch: 'main' } })
     const qa = qaApi({
-      history: vi.fn().mockResolvedValue({ items: [existing], nextCursor: null }),
-      detail: vi.fn().mockResolvedValue(existing),
+      conversations: vi.fn().mockResolvedValue({ items: [conversationSummary()], nextCursor: null }),
+      conversation: vi.fn().mockResolvedValue({ conversation: conversationSummary(), rounds: [existing] }),
       createQuestion: vi.fn().mockResolvedValue(accepted),
     })
     const { wrapper } = await mountView('/projects/network-designer/qa?branch=feature%2Fimport', qa)

@@ -7,6 +7,7 @@ import java.util.List;
  * QA 模块公开的问答事实；同时服务 Web 展示与 Feedback 关联，不暴露请求摘要、模型配置或证据正文。
  *
  * @param questionId 问答标识
+ * @param conversationId 所属项目会话标识
  * @param runId Agent 运行标识
  * @param scope 固定项目与分支范围
  * @param createdAt 创建时间
@@ -25,6 +26,7 @@ import java.util.List;
  */
 public record QaQuestion(
         Long questionId,
+        Long conversationId,
         Long runId,
         Scope scope,
         Instant createdAt,
@@ -44,6 +46,30 @@ public record QaQuestion(
     public QaQuestion {
         messages = messages == null ? List.of() : List.copyOf(messages);
         citations = citations == null ? List.of() : List.copyOf(citations);
+    }
+
+    /** 保留 T7 期间仅有 questionId 的测试夹具和跨模块调用兼容。 */
+    public QaQuestion(
+            Long questionId,
+            Long runId,
+            Scope scope,
+            Instant createdAt,
+            Status status,
+            ResultType resultType,
+            TrustState trustState,
+            AnswerBasis answerBasis,
+            RefusalReason refusalReason,
+            ErrorCode errorCode,
+            String resultText,
+            int stepCount,
+            int modelCallCount,
+            Instant finishedAt,
+            List<Message> messages,
+            List<Citation> citations
+    ) {
+        this(questionId, questionId, runId, scope, createdAt, status, resultType, trustState,
+                answerBasis, refusalReason, errorCode, resultText, stepCount, modelCallCount,
+                finishedAt, messages, citations);
     }
 
     /** 运行生命周期。 */

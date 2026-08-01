@@ -21,6 +21,7 @@ public class AgentRunEventEntity {
     @TableField("run_id") private Long runId;
     @TableField("sequence") private Long sequence;
     @TableField("event_type") private String eventType;
+    @TableField("subject_type") private String subjectType;
     @TableField(value = "payload", jdbcType = JdbcType.OTHER, typeHandler = PostgresJsonbTypeHandler.class)
     private String payload;
     @TableField("created_at") private Instant createdAt;

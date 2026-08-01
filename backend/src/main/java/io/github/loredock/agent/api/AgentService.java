@@ -37,6 +37,7 @@ public interface AgentService {
      * @param projectIdentifier 已启用项目标识
      * @param branch 可选分支
      * @param question 1～2000 个 Unicode 字符的问题
+     * @param conversationHistory 同会话已完成且受服务端裁剪的非证据消息
      */
     record StartRequest(
             String idempotencyKey,
@@ -44,8 +45,34 @@ public interface AgentService {
             String operatorRole,
             String projectIdentifier,
             String branch,
-            String question
+            String question,
+            List<ConversationMessage> conversationHistory
     ) {
+        public StartRequest {
+            conversationHistory = conversationHistory == null ? List.of() : List.copyOf(conversationHistory);
+        }
+
+        /** 保留不携带历史的独立运行调用兼容。 */
+        public StartRequest(
+                String idempotencyKey,
+                String operatorId,
+                String operatorRole,
+                String projectIdentifier,
+                String branch,
+                String question
+        ) {
+            this(idempotencyKey, operatorId, operatorRole, projectIdentifier, branch, question, List.of());
+        }
+    }
+
+    /**
+     * 只帮助模型理解当前问题指代的历史消息；服务端不会为其生成当前运行 evidenceId。
+     *
+     * @param role USER 或 ASSISTANT
+     * @param content 已完成公开正文
+     * @param occurredAt 原轮次消息时间
+     */
+    record ConversationMessage(String role, String content, java.time.Instant occurredAt) {
     }
 
     /** 当前进程提交后事件订阅。 */

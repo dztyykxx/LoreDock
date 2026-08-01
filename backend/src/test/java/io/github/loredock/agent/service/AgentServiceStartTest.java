@@ -101,6 +101,25 @@ class AgentServiceStartTest {
     }
 
     /**
+     * 业务目的：已由 QA 服务筛选的同会话完成消息必须原样固定到本轮执行请求，且不能混入当前问题摘要字段。
+     */
+    @Test
+    void boundedCompletedConversationHistoryIsPinnedToExecutionRequest() {
+        List<AgentService.ConversationMessage> history = List.of(
+                new AgentService.ConversationMessage("USER", "上一轮讨论审核流程", NOW.minusSeconds(20)),
+                new AgentService.ConversationMessage("ASSISTANT", "上一轮经校验的回答", NOW.minusSeconds(10)));
+
+        service().startSnapshot(new AgentService.StartRequest(
+                "history-key", "member", "MEMBER", "atlas", null, "它还有哪些限制？", history));
+
+        assertThat(scheduledRequest.get().conversationHistory()).containsExactlyElementsOf(history);
+        assertThat(acceptedData.get().questionLength()).isEqualTo("它还有哪些限制？".length());
+        assertThat(acceptedData.get().toString()).doesNotContain("上一轮讨论审核流程", "上一轮经校验的回答");
+        System.out.printf("测试证据：场景=有界历史固定，历史消息数=%d，当前问题字符数=%d，历史正文落运行表=false%n",
+                scheduledRequest.get().conversationHistory().size(), acceptedData.get().questionLength());
+    }
+
+    /**
      * 业务目的：匿名/未知角色、空问题和超过 2000 个 Unicode 字符的问题必须在访问项目或模型前拒绝。
      */
     @Test

@@ -50,7 +50,7 @@ public class WebQaController {
         AuthenticatedActor actor = sessions.currentSession();
         var snapshot = questions.create(new QaService.CreateRequest(
                 actor.username(), actor.role().name(), request.idempotencyKey(), identifier,
-                request.branch(), request.question()));
+                request.branch(), request.conversationId(), request.question()));
         long lastSequence = agents.lastEventSequence(snapshot.runId(), actor.username());
         return ResponseEntity.accepted().body(WebQaHttpMapper.toResponse(snapshot, lastSequence));
     }
@@ -81,6 +81,7 @@ public class WebQaController {
         AuthenticatedActor actor = sessions.currentSession();
         var snapshot = questions.detail(new QaService.DetailQuery(actor.username(), identifier, questionId));
         long lastSequence = agents.lastEventSequence(snapshot.runId(), actor.username());
-        return WebQaHttpMapper.toResponse(snapshot, lastSequence);
+        var events = agents.listEvents(snapshot.runId(), actor.username(), 0, 200);
+        return WebQaHttpMapper.toResponse(snapshot, lastSequence, events);
     }
 }

@@ -37,6 +37,8 @@ public enum ErrorCode {
     KNOWLEDGE_INDEX_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "知识索引暂时不可用"),
     KNOWLEDGE_EMBEDDING_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "知识语义模型暂时不可用"),
     QA_QUESTION_NOT_FOUND(HttpStatus.NOT_FOUND, "问答记录不存在"),
+    QA_CONVERSATION_NOT_FOUND(HttpStatus.NOT_FOUND, "问答会话不存在"),
+    QA_CONVERSATION_BUSY(HttpStatus.CONFLICT, "当前会话已有进行中的问答"),
     KNOWLEDGE_GAP_NOT_FOUND(HttpStatus.NOT_FOUND, "知识缺口不存在"),
     KNOWLEDGE_GAP_IDEMPOTENCY_CONFLICT(HttpStatus.CONFLICT, "相同幂等键对应的知识缺口输入不一致"),
     KNOWLEDGE_GAP_STATUS_CONFLICT(HttpStatus.CONFLICT, "知识缺口状态流转冲突"),

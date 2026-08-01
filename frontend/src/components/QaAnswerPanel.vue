@@ -6,6 +6,41 @@
       <QaTrustBadge :state="snapshot.trustState" />
     </header>
 
+    <section v-if="visibleProcessEvents.length" class="qa-process">
+      <button
+        data-testid="toggle-process"
+        class="qa-process__toggle"
+        type="button"
+        :aria-expanded="processOpen ? 'true' : 'false'"
+        @click="processOpen = !processOpen"
+      >
+        <span><IconGlyph name="sparkle" />处理过程</span>
+        <small>{{ processOpen ? '收起' : `${visibleProcessEvents.length} 个步骤` }}</small>
+      </button>
+      <ol v-if="processOpen" data-testid="qa-process-timeline" class="qa-process__timeline">
+        <li v-for="event in visibleProcessEvents" :key="event.sequence">
+          <span class="qa-process__dot" :class="`qa-process__dot--${event.subjectType.toLowerCase()}`" />
+          <div>
+            <div class="qa-process__event-heading">
+              <strong>{{ eventTitle(event) }}</strong>
+              <time :datetime="event.occurredAt">{{ formatEventTime(event.occurredAt) }}</time>
+            </div>
+            <p v-if="event.payload.resultSummary">{{ event.payload.resultSummary }}</p>
+            <p v-if="event.payload.summary">
+              <span v-if="event.payload.modelGenerated" class="qa-process__public-label">公开决策摘要</span>
+              {{ event.payload.summary }}
+            </p>
+            <div v-if="event.payload.sources.length" class="qa-process__sources">
+              <span v-for="source in event.payload.sources" :key="`${event.sequence}-${source.documentId}`" :title="source.title ?? undefined">
+                {{ source.title || '未命名来源' }}
+              </span>
+            </div>
+            <small v-if="event.payload.durationMillis !== null">耗时 {{ event.payload.durationMillis }} ms</small>
+          </div>
+        </li>
+      </ol>
+    </section>
+
     <div v-if="connectionState === 'interrupted'" class="qa-stream-warning" role="status">
       <IconGlyph name="warning" />连接已中断，正在从最后已接收位置重连；最终结果以服务端快照为准。
     </div>
@@ -43,14 +78,21 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import type { QaConnectionState } from '../qa/useProjectQa'
-import type { QaQuestion } from '../api/qa'
+import type { QaProcessEvent, QaQuestion } from '../api/qa'
 import IconGlyph from './IconGlyph.vue'
 import QaTrustBadge from './QaTrustBadge.vue'
 
-const props = defineProps<{ snapshot: QaQuestion; partialText: string; connectionState: QaConnectionState }>()
+const props = defineProps<{
+  snapshot: QaQuestion
+  partialText: string
+  connectionState: QaConnectionState
+  processEvents?: QaProcessEvent[]
+}>()
 const emit = defineEmits<{ retry: []; openCitations: [trigger: HTMLElement]; feedback: [] }>()
+const processOpen = ref(false)
+const visibleProcessEvents = computed(() => props.processEvents ?? props.snapshot.processEvents)
 
 function openCitations(event: MouseEvent): void {
   emit('openCitations', event.currentTarget as HTMLElement)
@@ -78,4 +120,23 @@ const refusalDescription = computed(() => (
   } as Record<string, string>)[props.snapshot.refusalReason ?? '']
   ?? '本次运行未形成可公开回答。'
 ))
+
+function eventTitle(event: QaProcessEvent): string {
+  if (event.type === 'PUBLIC_DECISION_SUMMARY') return '模型整理公开结论'
+  if (event.type === 'CITATION_VALIDATION') return `引用校验${event.payload.status === 'PASSED' ? '通过' : ''}`
+  if (event.type === 'SOURCE_DISCOVERED' || event.type === 'SOURCE_FOUND') return `发现 ${event.payload.count ?? event.payload.sources.length} 个来源`
+  if (event.type === 'TOOL_STARTED') return `${event.payload.name || '工具'} 开始`
+  if (event.type === 'TOOL_COMPLETED') return event.payload.name || '工具完成'
+  if (event.type === 'MODEL_STARTED' || event.type === 'MODEL_STAGE') return '模型正在整理答案'
+  if (event.type === 'RUN_ACCEPTED') return '问题已受理'
+  if (event.type === 'RUN_STARTED') return '开始核验项目知识'
+  if (event.type === 'RUN_COMPLETED') return '处理完成'
+  if (event.type === 'RUN_FAILED' || event.type === 'RUN_TERMINATED') return '处理未完成'
+  return event.payload.phase || '执行步骤'
+}
+
+function formatEventTime(value: string): string {
+  return new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    .format(new Date(value))
+}
 </script>

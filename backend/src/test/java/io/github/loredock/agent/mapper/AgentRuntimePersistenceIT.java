@@ -2,6 +2,7 @@ package io.github.loredock.agent.mapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.loredock.agent.api.AgentEvent;
 import io.github.loredock.agent.config.AgentRuntimeLimits;
 import io.github.loredock.agent.converter.ProjectQaResultConverter;
 import io.github.loredock.agent.model.command.AgentRunCreateData;
@@ -196,6 +197,31 @@ class AgentRuntimePersistenceIT {
         assertThat(snapshot.citations()).isEmpty();
         System.out.printf("测试证据：场景=终态CAS，runId=%s，终态=%s，迟到引用数=%d%n",
                 runId, snapshot.status(), snapshot.citations().size());
+    }
+
+    /**
+     * 业务目的：运行已终止后的迟到模型或 Tool 进度不得继续追加，防止页面在失败事实后显示似乎仍在执行。
+     */
+    @Test
+    void terminalRunRejectsLateTypedProcessEvent() {
+        Long runId = 8000000000000000218L;
+        runs.insert(createData(runId, "late-public-event-key"));
+        Instant startedAt = Instant.parse("2026-07-30T01:00:01Z");
+        assertThat(runs.markRunning(runId, startedAt)).isTrue();
+        assertThat(runs.finishWithError(runId, AgentErrorCode.AGENT_RUN_TIMEOUT, true,
+                AgentExecutionUsage.none(), startedAt.plusSeconds(2))).isTrue();
+        long terminalSequence = events.lastSequence(runId);
+
+        boolean appended = events.append(runId, AgentEventType.TOOL_COMPLETED, AgentEvent.SubjectType.TOOL,
+                new AgentEvent.Payload("RETRIEVING", "knowledge_search", null, null, "迟到结果",
+                        1, 3L, "COMPLETED", List.of(), null, null, null, null, false, false),
+                startedAt.plusSeconds(3));
+
+        assertThat(appended).isFalse();
+        assertThat(events.lastSequence(runId)).isEqualTo(terminalSequence);
+        assertThat(events.findAfter(runId, terminalSequence, 20)).isEmpty();
+        System.out.printf("测试证据：场景=终态拒绝迟到公开事件，runId=%s，终态序号=%d，追加=false%n",
+                runId, terminalSequence);
     }
 
     /**

@@ -11,19 +11,16 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-/** Web 问答身份、幂等键和运行固定范围的显式持久化实体。 */
+/** QA 会话归属、标题和最近活动时间的显式持久化实体。 */
 @Getter @Setter @Builder @NoArgsConstructor @AllArgsConstructor
-@TableName("web_qa_question")
-public class WebQaQuestionEntity {
+@TableName("web_qa_conversation")
+public class WebQaConversationEntity {
     @TableId(value = "id", type = IdType.AUTO) private Long id;
-    @TableField("conversation_id") private Long conversationId;
     @TableField("operator_id") private String operatorId;
-    @TableField("idempotency_key") private String idempotencyKey;
-    @TableField("request_hash") private String requestHash;
     @TableField("project_id") private Long projectId;
     @TableField("project_identifier") private String projectIdentifier;
-    @TableField("branch_id") private Long branchId;
-    @TableField("branch_name") private String branchName;
-    @TableField("run_id") private Long runId;
+    @TableField("title") private String title;
     @TableField("created_at") private Instant createdAt;
+    @TableField("updated_at") private Instant updatedAt;
+    @TableField("last_question_at") private Instant lastQuestionAt;
 }

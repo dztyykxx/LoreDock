@@ -9,6 +9,7 @@ import io.github.loredock.qa.converter.WebQaSseEventMapper;
 import io.github.loredock.qa.model.snapshot.WebQaSseCursor;
 import io.github.loredock.qa.model.snapshot.WebQaSsePublicEvent;
 import java.time.Instant;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class WebQaSseContractTest {
@@ -66,6 +67,53 @@ class WebQaSseContractTest {
     }
 
     /**
+     * 业务目的：Tool、来源与引用校验必须保持服务端事实顺序和主体类型，页面不能根据模型文本伪造完成卡片。
+     */
+    @Test
+    void typedToolSourceAndCitationEventsKeepFactOrderAndSubjects() {
+        AgentEvent.Payload startedPayload = payload("RETRIEVING", "knowledge_search", "STARTED", 0);
+        AgentEvent.Payload sourcePayload = new AgentEvent.Payload(
+                "RETRIEVING", "knowledge_search", "搜索已发布知识", "queryLength=4", "命中 1 篇文档",
+                1, 12L, "COMPLETED", List.of(new AgentEvent.Source(
+                8000000000000000171L, "审核规则", "PROJECT", "MANUAL", NOW, "HIGH", true, false)),
+                null, null, null, null, false, false);
+        AgentEvent.Payload validationPayload = payload("VALIDATING", "citation_validator", "PASSED", 1);
+        List<WebQaSsePublicEvent> events = List.of(
+                WebQaSseEventMapper.toPublic(new AgentEvent(
+                        1L, RUN_ID, 3, AgentEvent.Type.TOOL_STARTED, AgentEvent.SubjectType.TOOL,
+                        startedPayload, NOW)),
+                WebQaSseEventMapper.toPublic(new AgentEvent(
+                        2L, RUN_ID, 4, AgentEvent.Type.SOURCE_DISCOVERED, AgentEvent.SubjectType.TOOL,
+                        sourcePayload, NOW)),
+                WebQaSseEventMapper.toPublic(new AgentEvent(
+                        3L, RUN_ID, 5, AgentEvent.Type.CITATION_VALIDATION, AgentEvent.SubjectType.VALIDATOR,
+                        validationPayload, NOW)));
+
+        assertThat(events).extracting(WebQaSsePublicEvent::name)
+                .containsExactly("tool.started", "source.found", "citation.validation");
+        assertThat(events).extracting(event -> event.data().sequence()).containsExactly(3L, 4L, 5L);
+        assertThat(events.get(1).data().sources()).extracting(AgentEvent.Source::title).containsExactly("审核规则");
+        assertThat(events.get(2).data().subjectType()).isEqualTo(AgentEvent.SubjectType.VALIDATOR);
+        System.out.println("测试证据：场景=类型化公开事实，序号=3/4/5，主体=TOOL/TOOL/VALIDATOR，来源数=1");
+    }
+
+    /**
+     * 业务目的：内部路径、Token 或完整正文即使误入事件对象也必须在进入 SSE 前被拒绝，不能依赖前端隐藏。
+     */
+    @Test
+    void unsafeTypedPayloadIsRejectedBeforeSseProjection() {
+        AgentEvent.Payload unsafe = new AgentEvent.Payload(
+                "RETRIEVING", "knowledge_search", "搜索知识", "path=/srv/loredock token=secret",
+                "完整知识正文：" + "敏感内容".repeat(300), 1, 10L, "COMPLETED", List.of(),
+                null, null, null, null, false, false);
+
+        assertThatThrownBy(() -> WebQaSseEventMapper.toPublic(new AgentEvent(
+                4L, RUN_ID, 6, AgentEvent.Type.TOOL_COMPLETED, AgentEvent.SubjectType.TOOL, unsafe, NOW)))
+                .isInstanceOf(IllegalArgumentException.class);
+        System.out.println("测试证据：场景=事件载荷脱敏，内部路径/Token/完整正文=SSE投影拒绝");
+    }
+
+    /**
      * 业务目的：伪造工具名、计数、结果类型或错误码必须在服务端失败，不能把任意运行 payload 透传到页面。
      */
     @Test
@@ -84,5 +132,11 @@ class WebQaSseContractTest {
     private WebQaSsePublicEvent map(long sequence, AgentEvent.Type type, String payload) {
         return WebQaSseEventMapper.toPublic(new AgentEvent(
                 8000000000000000170L, RUN_ID, sequence, type, payload, NOW));
+    }
+
+    private AgentEvent.Payload payload(String phase, String name, String status, int count) {
+        return new AgentEvent.Payload(
+                phase, name, null, null, null, count, null, status,
+                List.of(), null, null, null, null, false, false);
     }
 }

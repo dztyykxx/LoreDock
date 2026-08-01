@@ -6,6 +6,12 @@ export type QaTrustState = 'IN_PROGRESS' | 'RELIABLE_ANSWER' | 'SOURCE_CONFLICT'
 export type QaAnswerBasis = 'BUSINESS_RULE' | 'CURRENT_IMPLEMENTATION' | 'MIXED'
 export type QaMessageRole = 'USER' | 'ASSISTANT'
 export type QaSourceType = 'KNOWLEDGE' | 'CODE'
+export type QaEventSubjectType = 'AGENT' | 'MODEL' | 'TOOL' | 'VALIDATOR'
+export type QaProcessEventType =
+  | 'RUN_ACCEPTED' | 'RUN_STARTED' | 'MODEL_STARTED' | 'SOURCE_FOUND' | 'AGENT_STAGE' | 'MODEL_STAGE'
+  | 'TOOL_STARTED' | 'TOOL_COMPLETED' | 'SOURCE_DISCOVERED'
+  | 'CITATION_VALIDATION' | 'PUBLIC_DECISION_SUMMARY' | 'ANSWER_DELTA'
+  | 'RUN_COMPLETED' | 'RUN_FAILED' | 'RUN_TERMINATED'
 export type KnowledgeGapType = 'NO_ANSWER' | 'WRONG_ANSWER' | 'OUTDATED_KNOWLEDGE'
 export type KnowledgeGapStatus = 'OPEN' | 'ACKNOWLEDGED' | 'CLOSED'
 
@@ -68,6 +74,7 @@ export interface QaCitation {
 
 export interface QaQuestion {
   questionId: number
+  conversationId: number
   runId: number
   scope: QaScope
   createdAt: string
@@ -82,8 +89,67 @@ export interface QaQuestion {
   stepCount: number
   modelCallCount: number
   lastEventSequence: number
+  processEvents: QaProcessEvent[]
   messages: QaMessage[]
   citations: QaCitation[]
+}
+
+export interface QaProcessSource {
+  documentId: number | null
+  title: string | null
+  scopeType: string | null
+  sourceType: string | null
+  updatedAt: string | null
+  relevance: string | null
+  cited: boolean
+  truncated: boolean
+}
+
+export interface QaProcessEventPayload {
+  phase: string | null
+  name: string | null
+  purpose: string | null
+  parameterSummary: string | null
+  resultSummary: string | null
+  count: number | null
+  durationMillis: number | null
+  status: string | null
+  sources: QaProcessSource[]
+  summary: string | null
+  textDelta: string | null
+  resultType: QaResultType | null
+  errorCode: QaErrorCode | null
+  modelGenerated: boolean
+  truncated: boolean
+}
+
+export interface QaProcessEvent {
+  sequence: number
+  type: QaProcessEventType
+  subjectType: QaEventSubjectType
+  payload: QaProcessEventPayload
+  occurredAt: string
+}
+
+export interface QaConversationSummary {
+  conversationId: number
+  projectIdentifier: string
+  title: string
+  lastQuestion: string
+  status: QaRunStatus
+  createdAt: string
+  updatedAt: string
+  lastQuestionAt: string
+}
+
+export interface QaConversationPage {
+  items: QaConversationSummary[]
+  nextCursor: string | null
+}
+
+export interface QaConversation {
+  conversation: QaConversationSummary
+  rounds: QaQuestion[]
 }
 
 export interface QaQuestionPage {
@@ -93,6 +159,7 @@ export interface QaQuestionPage {
 
 export interface CreateQaQuestionInput {
   idempotencyKey: string
+  conversationId?: number
   question: string
 }
 
@@ -100,9 +167,20 @@ export interface QaSseEvent {
   version: 'v1'
   sequence: number
   occurredAt: string
+  eventType?: QaProcessEventType
+  subjectType?: QaEventSubjectType
   phase: string
   tool?: string | null
+  purpose?: string | null
+  parameterSummary?: string | null
+  resultSummary?: string | null
   count?: number | null
+  durationMillis?: number | null
+  status?: string | null
+  sources?: QaProcessSource[]
+  summary?: string | null
+  modelGenerated?: boolean
+  truncated?: boolean
   textDelta?: string | null
   resultType?: QaResultType | null
   errorCode?: QaErrorCode | null
@@ -111,11 +189,14 @@ export interface QaSseEvent {
 export type QaSseEventName =
   | 'run.accepted'
   | 'run.started'
+  | 'agent.stage'
   | 'skill.pinned'
   | 'model.started'
   | 'tool.started'
   | 'tool.completed'
   | 'source.found'
+  | 'citation.validation'
+  | 'decision.summary'
   | 'answer.delta'
   | 'answer.refusal'
   | 'run.completed'
@@ -167,6 +248,8 @@ export interface KnowledgeGapFeedback {
 }
 
 export interface QaApi {
+  conversations(identifier: string, cursor?: string, limit?: number): Promise<QaConversationPage>
+  conversation(identifier: string, conversationId: number): Promise<QaConversation>
   history(identifier: string, cursor?: string, limit?: number): Promise<QaQuestionPage>
   detail(identifier: string, questionId: number): Promise<QaQuestion>
   createQuestion(identifier: string, input: CreateQaQuestionInput): Promise<QaQuestion>
@@ -183,11 +266,14 @@ export interface QaApi {
 const eventNames: QaSseEventName[] = [
   'run.accepted',
   'run.started',
+  'agent.stage',
   'skill.pinned',
   'model.started',
   'tool.started',
   'tool.completed',
   'source.found',
+  'citation.validation',
+  'decision.summary',
   'answer.delta',
   'answer.refusal',
   'run.completed',
@@ -198,6 +284,14 @@ const eventNames: QaSseEventName[] = [
 const browserEventSourceFactory: EventSourceFactory = (url, init) => new EventSource(url, init)
 
 export const qaApi: QaApi = {
+  conversations(identifier, cursor, limit = 20) {
+    const query = new URLSearchParams({ limit: String(limit) })
+    if (cursor) query.set('cursor', cursor)
+    return requestJson<QaConversationPage>(`${conversationsPath(identifier)}?${query}`)
+  },
+  conversation: (identifier, conversationId) => requestJson<QaConversation>(
+    `${conversationsPath(identifier)}/${encodeURIComponent(conversationId)}`,
+  ),
   history(identifier, cursor, limit = 20) {
     const query = new URLSearchParams({ limit: String(limit) })
     if (cursor) query.set('cursor', cursor)
@@ -234,4 +328,8 @@ export const qaApi: QaApi = {
 
 function questionsPath(identifier: string): string {
   return `/api/projects/${encodeURIComponent(identifier)}/qa/questions`
+}
+
+function conversationsPath(identifier: string): string {
+  return `/api/projects/${encodeURIComponent(identifier)}/qa/conversations`
 }

@@ -83,14 +83,15 @@ class AgentServiceImplTest {
         when(runs.findById(1L)).thenReturn(Optional.of(snapshot(
                 1L, AgentRunStatus.RUNNING, null, null, null)));
         when(events.findAfter(1L, 2L, 20)).thenReturn(List.of(
-                new AgentEventSnapshot(31L, 1L, 3L, AgentEventType.SOURCE_FOUND, "knowledge:2", Instant.EPOCH)));
+                new AgentEventSnapshot(31L, 1L, 3L, AgentEventType.SOURCE_FOUND,
+                        "knowledge_search count=2", Instant.EPOCH)));
 
         List<AgentEvent> result = service.listEvents(1L, "operator", 2L, 20);
 
         System.out.printf("场景=Agent公开事件 runId=%d sequence=%d type=%s%n",
                 result.getFirst().runId(), result.getFirst().sequence(), result.getFirst().type());
         assertThat(result).containsExactly(new AgentEvent(
-                31L, 1L, 3L, AgentEvent.Type.SOURCE_FOUND, "knowledge:2", Instant.EPOCH));
+                31L, 1L, 3L, AgentEvent.Type.SOURCE_FOUND, "knowledge_search count=2", Instant.EPOCH));
     }
 
     private AgentRunSnapshot snapshot(

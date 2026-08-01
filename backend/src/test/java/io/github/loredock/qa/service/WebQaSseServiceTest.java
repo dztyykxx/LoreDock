@@ -1,5 +1,6 @@
 package io.github.loredock.qa.service;
 
+import io.github.loredock.agent.api.AgentEvent;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -59,8 +60,9 @@ class WebQaSseServiceTest {
         when(agents.listEvents(any(), any(), any(Long.class), any(Integer.class))).thenReturn(List.of());
         when(agents.lastEventSequence(RUN_ID, "member")).thenReturn(1L);
         when(agents.subscribe(RUN_ID)).thenAnswer(ignored -> subscription(eventStream));
-        when(mapper.appendReturning(any(), any(), any(), any())).thenReturn(AgentRunEventEntity.builder()
+        when(mapper.appendReturning(any(), any(), any(), any(), any())).thenReturn(AgentRunEventEntity.builder()
                 .id(1L).runId(RUN_ID).sequence(1L).eventType(AgentEventType.MODEL_STARTED.name())
+                .subjectType(AgentEvent.SubjectType.MODEL.name())
                 .payload("{\"value\":\"model\"}").createdAt(NOW).build());
         WebQaSseService service = service(agents, sessions, access, materializer);
         RecordingSink sink = new RecordingSink();

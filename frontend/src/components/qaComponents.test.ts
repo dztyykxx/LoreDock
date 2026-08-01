@@ -11,6 +11,7 @@ import QaTrustBadge from './QaTrustBadge.vue'
 function question(overrides: Partial<QaQuestion> = {}): QaQuestion {
   return {
     questionId: 61,
+    conversationId: 51,
     runId: 71,
     scope: { projectIdentifier: 'network-designer', branch: 'main', commit: null, codeSnapshotAvailable: false },
     createdAt: '2026-07-31T08:00:00Z',
@@ -25,6 +26,7 @@ function question(overrides: Partial<QaQuestion> = {}): QaQuestion {
     stepCount: 3,
     modelCallCount: 1,
     lastEventSequence: 9,
+    processEvents: [],
     messages: [{ id: 81, role: 'USER', content: '为什么锁定范围？', resultType: null, refusalReason: null, createdAt: '2026-07-31T08:00:00Z' }],
     citations: [],
     ...overrides,
@@ -139,6 +141,40 @@ describe('project QA components', () => {
   })
 
   /**
+   * 业务目的：处理过程默认折叠，展开后按真实主体展示 Tool、来源和引用校验；模型摘要必须带公开摘要标签。
+   */
+  it('renders a keyboard-accessible collapsed process timeline with typed facts', async () => {
+    const snapshot = question({
+      processEvents: [
+        {
+          sequence: 2, type: 'TOOL_COMPLETED', subjectType: 'TOOL', occurredAt: '2026-07-31T08:00:01Z',
+          payload: { phase: 'RETRIEVING', name: 'knowledge_search', purpose: '搜索已发布知识', parameterSummary: 'queryLength=4', resultSummary: '命中 1 篇文档', count: 1, durationMillis: 18, status: 'COMPLETED', sources: [], summary: null, textDelta: null, resultType: null, errorCode: null, modelGenerated: false, truncated: false },
+        },
+        {
+          sequence: 3, type: 'PUBLIC_DECISION_SUMMARY', subjectType: 'MODEL', occurredAt: '2026-07-31T08:00:02Z',
+          payload: { phase: 'REASONING', name: null, purpose: null, parameterSummary: null, resultSummary: null, count: null, durationMillis: null, status: null, sources: [], summary: '继续检索以核实限制', textDelta: null, resultType: null, errorCode: null, modelGenerated: true, truncated: false },
+        },
+      ],
+    })
+    const wrapper = mount(QaAnswerPanel, {
+      props: { snapshot, partialText: '', connectionState: 'idle' },
+    })
+
+    const toggle = wrapper.get('[data-testid="toggle-process"]')
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect(wrapper.find('[data-testid="qa-process-timeline"]').exists()).toBe(false)
+    await toggle.trigger('click')
+
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    const timelineText = wrapper.get('[data-testid="qa-process-timeline"]').text()
+    expect(timelineText).toContain('knowledge_search')
+    expect(timelineText).toContain('命中 1 篇文档')
+    expect(timelineText).toContain('公开决策摘要')
+    expect(timelineText).toContain('继续检索以核实限制')
+    expect(wrapper.text()).not.toContain('原始思维链')
+  })
+
+  /**
    * 业务目的：空历史与最近问题必须来自真实快照，选择记录时只传记录 ID，不能把旧问题内容带入下一次提问。
    */
   it('shows an empty recent list and selects a real question by id', async () => {
@@ -149,6 +185,25 @@ describe('project QA components', () => {
     expect(wrapper.text()).toContain('为什么锁定范围？')
     await wrapper.get('[data-testid="recent-question-61"]').trigger('click')
     expect(wrapper.emitted('select')?.[0]).toEqual([61])
+  })
+
+  /**
+   * 业务目的：最近会话长标题必须单行截断并通过 title 暴露完整值，键盘点击只提交会话 ID。
+   */
+  it('shows a truncated conversation title with an accessible full value', async () => {
+    const longTitle = '这是一个非常长的会话标题，用于验证侧栏不会被撑开并仍可查看完整值'.repeat(3)
+    const item = {
+      conversationId: 51, projectIdentifier: 'network-designer', title: longTitle,
+      lastQuestion: '最后一轮问题', status: 'COMPLETED', createdAt: '2026-07-31T08:00:00Z',
+      updatedAt: '2026-07-31T08:00:00Z', lastQuestionAt: '2026-07-31T08:00:00Z',
+    }
+    const wrapper = mount(QaRecentSidebar, { props: { items: [item] as never[], selectedId: 51 } })
+
+    const button = wrapper.get('[data-testid="recent-conversation-51"]')
+    expect(button.get('span').attributes('title')).toBe(longTitle)
+    expect(button.classes()).toContain('qa-recent__item--active')
+    await button.trigger('click')
+    expect(wrapper.emitted('select')?.[0]).toEqual([51])
   })
 
   /**

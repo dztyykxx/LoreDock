@@ -15,14 +15,24 @@ public interface WebQaQuestionMapper extends BaseMapper<WebQaQuestionEntity> {
      */
     @Select("""
             insert into web_qa_question(
-                operator_id, idempotency_key, request_hash, project_id, project_identifier,
+                conversation_id, operator_id, idempotency_key, request_hash, project_id, project_identifier,
                 branch_id, branch_name, run_id, created_at
             ) values (
-                #{value.operatorId}, #{value.idempotencyKey}, #{value.requestHash},
+                #{value.conversationId}, #{value.operatorId}, #{value.idempotencyKey}, #{value.requestHash},
                 #{value.projectId}, #{value.projectIdentifier}, #{value.branchId}, #{value.branchName},
                 #{value.runId}, #{value.createdAt}
             ) on conflict (operator_id, idempotency_key) do nothing
             returning id
             """)
     Long insertIfAbsent(@Param("value") WebQaQuestionEntity value);
+
+    /** @return 会话中仍处于受理或运行状态的轮次数量 */
+    @Select("""
+            select count(*)
+            from web_qa_question q
+            join agent_run r on r.id = q.run_id
+            where q.conversation_id = #{conversationId}
+              and r.status in ('ACCEPTED', 'RUNNING')
+            """)
+    long countActiveByConversation(@Param("conversationId") Long conversationId);
 }

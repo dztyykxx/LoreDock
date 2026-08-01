@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.loredock.agent.mapper.AgentRunEventMapper;
+import io.github.loredock.agent.api.AgentEvent;
 import io.github.loredock.agent.model.entity.AgentRunEventEntity;
 import io.github.loredock.agent.model.enums.AgentEventType;
 import io.github.loredock.agent.model.snapshot.AgentEventSnapshot;
@@ -41,12 +42,39 @@ public class AgentEventService {
 
     @Transactional
     public AgentEventSnapshot append(Long runId, AgentEventType type, String safePayload, Instant createdAt) {
-        AgentRunEventEntity entity = events.appendReturning(runId, type.name(), json(safePayload), createdAt);
+        AgentRunEventEntity entity = events.appendReturning(
+                runId, type.name(), legacySubject(type), json(safePayload), createdAt);
         log.debug("agent_event persisted runId={} sequence={} eventType={} payloadLength={}",
                 runId, entity.getSequence(), type, safePayload == null ? 0 : safePayload.length());
         AgentEventSnapshot snapshot = snapshot(entity);
         publishAfterCommit(snapshot);
         return snapshot;
+    }
+
+    /**
+     * 运行仍为 RUNNING 时持久化经过字段白名单构造的类型化公开事件。
+     *
+     * @return 事件是否成功追加；终态后的迟到事件返回 false
+     */
+    @Transactional
+    public boolean append(
+            Long runId,
+            AgentEventType type,
+            AgentEvent.SubjectType subjectType,
+            AgentEvent.Payload payload,
+            Instant createdAt
+    ) {
+        Objects.requireNonNull(subjectType, "event subject type");
+        Objects.requireNonNull(payload, "event payload");
+        AgentRunEventEntity entity = events.appendWhileRunningReturning(
+                runId, type.name(), subjectType.name(), typedJson(payload), createdAt);
+        if (entity == null) {
+            log.debug("agent_typed_event ignored runId={} eventType={} reason=run_not_running", runId, type);
+            return false;
+        }
+        AgentEventSnapshot snapshot = snapshot(entity);
+        publishAfterCommit(snapshot);
+        return true;
     }
 
     @Transactional(readOnly = true)
@@ -131,10 +159,11 @@ public class AgentEventService {
 
     private AgentEventSnapshot snapshot(AgentRunEventEntity entity) {
         try {
-            String value = objectMapper.readTree(entity.getPayload()).path("value").asText("");
+            var root = objectMapper.readTree(entity.getPayload());
+            String value = root.has("value") ? root.path("value").asText("") : root.toString();
             return new AgentEventSnapshot(
                     entity.getId(), entity.getRunId(), entity.getSequence(),
-                    AgentEventType.valueOf(entity.getEventType()), value, entity.getCreatedAt());
+                    AgentEventType.valueOf(entity.getEventType()), entity.getSubjectType(), value, entity.getCreatedAt());
         } catch (JsonProcessingException exception) {
             throw new IllegalStateException("agent event payload invalid", exception);
         }
@@ -146,5 +175,22 @@ public class AgentEventService {
         } catch (JsonProcessingException exception) {
             throw new IllegalArgumentException("agent event payload invalid", exception);
         }
+    }
+
+    private String typedJson(AgentEvent.Payload payload) {
+        try {
+            return objectMapper.writeValueAsString(payload);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalArgumentException("agent typed event payload invalid", exception);
+        }
+    }
+
+    private String legacySubject(AgentEventType type) {
+        return switch (type) {
+            case MODEL_STARTED, MODEL_STAGE -> AgentEvent.SubjectType.MODEL.name();
+            case SOURCE_FOUND, SOURCE_DISCOVERED, TOOL_STARTED, TOOL_COMPLETED -> AgentEvent.SubjectType.TOOL.name();
+            case CITATION_VALIDATION -> AgentEvent.SubjectType.VALIDATOR.name();
+            default -> AgentEvent.SubjectType.AGENT.name();
+        };
     }
 }

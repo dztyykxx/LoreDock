@@ -70,9 +70,28 @@ public class WebQaQuestionDataService {
         return mapper.selectList(query).stream().map(this::toRecord).toList();
     }
 
+    /** @return 会话中按创建时间和稳定 ID 正序排列的有界轮次 */
+    public List<WebQaQuestionRecord> findByConversation(Long conversationId, int limit) {
+        if (limit < 1 || limit > MAX_QUERY_LIMIT) {
+            throw new IllegalArgumentException("web QA conversation round limit out of range");
+        }
+        return mapper.selectList(Wrappers.<WebQaQuestionEntity>lambdaQuery()
+                        .eq(WebQaQuestionEntity::getConversationId, conversationId)
+                        .orderByAsc(WebQaQuestionEntity::getCreatedAt)
+                        .orderByAsc(WebQaQuestionEntity::getId)
+                        .last("limit " + limit))
+                .stream().map(this::toRecord).toList();
+    }
+
+    /** @return 会话是否仍有 ACCEPTED 或 RUNNING 轮次 */
+    public boolean hasActiveRound(Long conversationId) {
+        return mapper.countActiveByConversation(conversationId) > 0;
+    }
+
     private WebQaQuestionEntity toEntity(WebQaQuestionRecord value) {
         return WebQaQuestionEntity.builder()
-                .id(value.id()).operatorId(value.operatorId()).idempotencyKey(value.idempotencyKey())
+                .id(value.id()).conversationId(value.conversationId()).operatorId(value.operatorId())
+                .idempotencyKey(value.idempotencyKey())
                 .requestHash(value.requestHash()).projectId(value.projectId())
                 .projectIdentifier(value.projectIdentifier()).branchId(value.branchId()).branchName(value.branch())
                 .runId(value.runId()).createdAt(value.createdAt()).build();
@@ -80,7 +99,7 @@ public class WebQaQuestionDataService {
 
     private WebQaQuestionRecord toRecord(WebQaQuestionEntity value) {
         return new WebQaQuestionRecord(
-                value.getId(), value.getOperatorId(), value.getIdempotencyKey(), value.getRequestHash(),
+                value.getId(), value.getConversationId(), value.getOperatorId(), value.getIdempotencyKey(), value.getRequestHash(),
                 value.getProjectId(), value.getProjectIdentifier(), value.getBranchId(), value.getBranchName(),
                 value.getRunId(), value.getCreatedAt());
     }

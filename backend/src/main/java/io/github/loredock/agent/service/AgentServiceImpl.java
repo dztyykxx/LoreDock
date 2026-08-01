@@ -28,6 +28,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
@@ -44,6 +45,9 @@ public class AgentServiceImpl implements AgentService {
 
     private static final String TASK_TYPE = "project_qa";
     private static final int MAX_EVENT_PAGE_SIZE = 200;
+    private static final int MAX_HISTORY_MESSAGES = 16;
+    private static final int MAX_HISTORY_CODE_POINTS = 8000;
+    private static final ObjectMapper EVENT_JSON = new ObjectMapper().findAndRegisterModules();
     private final AgentProperties configuration;
     private final AgentDefinitionProvider definitions;
     private final ProjectService projects;
@@ -96,7 +100,7 @@ public class AgentServiceImpl implements AgentService {
     AgentRunSnapshot startSnapshot(StartRequest command) {
         NormalizedInput input = normalize(command);
         String requestHash = hash(TASK_TYPE + "\n" + input.projectIdentifier() + "\n" + input.branch()
-                + "\n" + input.question());
+                + "\n" + input.question() + "\n" + historyHashInput(input.conversationHistory()));
         var existing = runs.findByOperatorAndIdempotencyKey(input.operatorId(), input.idempotencyKey());
         if (existing.isPresent()) {
             if (!requestHash.equals(existing.get().requestHash())) {
@@ -134,7 +138,8 @@ public class AgentServiceImpl implements AgentService {
         Long runId = accepted.runId();
         AgentExecutionRequest request = new AgentExecutionRequest(
                 runId, input.question(), definition.instructions(), definition.outputSchema(), scope, versions,
-                configuration.runtimeLimits(), acceptedAt.plus(configuration.totalTimeout()));
+                configuration.runtimeLimits(), acceptedAt.plus(configuration.totalTimeout()),
+                input.conversationHistory());
         dispatchAfterCommit(request);
         AgentRunSnapshot result = runs.findById(runId).orElse(accepted);
         log.info("agent_run start completed traceId={} runId={} project={} branch={} "
@@ -220,8 +225,18 @@ public class AgentServiceImpl implements AgentService {
     }
 
     private AgentEvent toApiEvent(io.github.loredock.agent.model.snapshot.AgentEventSnapshot event) {
-        return new AgentEvent(event.eventId(), event.runId(), event.sequence(),
-                AgentEvent.Type.valueOf(event.type().name()), event.payload(), event.createdAt());
+        AgentEvent.Type type = AgentEvent.Type.valueOf(event.type().name());
+        if (!event.payload().startsWith("{")) {
+            return new AgentEvent(event.eventId(), event.runId(), event.sequence(),
+                    type, event.payload(), event.createdAt());
+        }
+        try {
+            return new AgentEvent(event.eventId(), event.runId(), event.sequence(), type,
+                    AgentEvent.SubjectType.valueOf(event.subjectType()),
+                    EVENT_JSON.readValue(event.payload(), AgentEvent.Payload.class), event.createdAt());
+        } catch (java.io.IOException | IllegalArgumentException exception) {
+            throw new IllegalStateException("agent typed event payload invalid", exception);
+        }
     }
 
     private <T extends Enum<T>> T enumValue(Class<T> type, Enum<?> value) {
@@ -297,7 +312,42 @@ public class AgentServiceImpl implements AgentService {
         if (questionLength < 1 || questionLength > 2000) {
             throw new IllegalArgumentException("question length invalid");
         }
-        return new NormalizedInput(key, operatorId, project, branch, question);
+        List<ConversationMessage> history = normalizeHistory(command.conversationHistory());
+        return new NormalizedInput(key, operatorId, project, branch, question, history);
+    }
+
+    private List<ConversationMessage> normalizeHistory(List<ConversationMessage> source) {
+        if (source == null || source.isEmpty()) {
+            return List.of();
+        }
+        if (source.size() > MAX_HISTORY_MESSAGES) {
+            throw new IllegalArgumentException("conversation history too large");
+        }
+        int characters = 0;
+        java.util.ArrayList<ConversationMessage> values = new java.util.ArrayList<>(source.size());
+        for (ConversationMessage message : source) {
+            Objects.requireNonNull(message, "conversation history message");
+            String role = required(message.role(), 16, "conversation history role invalid")
+                    .toUpperCase(Locale.ROOT);
+            if (!role.equals("USER") && !role.equals("ASSISTANT")) {
+                throw new IllegalArgumentException("conversation history role invalid");
+            }
+            String content = required(message.content(), 4000, "conversation history content invalid");
+            characters += content.codePointCount(0, content.length());
+            if (characters > MAX_HISTORY_CODE_POINTS) {
+                throw new IllegalArgumentException("conversation history too large");
+            }
+            values.add(new ConversationMessage(role, content,
+                    Objects.requireNonNull(message.occurredAt(), "conversation history time")));
+        }
+        return List.copyOf(values);
+    }
+
+    private String historyHashInput(List<ConversationMessage> history) {
+        StringBuilder value = new StringBuilder();
+        history.forEach(message -> value.append(message.role()).append('\n')
+                .append(message.occurredAt()).append('\n').append(message.content()).append('\n'));
+        return value.toString();
     }
 
     private String required(String value, int maximumCodePoints, String message) {
@@ -326,7 +376,8 @@ public class AgentServiceImpl implements AgentService {
             String operatorId,
             String projectIdentifier,
             String branch,
-            String question
+            String question,
+            List<ConversationMessage> conversationHistory
     ) {
     }
 }

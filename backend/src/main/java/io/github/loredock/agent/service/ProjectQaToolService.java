@@ -1,5 +1,6 @@
 package io.github.loredock.agent.service;
 
+import io.github.loredock.agent.api.AgentEvent;
 import io.github.loredock.agent.config.AgentProperties;
 import io.github.loredock.agent.config.AgentRuntimeLimits;
 import io.github.loredock.agent.exception.AgentToolException;
@@ -22,6 +23,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.function.Supplier;
+import java.time.Duration;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -114,14 +116,48 @@ public class ProjectQaToolService {
             String toolName,
             Supplier<AgentToolResult> action
     ) {
-        AgentToolResult result = action.get();
-        // 工具内部步骤由框架观察和日志承担；证据落库在 boundedContext 内完成，
-        // 这里只追加对外有意义的来源发现事件。
-        if (result.resultCount() > 0) {
-            events.append(runId, AgentEventType.SOURCE_FOUND,
-                    toolName + " count=" + result.resultCount(), timeProvider.instant());
+        var startedAt = timeProvider.instant();
+        events.append(runId, AgentEventType.TOOL_STARTED, AgentEvent.SubjectType.TOOL,
+                payload("RETRIEVING", toolName, "搜索已发布知识", null, null, 0, 0L,
+                        "STARTED", List.of(), null, null, false), startedAt);
+        try {
+            AgentToolResult result = action.get();
+            var finishedAt = timeProvider.instant();
+            long duration = Math.max(0, Duration.between(startedAt, finishedAt).toMillis());
+            events.append(runId, AgentEventType.TOOL_COMPLETED, AgentEvent.SubjectType.TOOL,
+                    payload("RETRIEVING", toolName, "搜索已发布知识", null,
+                            "命中 " + result.resultCount() + " 个结果", result.resultCount(), duration,
+                            "COMPLETED", List.of(), null, null, result.trimmedCharacterCount() > 0), finishedAt);
+            if (result.resultCount() > 0) {
+                List<AgentEvent.Source> sources = result.evidence().stream().limit(20)
+                        .map(value -> new AgentEvent.Source(
+                                value.documentId(), safeLine(value.title()), value.sourceMetadata().scopeType(),
+                                value.sourceMetadata().knowledgeSourceType(), value.sourceUpdatedAt(),
+                                value.retained() ? "RETAINED" : "FILTERED", false, false))
+                        .toList();
+                events.append(runId, AgentEventType.SOURCE_DISCOVERED, AgentEvent.SubjectType.TOOL,
+                        payload("RETRIEVING", toolName, null, null,
+                                "发现 " + sources.size() + " 个公开来源", sources.size(), duration,
+                                "COMPLETED", sources, null, null, result.evidence().size() > sources.size()), finishedAt);
+            }
+            return result;
+        } catch (RuntimeException exception) {
+            var failedAt = timeProvider.instant();
+            events.append(runId, AgentEventType.TOOL_COMPLETED, AgentEvent.SubjectType.TOOL,
+                    payload("RETRIEVING", toolName, "搜索已发布知识", null, "工具调用未完成", null,
+                            Math.max(0, Duration.between(startedAt, failedAt).toMillis()), "FAILED",
+                            List.of(), null, null, false), failedAt);
+            throw exception;
         }
-        return result;
+    }
+
+    private AgentEvent.Payload payload(
+            String phase, String name, String purpose, String parameterSummary, String resultSummary,
+            Integer count, Long durationMillis, String status, List<AgentEvent.Source> sources,
+            String summary, String textDelta, boolean truncated
+    ) {
+        return new AgentEvent.Payload(phase, name, purpose, parameterSummary, resultSummary, count,
+                durationMillis, status, sources, summary, textDelta, null, null, false, truncated);
     }
 
     private void requireKnowledgeVersion(AgentRunSnapshot run) {

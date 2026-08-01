@@ -1,5 +1,6 @@
 package io.github.loredock.agent.service;
 
+import io.github.loredock.agent.api.AgentEvent;
 import io.github.loredock.agent.converter.ProjectQaResultConverter;
 import io.github.loredock.agent.exception.AgentExecutionException;
 import io.github.loredock.agent.exception.AgentToolException;
@@ -60,7 +61,8 @@ public class ProjectQaRunTaskExecutor {
             return;
         }
         try {
-            events.append(request.runId(), AgentEventType.MODEL_STARTED, request.versions().modelName(), startedAt);
+            events.append(request.runId(), AgentEventType.MODEL_STARTED, AgentEvent.SubjectType.MODEL,
+                    payload("GENERATING", "project_qa_model", null, "STARTED", null, null), startedAt);
             AgentExecutionResult result = execution.get().execute(request);
             Instant finishedAt = timeProvider.instant();
             if (finishedAt.isAfter(request.deadline())) {
@@ -69,6 +71,20 @@ public class ProjectQaRunTaskExecutor {
             }
             TrustedProjectQaResult trusted = validator.validate(
                     request.runId(), result.modelResult(), result.evidence());
+            events.append(request.runId(), AgentEventType.CITATION_VALIDATION, AgentEvent.SubjectType.VALIDATOR,
+                    payload("VALIDATING", "citation_validator", trusted.citations().size(), "PASSED", null, null),
+                    finishedAt);
+            events.append(request.runId(), AgentEventType.PUBLIC_DECISION_SUMMARY, AgentEvent.SubjectType.MODEL,
+                    new AgentEvent.Payload("REASONING", null, null, null, null, null, null, "COMPLETED",
+                            java.util.List.of(), publicSummary(trusted), null, null, null, true, false), finishedAt);
+            if (trusted.resultType() == io.github.loredock.agent.model.enums.AgentResultType.ANSWER) {
+                String delta = truncate(trusted.text(), 200);
+                events.append(request.runId(), AgentEventType.ANSWER_DELTA, AgentEvent.SubjectType.AGENT,
+                        new AgentEvent.Payload("ANSWERING", null, null, null, null, null, null, "COMPLETED",
+                                java.util.List.of(), null, delta,
+                                io.github.loredock.agent.api.AgentRun.ResultType.ANSWER, null, false,
+                                !delta.equals(trusted.text())), finishedAt);
+            }
             if (!runs.complete(request.runId(), trusted, result.usage(), finishedAt)) {
                 return;
             }
@@ -84,6 +100,29 @@ public class ProjectQaRunTaskExecutor {
         } catch (RuntimeException exception) {
             fail(request, AgentErrorCode.AGENT_MODEL_RESPONSE_INVALID, timeProvider.instant(), AgentExecutionUsage.none());
         }
+    }
+
+    private AgentEvent.Payload payload(
+            String phase, String name, Integer count, String status, String textDelta, String resultType
+    ) {
+        return new AgentEvent.Payload(phase, name, null, null, null, count, null, status,
+                java.util.List.of(), null, textDelta,
+                resultType == null ? null : io.github.loredock.agent.api.AgentRun.ResultType.valueOf(resultType),
+                null, false, false);
+    }
+
+    private String publicSummary(TrustedProjectQaResult trusted) {
+        return switch (trusted.resultType()) {
+            case ANSWER -> "已完成来源与引用校验";
+            case REFUSAL -> "证据不足，已按规则拒答";
+        };
+    }
+
+    private String truncate(String value, int maximumCodePoints) {
+        if (value == null || value.codePointCount(0, value.length()) <= maximumCodePoints) {
+            return value;
+        }
+        return value.substring(0, value.offsetByCodePoints(0, maximumCodePoints));
     }
 
     private void fail(

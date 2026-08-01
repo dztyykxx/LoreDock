@@ -18,6 +18,7 @@ import io.github.loredock.qa.api.QaService;
 import io.github.loredock.qa.service.DefaultWebQaAssistantMessageMaterializer;
 import io.github.loredock.qa.service.QaServiceImpl;
 import io.github.loredock.qa.service.WebQaMessageDataService;
+import io.github.loredock.qa.service.WebQaConversationDataService;
 import io.github.loredock.qa.service.WebQaQuestionDataService;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -59,6 +60,7 @@ class WebQaPersistenceIT {
 
     @Autowired private ProjectService projects;
     @Autowired private AgentRunService runs;
+    @Autowired private WebQaConversationDataService conversations;
     @Autowired private WebQaQuestionDataService questions;
     @Autowired private WebQaMessageDataService messages;
     @Autowired private PlatformTransactionManager transactionManager;
@@ -83,6 +85,7 @@ class WebQaPersistenceIT {
     void resetFacts() {
         for (String table : List.of(
                 "knowledge_gap_feedback_citation", "knowledge_gap_feedback", "web_qa_message", "web_qa_question",
+                "web_qa_conversation",
                 "agent_evidence", "agent_run_event", "agent_run",
                 "knowledge_document", "code_snapshot", "project_branch", "project_space",
                 "stored_object")) {
@@ -130,11 +133,12 @@ class WebQaPersistenceIT {
 
         assertThat(second.questionId()).isEqualTo(first.questionId());
         assertThat(second.runId()).isEqualTo(first.runId());
+        assertThat(count("web_qa_conversation")).isEqualTo(1);
         assertThat(count("web_qa_question")).isEqualTo(1);
         assertThat(count("web_qa_message")).isEqualTo(1);
         assertThat(count("agent_run")).isEqualTo(1);
         assertThat(count("agent_run_event")).isEqualTo(1);
-        System.out.printf("测试证据：场景=并发问答幂等，questionId=%s，runId=%s，数据库行=1/1/1/1%n",
+        System.out.printf("测试证据：场景=并发问答幂等，questionId=%s，runId=%s，会话/问答/消息/运行/首事件=1/1/1/1/1%n",
                 first.questionId(), first.runId());
     }
 
@@ -166,7 +170,7 @@ class WebQaPersistenceIT {
                 .filter(value -> value.operatorId().equals(invocation.getArgument(1)))
                 .map(io.github.loredock.testsupport.AgentApiFixtures::run).orElseThrow());
         return new QaServiceImpl(
-                projects, agents, questions, messageRepository,
+                projects, agents, conversations, questions, messageRepository,
                 mock(DefaultWebQaAssistantMessageMaterializer.class),
                 Clock.fixed(NOW, java.time.ZoneOffset.UTC));
     }

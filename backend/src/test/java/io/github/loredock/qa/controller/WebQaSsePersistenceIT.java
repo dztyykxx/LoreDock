@@ -78,6 +78,7 @@ class WebQaSsePersistenceIT {
     @Autowired private AgentEventService eventRepository;
     @Autowired private AgentEvidenceService evidence;
     @Autowired private WebQaQuestionDataService questions;
+    @Autowired private WebQaConversationDataService conversations;
     @Autowired private WebQaMessageDataService messages;
     @Autowired private DefaultWebQaAssistantMessageMaterializer materializer;
     @Autowired private QaServiceImpl questionQueries;
@@ -105,6 +106,7 @@ class WebQaSsePersistenceIT {
     void resetFacts() {
         for (String table : List.of(
                 "knowledge_gap_feedback_citation", "knowledge_gap_feedback", "web_qa_message", "web_qa_question",
+                "web_qa_conversation",
                 "agent_evidence", "agent_run_event", "agent_run",
                 "knowledge_document", "code_snapshot", "project_branch", "project_space",
                 "stored_object")) {
@@ -123,7 +125,7 @@ class WebQaSsePersistenceIT {
         when(starts.start(org.mockito.ArgumentMatchers.any())).thenAnswer(invocation ->
                 acceptRun(invocation.getArgument(0)));
         QaServiceImpl creation = new QaServiceImpl(
-                projects, starts, questions, messages, materializer, timeProvider);
+                projects, starts, conversations, questions, messages, materializer, timeProvider);
         QaQuestion created = new TransactionTemplate(transactionManager).execute(
                 status -> creation.create(new QaService.CreateRequest(
                         "member", "MEMBER", "sse-it-key", "atlas", "main", "为什么采用范围隔离？")));

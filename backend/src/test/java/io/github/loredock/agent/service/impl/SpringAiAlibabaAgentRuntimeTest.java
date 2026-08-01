@@ -9,6 +9,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.github.loredock.agent.config.AgentRuntimeLimits;
+import io.github.loredock.agent.api.AgentService;
 import io.github.loredock.agent.exception.AgentExecutionException;
 import io.github.loredock.agent.exception.AgentToolException;
 import io.github.loredock.agent.model.enums.AgentErrorCode;
@@ -114,6 +115,31 @@ class SpringAiAlibabaAgentRuntimeTest {
         assertThat(model.prompts()).hasSize(2);
         assertThat(model.prompts().get(1)).contains("second-question").doesNotContain("first-private-question");
         System.out.println("测试证据：场景=运行记忆隔离，独立运行数=2，第二运行包含前一问题=false");
+    }
+
+    /**
+     * 业务目的：同会话历史只帮助解析指代，提示中必须明确标记为非证据，避免历史回答直接支持本轮项目事实。
+     */
+    @Test
+    void conversationHistoryIsExplicitlyMarkedAsNonEvidenceContext() {
+        ScriptedChatModel model = new ScriptedChatModel(List.of(refusal()), Duration.ZERO, false);
+        SpringAiAlibabaAgentRuntime adapter = new SpringAiAlibabaAgentRuntime(
+                model, mock(ProjectQaToolService.class));
+        AgentExecutionRequest request = request(RUN_ID, "它还有哪些限制？", limits(8, 8, 30));
+        request = new AgentExecutionRequest(
+                request.runId(), request.question(), request.skillMarkdown(), request.outputSchema(),
+                request.scope(), request.versions(), request.limits(), request.deadline(), List.of(
+                new AgentService.ConversationMessage("USER", "上一轮讨论审核流程", Instant.now().minusSeconds(20)),
+                new AgentService.ConversationMessage("ASSISTANT", "系统允许直接发布", Instant.now().minusSeconds(10))));
+
+        AgentExecutionResult result = adapter.execute(request);
+
+        assertThat(model.prompts().getFirst())
+                .contains("NON_EVIDENCE_CONVERSATION_HISTORY", "上一轮讨论审核流程", "系统允许直接发布")
+                .contains("不得作为本轮项目事实证据");
+        assertThat(result.modelResult().resultType()).isEqualTo(AgentResultType.REFUSAL);
+        assertThat(result.evidence()).isEmpty();
+        System.out.println("测试证据：场景=历史非证据标记，历史消息数=2，本轮证据数=0，结果=REFUSAL");
     }
 
     /**
