@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/loredock/qa-dataset-schema-v1.json",
+  "title": "LoreDock 文档问答评测条目",
+  "type": "object",
+  "required": [
+    "id",
+    "category",
+    "scope",
+    "question",
+    "expectedResultType",
+    "expectedAnswerBasis",
+    "expectedRefusalReason",
+    "expectedSources",
+    "requiredFacts",
+    "forbiddenClaims"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^ATLAS-QA-[0-9]{3}$" },
+    "category": {
+      "type": "string",
+      "enum": ["FACT", "PROCESS", "PERMISSION", "FAILURE_RECOVERY", "BRANCH_RULE", "GOVERNANCE", "CONFLICT", "UNANSWERABLE"]
+    },
+    "colloquial": { "type": "boolean", "default": false },
+    "scope": {
+      "type": "object",
+      "required": ["project", "branch"],
+      "additionalProperties": false,
+      "properties": {
+        "project": { "const": "atlas" },
+        "branch": { "enum": ["main", "feature/scenario-package-v2"] }
+      }
+    },
+    "question": { "type": "string", "minLength": 1 },
+    "expectedResultType": { "enum": ["ANSWER", "REFUSAL"] },
+    "expectedAnswerBasis": { "type": ["string", "null"], "enum": ["BUSINESS_RULE", null] },
+    "expectedRefusalReason": { "type": ["string", "null"], "enum": ["SOURCE_CONFLICT", "INSUFFICIENT_EVIDENCE", null] },
+    "expectedSources": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+    "requiredFacts": { "type": "array", "items": { "type": "string" } },
+    "forbiddenClaims": { "type": "array", "items": { "type": "string" } },
+    "notes": { "type": "string" }
+  }
+}

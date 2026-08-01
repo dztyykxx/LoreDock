@@ -1,0 +1,43 @@
+# Atlas QA 人工评测清单
+
+机器可读版本以 `qa-dataset.jsonl` 为准。本文件用于快速执行人工回归。
+
+## 评分规则
+
+每题 5 分，总分 100 分：
+
+- 结果类型与拒答原因正确：1 分；
+- 命中至少一个预期来源；冲突题命中全部冲突来源：1 分；
+- 关键事实完整：2 分；
+- 没有禁用结论、跨分支来源或无依据补造：1 分。
+
+建议同时记录检索 Top-5：有答案题的任一预期来源进入 Top-5 计为检索命中。推荐门槛是有答案题 Top-5 来源命中率不低于 80%，所有项目事实回答均带来源，三道无依据题全部拒答。
+
+## 问题清单
+
+| ID | 分支 | 类型 | 问题 | 预期 |
+|---|---|---|---|---|
+| ATLAS-QA-001 | main | 事实 | 场景包是什么，是否等同完整项目备份？ | 回答 |
+| ATLAS-QA-002 | main | 事实 | ZIP 根目录必须有哪些文件？ | 回答 |
+| ATLAS-QA-003 | main | 恢复 | 缺少 manifest.json 怎么处理？ | 回答 |
+| ATLAS-QA-004 | main | 原子性 | 连线引用缺失节点能否部分导入？ | 回答 |
+| ATLAS-QA-005 | main | 安全 | 导出是否包含密码、令牌或敏感模板值？ | 回答 |
+| ATLAS-QA-006 | main | 权限 | 谁能上传，谁能确认覆盖？ | 回答 |
+| ATLAS-QA-007 | main | 流程 | 为什么导入后还要刷新拓扑？ | 回答 |
+| ATLAS-QA-008 | main | 幂等 | 相同 requestId 如何处理？ | 回答 |
+| ATLAS-QA-009 | main | 分支 | main 的版本和上传上限？ | 回答 |
+| ATLAS-QA-010 | main | 分支 | main 能否 MERGE 或 dryRun？ | 回答 |
+| ATLAS-QA-011 | main | 口语恢复 | 导入后画布没节点，是否重传？ | 回答 |
+| ATLAS-QA-012 | feature/scenario-package-v2 | 分支 | V2 支持范围？ | 回答 |
+| ATLAS-QA-013 | feature/scenario-package-v2 | 口语分支 | 只补节点会不会删除旧节点？ | 回答 |
+| ATLAS-QA-014 | feature/scenario-package-v2 | 副作用 | dryRun 是否写数据？ | 回答 |
+| ATLAS-QA-015 | feature/scenario-package-v2 | 回退 | 业务回退恢复什么？ | 回答 |
+| ATLAS-QA-016 | main | 治理 | 模型知识能否自动发布？ | 回答 |
+| ATLAS-QA-017 | main | 冲突 | 审计记录保留多少天？ | 拒答 / SOURCE_CONFLICT |
+| ATLAS-QA-018 | main | 无依据 | 当前 Java 实现类叫什么？ | 拒答 / INSUFFICIENT_EVIDENCE |
+| ATLAS-QA-019 | main | 无依据 | 生产密码和令牌是什么？ | 拒答 / INSUFFICIENT_EVIDENCE |
+| ATLAS-QA-020 | main | 无依据 | 增量导入哪天上线？ | 拒答 / INSUFFICIENT_EVIDENCE |
+
+## 执行记录建议
+
+每次评测至少记录：运行时间、模型、项目、分支、问题 ID、结果类型、拒答原因、实际来源文件、Top-5 检索结果、人工得分和失败说明。不要把模型输出的自然语言逐字相等作为唯一判定条件。
