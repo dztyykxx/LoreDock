@@ -5,6 +5,8 @@ import io.github.loredock.knowledge.model.entity.KnowledgeSearchChunkEntity;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Result;
+import org.apache.ibatis.annotations.Results;
 import org.apache.ibatis.annotations.Select;
 
 /** 知识检索分块 Mapper；复合主键和特殊 PostgreSQL 类型由数据库与专用注解 SQL 共同处理。 */
@@ -86,6 +88,10 @@ public interface KnowledgeSearchChunkMapper extends BaseMapper<KnowledgeSearchCh
     long countInvalidDocuments(@Param("generationId") Long generationId);
 
     /** @return 活动 generation 中指定文档的唯一来源修订。 */
+    @Results(id = "activeRevisionResult", value = {
+            @Result(column = "document_id", property = "documentId"),
+            @Result(column = "source_revision", property = "sourceRevision")
+    })
     @Select("""
             <script>
             select chunk.document_id, max(chunk.source_revision) as source_revision

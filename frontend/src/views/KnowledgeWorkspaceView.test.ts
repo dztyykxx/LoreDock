@@ -261,6 +261,37 @@ describe('KnowledgeWorkspaceView', () => {
   })
 
   /**
+   * 业务目的：重新索引成功后必须立即重新读取目录，让新增文档数量和同步状态无需刷新浏览器即可更新。
+   */
+  it('refreshes document count and sync status after reindex succeeds', async () => {
+    const pending = { ...published, syncStatus: 'PENDING' as const }
+    const indexed = { ...published, syncStatus: 'SYNCED' as const }
+    const imported = { ...indexed, id: 52, title: '新导入规则' }
+    const listAdmin = vi.fn()
+      .mockResolvedValueOnce({ items: [pending], page: 0, size: 20, totalElements: 1, totalPages: 1 })
+      .mockResolvedValueOnce({ items: [indexed, imported], page: 0, size: 20, totalElements: 2, totalPages: 1 })
+    const api = createKnowledgeApi({
+      listAdmin,
+      submitIndexJob: vi.fn().mockResolvedValue({ id: 31, status: 'PENDING', progress: 0, startedAt: null, finishedAt: null, failureSummary: null }),
+      pollIndexJob: vi.fn().mockResolvedValue({ id: 31, status: 'SUCCEEDED', progress: 100, startedAt: '2026-07-30T00:00:00Z', finishedAt: '2026-07-30T00:01:00Z', failureSummary: null }),
+    })
+    const { wrapper } = await mountView('/knowledge', {
+      username: 'admin', displayName: '管理员', role: 'ADMIN',
+    }, api)
+    await flushPromises()
+
+    expect(wrapper.get('.knowledge-panel-heading span').text()).toBe('1')
+    expect(wrapper.text()).toContain('索引待同步')
+    await wrapper.get('[data-testid="reindex-knowledge"]').trigger('click')
+    await flushPromises()
+
+    expect(listAdmin).toHaveBeenCalledTimes(2)
+    expect(wrapper.get('.knowledge-panel-heading span').text()).toBe('2')
+    expect(wrapper.text()).toContain('新导入规则')
+    expect(wrapper.text()).toContain('索引已同步')
+  })
+
+  /**
    * 业务目的：活动任务轮询期间必须禁用重复提交，并在页面离开时中止等待，防止后台页面持续请求或产生第二个前端轮询器。
    */
   it('disables duplicate reindex submissions and aborts polling on leave', async () => {

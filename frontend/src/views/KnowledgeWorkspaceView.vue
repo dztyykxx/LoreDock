@@ -314,6 +314,10 @@ async function startReindex(): Promise<void> {
       intervalMs: 1_000,
       signal: indexPollController.signal,
     })
+    if (indexJob.value.status === 'SUCCEEDED') {
+      // 活动 generation 已切换，立即重读目录才能同步文档数量和索引状态。
+      await loadDocuments()
+    }
   } catch (error) {
     if (!(error instanceof DOMException && error.name === 'AbortError')) {
       // 提交或轮询失败不能清空文档列表；旧 ACTIVE generation 仍是普通浏览事实。

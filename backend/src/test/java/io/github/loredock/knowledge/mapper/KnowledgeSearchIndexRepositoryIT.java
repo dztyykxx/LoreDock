@@ -7,12 +7,15 @@ import io.github.loredock.knowledge.model.command.KnowledgeSearchChunkWrite;
 import io.github.loredock.knowledge.model.enums.DocumentFormat;
 import io.github.loredock.knowledge.model.enums.DocumentSourceType;
 import io.github.loredock.knowledge.model.enums.KnowledgeScopeType;
+import io.github.loredock.knowledge.model.result.ActiveKnowledgeIndexRevisions;
 import io.github.loredock.knowledge.model.result.KnowledgeSearchGenerationMetadata;
 import io.github.loredock.knowledge.service.KnowledgeSearchIndexDataService;
+import io.github.loredock.knowledge.service.PublishedKnowledgeIndexDataService;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,6 +48,9 @@ class KnowledgeSearchIndexRepositoryIT {
 
     @Autowired
     private KnowledgeSearchIndexDataService repository;
+
+    @Autowired
+    private PublishedKnowledgeIndexDataService publishedIndexData;
 
     @Autowired
     private JdbcTemplate jdbcTemplate;
@@ -162,6 +168,25 @@ class KnowledgeSearchIndexRepositoryIT {
                 "select embedding::text from knowledge_search_chunk where generation_id=?",
                 String.class, GENERATION_ID)).startsWith("[0.03");
         System.out.println("测试证据：场景=分块批次幂等重试，提交次数=2，最终分块数=1，向量值保持一致");
+    }
+
+    /**
+     * 业务目的：索引成功后管理员目录必须读取活动 generation 的真实文档修订，
+     * 防止 MyBatis 部分列查询返回空对象并导致整个知识目录 500。
+     */
+    @Test
+    void activeRevisionProjectionMapsDocumentAndRevisionColumns() {
+        repository.writeChunks(List.of(chunk(vector(0.04f),
+                List.of("标题"), List.of("标签"), List.of("正文"), List.of("恢复"))));
+        jdbcTemplate.update("update knowledge_index_generation set status = 'ACTIVE', activated_at = ? where id = ?",
+                Timestamp.from(NOW.plusSeconds(30)), GENERATION_ID);
+
+        ActiveKnowledgeIndexRevisions revisions = publishedIndexData.readActiveRevisions(List.of(DOCUMENT_ID));
+
+        assertThat(revisions.activeGenerationExists()).isTrue();
+        assertThat(revisions.sourceRevisions()).containsExactlyEntriesOf(Map.of(DOCUMENT_ID, 1L));
+        System.out.printf("测试证据：场景=活动索引修订映射，generation=%d，document=%d，revision=%d%n",
+                GENERATION_ID, DOCUMENT_ID, revisions.sourceRevisions().get(DOCUMENT_ID));
     }
 
     private KnowledgeSearchGenerationMetadata metadata() {
