@@ -23,14 +23,12 @@ public final class ProjectQaResultConverter {
      * 校验引用属于当前运行、未被裁剪且满足回答来源类型。
      *
      * @param runId 当前运行标识
-     * @param codeSnapshotAvailable 当前固定分支是否有活动代码快照
      * @param modelResult 不可信模型结果
      * @param evidenceLedger 当前运行证据台账
      * @return 可信回答或带稳定原因的拒答
      */
     public TrustedProjectQaResult validate(
             Long runId,
-            boolean codeSnapshotAvailable,
             ProjectQaModelResult modelResult,
             List<AgentEvidence> evidenceLedger
     ) {
@@ -44,18 +42,13 @@ public final class ProjectQaResultConverter {
         if (containsPublicationClaim(modelResult.text())) {
             return refusal(AgentRefusalReason.OUTPUT_POLICY_VIOLATION);
         }
-        if (modelResult.resultType() == AgentResultType.ANSWER
-                && modelResult.basis() == AnswerBasis.CURRENT_IMPLEMENTATION
-                && !codeSnapshotAvailable) {
-            return refusal(AgentRefusalReason.CODE_SNAPSHOT_NOT_INDEXED);
-        }
-
         List<AgentEvidence> cited = resolveCitations(runId, modelResult.citationEvidenceIds(), evidenceById);
         if (cited == null) {
             return refusal(AgentRefusalReason.AGENT_CITATION_INVALID);
         }
         if (modelResult.resultType() == AgentResultType.ANSWER) {
-            if (cited.isEmpty() || !basisSatisfied(modelResult.basis(), cited)) {
+            if (modelResult.basis() != AnswerBasis.BUSINESS_RULE
+                    || cited.isEmpty() || !containsOnlyKnowledge(cited)) {
                 return refusal(AgentRefusalReason.AGENT_CITATION_INVALID);
             }
             return new TrustedProjectQaResult(
@@ -68,7 +61,8 @@ public final class ProjectQaResultConverter {
 
         AgentRefusalReason reason = modelResult.refusalReason() == null
                 ? AgentRefusalReason.INSUFFICIENT_EVIDENCE : modelResult.refusalReason();
-        if (reason == AgentRefusalReason.SOURCE_CONFLICT && !basisSatisfied(AnswerBasis.MIXED, cited)) {
+        if (reason == AgentRefusalReason.SOURCE_CONFLICT
+                && (cited.size() < 2 || !containsOnlyKnowledge(cited))) {
             return refusal(AgentRefusalReason.AGENT_CITATION_INVALID);
         }
         String text = modelResult.text() == null || modelResult.text().isBlank()
@@ -93,17 +87,8 @@ public final class ProjectQaResultConverter {
         return List.copyOf(resolved);
     }
 
-    private boolean basisSatisfied(AnswerBasis basis, List<AgentEvidence> cited) {
-        if (basis == null) {
-            return false;
-        }
-        boolean knowledge = cited.stream().anyMatch(value -> value.sourceType() == EvidenceSourceType.KNOWLEDGE);
-        boolean code = cited.stream().anyMatch(value -> value.sourceType() == EvidenceSourceType.CODE);
-        return switch (basis) {
-            case BUSINESS_RULE -> knowledge;
-            case CURRENT_IMPLEMENTATION -> code;
-            case MIXED -> knowledge && code;
-        };
+    private boolean containsOnlyKnowledge(List<AgentEvidence> cited) {
+        return cited.stream().allMatch(value -> value.sourceType() == EvidenceSourceType.KNOWLEDGE);
     }
 
     private boolean containsPublicationClaim(String text) {

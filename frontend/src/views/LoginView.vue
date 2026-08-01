@@ -5,7 +5,7 @@
       <div class="login-proposition">
         <span class="trust-label"><IconGlyph name="shield" />可信的项目上下文</span>
         <h1>让每个答案，都能回到证据。</h1>
-        <p>集中管理业务知识、设计原因与代码快照，为开发者和本地 Agent 提供可检索、可引用的项目上下文。</p>
+        <p>集中管理业务知识、设计原因与历史经验，为开发者和本地 Agent 提供可检索、可引用的项目上下文。</p>
       </div>
       <ul class="login-trust-list">
         <li><span><IconGlyph name="check" /></span>项目与分支严格隔离</li>

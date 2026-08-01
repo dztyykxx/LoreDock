@@ -14,8 +14,6 @@ import static org.mockito.Mockito.when;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
-import io.github.loredock.code.api.CodeQueryService;
-import io.github.loredock.code.api.ActiveCodeState;
 import io.github.loredock.knowledge.exception.KnowledgeEmbeddingUnavailableException;
 import io.github.loredock.knowledge.exception.KnowledgeIndexUnavailableException;
 import io.github.loredock.knowledge.model.DocumentSource;
@@ -26,7 +24,6 @@ import io.github.loredock.knowledge.model.enums.DocumentSourceType;
 import io.github.loredock.knowledge.model.enums.KnowledgeBrowseContextType;
 import io.github.loredock.knowledge.model.enums.KnowledgeSearchMatchedBy;
 import io.github.loredock.knowledge.model.enums.KnowledgeSearchMode;
-import io.github.loredock.knowledge.model.enums.KnowledgeSearchWarning;
 import io.github.loredock.knowledge.model.request.KnowledgeSearchCandidateRequest;
 import io.github.loredock.knowledge.model.request.KnowledgeSearchFilters;
 import io.github.loredock.knowledge.model.request.KnowledgeSearchQuery;
@@ -67,7 +64,6 @@ class KnowledgeSearchServiceTest {
     private KnowledgeCandidateDataService semantics;
     private KnowledgeEmbeddingService embedding;
     private KnowledgeSearchEligibilityService eligibility;
-    private CodeQueryService codeSnapshots;
     private KnowledgeSearchServiceImpl service;
 
     @BeforeEach
@@ -78,9 +74,8 @@ class KnowledgeSearchServiceTest {
         semantics = mock(KnowledgeCandidateDataService.class);
         embedding = mock(KnowledgeEmbeddingService.class);
         eligibility = mock(KnowledgeSearchEligibilityService.class);
-        codeSnapshots = mock(CodeQueryService.class);
         service = new KnowledgeSearchServiceImpl(scopes, generations, keywords, semantics, embedding,
-                eligibility, codeSnapshots, new ReciprocalRankFusion());
+                eligibility, new ReciprocalRankFusion());
         when(scopes.resolveBrowse(KnowledgeBrowseContextType.PROJECT, "project-a", null))
                 .thenReturn(new KnowledgeBrowseContext(KnowledgeBrowseContextType.PROJECT, PROJECT_ID, BRANCH_ID));
         when(scopes.resolveBrowse(KnowledgeBrowseContextType.GLOBAL, null, null))
@@ -94,9 +89,6 @@ class KnowledgeSearchServiceTest {
             Collection<Long> candidateIds = invocation.getArgument(0);
             return List.copyOf(candidateIds);
         });
-        when(codeSnapshots.getActiveSnapshot("project-a", "main")).thenReturn(new ActiveCodeState(
-                "project-a", "main", ActiveCodeState.Status.NOT_INDEXED,
-                null, null, null, null, null));
     }
 
     @AfterEach
@@ -114,7 +106,7 @@ class KnowledgeSearchServiceTest {
     }
 
     /**
-     * 业务目的：公开契约必须固定项目/main 和活动索引，只返回实时资格复核后的知识来源并保留代码未索引警告。
+     * 业务目的：公开契约必须固定项目/main 和活动索引，只返回实时资格复核后的知识来源且不依赖代码快照状态。
      */
     @Test
     void publicContractReturnsOnlyEligibleScopedKnowledgeAndSafeSource() {
@@ -128,8 +120,7 @@ class KnowledgeSearchServiceTest {
                 new io.github.loredock.knowledge.api.KnowledgeQuery(
                         "project-a", "main", "恢复方案", 5, GENERATION_ID));
 
-        assertThat(response.warnings()).containsExactly(
-                io.github.loredock.knowledge.api.KnowledgeMatches.Warning.CODE_SNAPSHOT_NOT_INDEXED);
+        assertThat(response.warnings()).isEmpty();
         assertThat(response.results()).singleElement().satisfies(result -> {
             assertThat(result.documentId()).isEqualTo(documentId);
             assertThat(result.scope().type()).isEqualTo("BRANCH");
@@ -175,7 +166,7 @@ class KnowledgeSearchServiceTest {
                 KnowledgeBrowseContextType.PROJECT, "project-a", "main"));
         assertThat(response.mode()).isEqualTo(KnowledgeSearchMode.HYBRID);
         assertThat(response.generationId()).isEqualTo(GENERATION_ID);
-        assertThat(response.warnings()).containsExactly(KnowledgeSearchWarning.CODE_SNAPSHOT_NOT_INDEXED);
+        assertThat(response.warnings()).isEmpty();
         assertThat(response.results()).singleElement().satisfies(result -> {
             assertThat(result.documentId()).isEqualTo(documentId);
             assertThat(result.matchedBy()).isEqualTo(KnowledgeSearchMatchedBy.BOTH);

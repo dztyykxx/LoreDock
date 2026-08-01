@@ -89,7 +89,7 @@ describe('design components', () => {
   })
 
   /**
-   * 业务目的：项目页签必须保留当前分支并把知识与设置导向真实路由，成员不能看到管理员设置入口。
+   * 业务目的：项目页签必须保留当前分支并把知识与设置导向真实路由，同时不再展示代码快照入口。
    */
   it('renders real project tab navigation with role-aware settings', () => {
     const router = createRouter({
@@ -112,6 +112,7 @@ describe('design components', () => {
 
     expect(wrapper.get('[data-tab="knowledge"]').attributes('href')).toContain('branch=feature/import')
     expect(wrapper.get('[data-tab="settings"]').attributes('href')).toBe(`/projects/${project.id}/settings`)
+    expect(wrapper.find('[data-tab="code-snapshots"]').exists()).toBe(false)
   })
 
   /**

@@ -12,12 +12,12 @@ function question(overrides: Partial<QaQuestion> = {}): QaQuestion {
   return {
     questionId: 61,
     runId: 71,
-    scope: { projectIdentifier: 'network-designer', branch: 'main', commit: 'abc1234', codeSnapshotAvailable: true },
+    scope: { projectIdentifier: 'network-designer', branch: 'main', commit: null, codeSnapshotAvailable: false },
     createdAt: '2026-07-31T08:00:00Z',
     status: 'COMPLETED',
     resultType: 'ANSWER',
     trustState: 'RELIABLE_ANSWER',
-    answerBasis: 'MIXED',
+    answerBasis: 'BUSINESS_RULE',
     refusalReason: null,
     errorCode: null,
     failureMessage: null,
@@ -50,14 +50,13 @@ describe('project QA components', () => {
   })
 
   /**
-   * 业务目的：来源抽屉只能把已校验 HTTP(S) Wiki 地址变成外链，代码路径和恶意协议必须保持纯文本。
+   * 业务目的：来源抽屉只能展示已发布文档，并且只把已校验 HTTP(S) Wiki 地址变成外链。
    */
   it('renders safe source metadata without interpreting untrusted fields', async () => {
     const snapshot = question({
       citations: [
         { order: 1, sourceType: 'KNOWLEDGE', projectIdentifier: 'network-designer', branch: 'main', commit: null, repositoryPath: null, title: '<img onerror=alert(1)>', sourceUpdatedAt: '2026-07-30T08:00:00Z', scopeType: 'PROJECT', knowledgeSourceType: 'WIKI', wikiUrl: 'https://wiki.example/rule', originalFilename: null },
         { order: 2, sourceType: 'KNOWLEDGE', projectIdentifier: 'network-designer', branch: 'main', commit: null, repositoryPath: null, title: '危险链接', sourceUpdatedAt: null, scopeType: 'BRANCH', knowledgeSourceType: 'WIKI', wikiUrl: 'javascript:alert(1)', originalFilename: null },
-        { order: 3, sourceType: 'CODE', projectIdentifier: 'network-designer', branch: 'main', commit: 'abc1234', repositoryPath: 'src/main/QaService.java', title: null, sourceUpdatedAt: '2026-07-31T07:00:00Z', scopeType: null, knowledgeSourceType: null, wikiUrl: null, originalFilename: null },
       ],
     })
     const trigger = document.createElement('button')
@@ -66,7 +65,8 @@ describe('project QA components', () => {
 
     expect(wrapper.html()).not.toContain('<img onerror')
     expect(wrapper.text()).toContain('<img onerror=alert(1)>')
-    expect(wrapper.text()).toContain('src/main/QaService.java')
+    expect(wrapper.text()).toContain('仅使用已发布文档')
+    expect(wrapper.text()).not.toContain('当前代码快照')
     const links = wrapper.findAll('a')
     expect(links).toHaveLength(1)
     expect(links[0].attributes()).toMatchObject({ href: 'https://wiki.example/rule', target: '_blank', rel: 'noopener noreferrer' })
@@ -95,18 +95,19 @@ describe('project QA components', () => {
   })
 
   /**
-   * 业务目的：拒答、无快照、模型故障和流中断必须显示不同恢复动作，任何部分内容都不能被标成可信完成。
+   * 业务目的：文档证据不足、模型故障和流中断必须显示不同恢复动作，任何部分内容都不能被标成可信完成。
    */
   it('renders explicit refusal and failure recovery states', async () => {
-    const noSnapshot = mount(QaAnswerPanel, {
+    const insufficient = mount(QaAnswerPanel, {
       props: {
-        snapshot: question({ trustState: 'INSUFFICIENT_EVIDENCE', resultType: 'REFUSAL', answerBasis: null, resultText: '无法确认当前实现。', refusalReason: 'CODE_SNAPSHOT_NOT_INDEXED', scope: { projectIdentifier: 'network-designer', branch: 'feature/import', commit: null, codeSnapshotAvailable: false } }),
+        snapshot: question({ trustState: 'INSUFFICIENT_EVIDENCE', resultType: 'REFUSAL', answerBasis: null, resultText: '当前知识库没有足够依据，请核对本地最新代码。', refusalReason: 'INSUFFICIENT_EVIDENCE', scope: { projectIdentifier: 'network-designer', branch: 'feature/import', commit: null, codeSnapshotAvailable: false } }),
         partialText: '',
         connectionState: 'idle',
       },
     })
-    expect(noSnapshot.text()).toContain('当前分支代码尚未索引')
-    expect(noSnapshot.text()).toContain('当前知识库没有足够依据')
+    expect(insufficient.text()).toContain('当前知识库没有足够依据')
+    expect(insufficient.text()).toContain('核对本地最新代码')
+    expect(insufficient.text()).not.toContain('代码尚未索引')
 
     const unavailable = mount(QaAnswerPanel, {
       props: {

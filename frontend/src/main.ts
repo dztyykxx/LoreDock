@@ -4,8 +4,7 @@ import { setUnauthorizedHandler } from './api/http'
 import { projectApi } from './api/projects'
 import { knowledgeApi } from './api/knowledge'
 import { qaApi } from './api/qa'
-import { codeSnapshotApi } from './api/codeSnapshots'
-import { codeSnapshotApiKey, knowledgeApiKey, projectApiKey, qaApiKey, sessionKey } from './appContext'
+import { knowledgeApiKey, projectApiKey, qaApiKey, sessionKey } from './appContext'
 import { createLoreDockRouter } from './router'
 import { createSessionController } from './session/useSession'
 import './style.css'
@@ -19,5 +18,4 @@ createApp(App)
   .provide(projectApiKey, projectApi)
   .provide(knowledgeApiKey, knowledgeApi)
   .provide(qaApiKey, qaApi)
-  .provide(codeSnapshotApiKey, codeSnapshotApi)
   .mount('#app')

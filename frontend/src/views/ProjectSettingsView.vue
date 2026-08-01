@@ -78,7 +78,7 @@
                   <IconGlyph name="more" />
                 </li>
               </ul>
-              <p class="branch-hint"><IconGlyph name="file" />新增分支后，需要单独上传代码快照。</p>
+              <p class="branch-hint"><IconGlyph name="file" />新增分支后，可为该分支维护独立的知识文档。</p>
             </section>
 
             <section class="settings-card status-card">

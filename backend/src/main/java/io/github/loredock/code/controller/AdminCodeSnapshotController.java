@@ -13,6 +13,7 @@ import io.github.loredock.code.service.AdminCodeSnapshotQueryService;
 import io.github.loredock.code.service.CodeSnapshotUploadService;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -25,6 +26,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 /** 管理员代码快照上传、分页和任务轮询入口；角色授权由统一 `/api/admin/**` 拦截链完成。 */
 @RestController
+@ConditionalOnProperty(prefix = "loredock.code", name = "enabled", havingValue = "true")
 @RequestMapping("/api/admin")
 public class AdminCodeSnapshotController {
 

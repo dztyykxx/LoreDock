@@ -26,7 +26,7 @@ const project: ProjectDetail = {
 function snapshot(overrides: Partial<QaQuestion> = {}): QaQuestion {
   return {
     questionId: 61, runId: 71, createdAt: '2026-07-31T08:00:00Z',
-    scope: { projectIdentifier: 'network-designer', branch: 'feature/import', commit: 'abc1234', codeSnapshotAvailable: true },
+    scope: { projectIdentifier: 'network-designer', branch: 'feature/import', commit: null, codeSnapshotAvailable: false },
     status: 'COMPLETED', resultType: 'ANSWER', trustState: 'RELIABLE_ANSWER', answerBasis: 'BUSINESS_RULE', refusalReason: null, errorCode: null,
     failureMessage: null,
     resultText: '服务端固定到运行创建时的范围。', stepCount: 2, modelCallCount: 1, lastEventSequence: 8,
@@ -101,6 +101,7 @@ describe('ProjectQaView', () => {
     const { wrapper } = await mountView('/projects/network-designer/qa?branch=feature%2Fimport', qa)
 
     expect(wrapper.get('[data-testid="locked-scope"]').text()).toContain('feature/import')
+    expect(wrapper.get('[data-testid="locked-scope"]').text()).toContain('仅使用已发布文档')
     await wrapper.get('[data-testid="qa-branch-selector"]').setValue('main')
     expect(wrapper.get('[data-testid="locked-scope"]').text()).toContain('feature/import')
     await wrapper.get('textarea').setValue('下一题使用哪个分支？')

@@ -17,7 +17,6 @@ import io.github.loredock.agent.model.snapshot.AgentRunSnapshot;
 import io.github.loredock.agent.model.snapshot.AgentScopeSnapshot;
 import io.github.loredock.agent.model.snapshot.AgentVersionSnapshot;
 import io.github.loredock.agent.scheduler.BoundedAgentRunScheduler;
-import io.github.loredock.code.api.CodeQueryService;
 import io.github.loredock.knowledge.api.KnowledgeSearchService;
 import io.github.loredock.project.api.ProjectScope;
 import io.github.loredock.project.api.ProjectService;
@@ -42,7 +41,7 @@ class AgentServiceImplTest {
         projects = mock(ProjectService.class);
         service = new AgentServiceImpl(
                 mock(AgentProperties.class), mock(AgentDefinitionProvider.class), projects,
-                mock(CodeQueryService.class), mock(KnowledgeSearchService.class), runs, events,
+                mock(KnowledgeSearchService.class), runs, events,
                 mock(BoundedAgentRunScheduler.class), mock(PersistentAgentRunDispatchFailureHandler.class),
                 Clock.systemUTC());
         when(projects.resolveEnabledScope("atlas", "main"))

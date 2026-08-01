@@ -46,8 +46,7 @@
         <section v-if="current" data-testid="locked-scope" class="qa-range-lock">
           <div><IconGlyph name="lock" /><strong>本次问答范围</strong></div>
           <span>{{ current.scope.projectIdentifier }}</span><code>{{ current.scope.branch }}</code>
-          <code v-if="current.scope.commit">{{ current.scope.commit }}</code>
-          <span v-else>无活动代码快照</span>
+          <span>仅使用已发布文档</span>
         </section>
 
         <section class="qa-conversation">
@@ -58,7 +57,7 @@
           <div v-else-if="!current" class="qa-empty-state">
             <span><IconGlyph name="message" /></span>
             <h1>还没有问答</h1>
-            <p>向 {{ project?.name || identifier }} 提出一个具体问题。每次问题都会建立独立运行，只使用所选项目和分支内的证据。</p>
+            <p>向 {{ project?.name || identifier }} 提出一个具体问题。每次问题只使用所选项目和分支内已发布的知识文档。</p>
           </div>
           <template v-else>
             <article class="qa-user-message">

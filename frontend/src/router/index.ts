@@ -6,7 +6,6 @@ import ProjectSettingsView from '../views/ProjectSettingsView.vue'
 import KnowledgeWorkspaceView from '../views/KnowledgeWorkspaceView.vue'
 import KnowledgeEditorView from '../views/KnowledgeEditorView.vue'
 import ProjectQaView from '../views/ProjectQaView.vue'
-import CodeSnapshotView from '../views/CodeSnapshotView.vue'
 
 export function createLoreDockRouter(session: SessionController): Router {
   const router = createRouter({
@@ -49,12 +48,6 @@ export function createLoreDockRouter(session: SessionController): Router {
         name: 'knowledge-global-detail',
         component: KnowledgeWorkspaceView,
         meta: { requiresAuth: true },
-      },
-      {
-        path: '/projects/:projectId/code-snapshots',
-        name: 'project-code-snapshots',
-        component: CodeSnapshotView,
-        meta: { requiresAuth: true, adminOnly: true },
       },
       {
         path: '/projects/:projectId/settings',

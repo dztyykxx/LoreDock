@@ -19,8 +19,6 @@ import io.github.loredock.agent.model.result.AgentRunAcceptanceResult;
 import io.github.loredock.agent.model.snapshot.AgentRunSnapshot;
 import io.github.loredock.agent.scheduler.BoundedAgentRunScheduler;
 import io.github.loredock.agent.skill.AgentDefinition;
-import io.github.loredock.code.api.CodeQueryService;
-import io.github.loredock.code.api.ActiveCodeState;
 import io.github.loredock.knowledge.api.KnowledgeSearchService;
 import io.github.loredock.project.api.ProjectScope;
 import io.github.loredock.project.api.ProjectService;
@@ -38,13 +36,11 @@ class AgentServiceStartTest {
     private static final Instant NOW = Instant.parse("2026-07-30T01:00:00Z");
     private static final Long PROJECT_ID = 2891640495451214098L;
     private static final Long BRANCH_ID = 916404954512140971L;
-    private static final Long SNAPSHOT_ID = 5783280990902428195L;
     private static final Long GENERATION_ID = 1674921486353642292L;
     private static final Long RUN_ID = 1674921486353642293L;
     private AgentProperties configuration;
     private AgentDefinitionProvider definitions;
     private ProjectService projects;
-    private CodeQueryService code;
     private KnowledgeSearchService knowledge;
     private AgentRunService runs;
     private BoundedAgentRunScheduler scheduler;
@@ -57,7 +53,6 @@ class AgentServiceStartTest {
         configuration = configuration(true, true, "model-v1");
         definitions = mock(AgentDefinitionProvider.class);
         projects = mock(ProjectService.class);
-        code = mock(CodeQueryService.class);
         knowledge = mock(KnowledgeSearchService.class);
         runs = mock(AgentRunService.class);
         acceptedData = new AtomicReference<>();
@@ -72,9 +67,6 @@ class AgentServiceStartTest {
         when(runs.findByOperatorAndIdempotencyKey(any(), any())).thenReturn(Optional.empty());
         when(definitions.find("project_qa")).thenReturn(Optional.of(definition()));
         when(projects.resolveEnabledScope(any(), any())).thenReturn(project("main"));
-        when(code.getActiveSnapshot(any(), any())).thenReturn(new ActiveCodeState(
-                "atlas", "main", ActiveCodeState.Status.INDEXED, SNAPSHOT_ID, "abcdef1234567",
-                NOW, 12L, null));
         when(knowledge.findActiveIndexVersionId()).thenReturn(Optional.of(GENERATION_ID));
         when(runs.accept(any())).thenAnswer(invocation -> {
             AgentRunCreateData data = invocation.getArgument(0);
@@ -88,7 +80,7 @@ class AgentServiceStartTest {
     }
 
     /**
-     * 业务目的：ADMIN/MEMBER 的合法问题必须先固定 main、快照、generation 和版本并落库，然后才把原问题交给专用调度器。
+     * 业务目的：ADMIN/MEMBER 的合法问题必须先固定 main、知识 generation 和版本并落库，且不再绑定代码快照。
      */
     @Test
     void validMemberRequestPersistsFixedDefaultScopeBeforeScheduling() {
@@ -96,13 +88,14 @@ class AgentServiceStartTest {
 
         assertThat(result.status()).isEqualTo(AgentRunStatus.ACCEPTED);
         assertThat(acceptedData.get().scope().branch()).isEqualTo("main");
-        assertThat(acceptedData.get().scope().snapshotId()).isEqualTo(SNAPSHOT_ID);
+        assertThat(acceptedData.get().scope().snapshotId()).isNull();
+        assertThat(acceptedData.get().scope().commit()).isNull();
         assertThat(acceptedData.get().scope().knowledgeGenerationId()).isEqualTo(GENERATION_ID);
         assertThat(acceptedData.get().versions().modelName()).isEqualTo("model-v1");
         assertThat(acceptedData.get().questionLength()).isEqualTo(7);
         assertThat(scheduledRequest.get().question()).isEqualTo("为什么要审核？");
         assertThat(acceptedData.get().toString()).doesNotContain("为什么要审核");
-        System.out.printf("测试证据：场景=启动并固定范围，项目=%s，分支=%s，snapshot=%s，generation=%s，状态=%s%n",
+        System.out.printf("测试证据：场景=启动并固定文档范围，项目=%s，分支=%s，snapshot=%s，generation=%s，状态=%s%n",
                 result.scope().projectIdentifier(), result.scope().branch(), result.scope().snapshotId(),
                 result.scope().knowledgeGenerationId(), result.status());
     }
@@ -203,7 +196,7 @@ class AgentServiceStartTest {
     }
 
     private AgentServiceImpl service() {
-        return new AgentServiceImpl(configuration, definitions, projects, code, knowledge,
+        return new AgentServiceImpl(configuration, definitions, projects, knowledge,
                 runs, mock(AgentEventService.class), scheduler, dispatchFailures,
                 Clock.fixed(NOW, java.time.ZoneOffset.UTC));
     }

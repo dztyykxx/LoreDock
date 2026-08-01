@@ -152,7 +152,7 @@ class KnowledgeSearchWebE2EIT {
                     .andExpect(jsonPath("$.context.type").value("PROJECT"))
                     .andExpect(jsonPath("$.context.branch").value("main"))
                     .andExpect(jsonPath("$.generationId").value(GENERATION_ID.toString()))
-                    .andExpect(jsonPath("$.warnings[0]").value("CODE_SNAPSHOT_NOT_INDEXED"))
+                    .andExpect(jsonPath("$.warnings").isEmpty())
                     .andExpect(jsonPath("$.results[0].documentId").exists())
                     .andExpect(jsonPath("$.results[0].snippet").isString())
                     .andExpect(jsonPath("$.results[0].source.type").value("MANUAL"))

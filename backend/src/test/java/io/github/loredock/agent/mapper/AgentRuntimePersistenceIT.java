@@ -340,47 +340,36 @@ class AgentRuntimePersistenceIT {
     }
 
     /**
-     * 业务目的：Fake Model 产生的业务、实现和混合回答必须经过真实 PostgreSQL 证据外键与引用事务后才可发布。
+     * 业务目的：Fake Model 产生的文档回答必须经过真实 PostgreSQL 证据外键与引用事务后才可发布。
      */
     @Test
-    void fakeModelCompletesKnowledgeCodeAndMixedAnswersWithTrustedEvents() {
-        var scenarios = List.of(AnswerBasis.BUSINESS_RULE, AnswerBasis.CURRENT_IMPLEMENTATION, AnswerBasis.MIXED);
-        for (int scenarioIndex = 0; scenarioIndex < scenarios.size(); scenarioIndex++) {
-            AnswerBasis basis = scenarios.get(scenarioIndex);
-            Long runId = 8000000000000000215L + scenarioIndex;
-            AgentEvidence knowledge = knowledgeEvidence(runId, true);
-            AgentEvidence code = codeEvidence(runId, true);
-            List<AgentEvidence> ledger = switch (basis) {
-                case BUSINESS_RULE -> List.of(knowledge);
-                case CURRENT_IMPLEMENTATION -> List.of(code);
-                case MIXED -> List.of(knowledge, code);
-            };
-            String answer = ("可信回答-" + basis + "-").repeat(70);
-            ProjectQaModelResult modelResult = new ProjectQaModelResult(
-                    AgentResultType.ANSWER, basis, answer, null,
-                    ledger.stream().map(AgentEvidence::id).toList());
+    void fakeModelCompletesKnowledgeAnswerWithTrustedEvents() {
+        Long runId = 8000000000000000215L;
+        AgentEvidence knowledge = knowledgeEvidence(runId, true);
+        String answer = "可信文档回答-".repeat(70);
+        ProjectQaModelResult modelResult = new ProjectQaModelResult(
+                AgentResultType.ANSWER, AnswerBasis.BUSINESS_RULE, answer, null, List.of(knowledge.id()));
 
-            var snapshot = executeFake(runId, "trusted-" + basis, true, modelResult, ledger);
-            assertThat(snapshot.answerBasis()).isEqualTo(basis);
-            var published = events.findAfter(runId, 0, 200);
+        var snapshot = executeFake(runId, "trusted-knowledge", false, modelResult, List.of(knowledge));
+        var published = events.findAfter(runId, 0, 200);
 
-            assertThat(snapshot.status()).isEqualTo(AgentRunStatus.COMPLETED);
-            assertThat(snapshot.resultType()).isEqualTo(AgentResultType.ANSWER);
-            assertThat(snapshot.resultText()).isEqualTo(answer);
-            assertThat(snapshot.citations()).hasSize(ledger.size()).allSatisfy(citation -> {
-                assertThat(citation.projectIdentifier()).isEqualTo("atlas");
-                assertThat(citation.branch()).isEqualTo("main");
-                assertThat(citation.sourceUpdatedAt()).isNotNull();
-            });
-            assertThat(published).noneMatch(event -> event.payload().contains(answer));
-            assertThat(published).extracting(event -> event.sequence()).isSorted().doesNotHaveDuplicates();
-            assertThat(published).extracting(event -> event.type()).containsSubsequence(
-                    AgentEventType.RUN_STARTED, AgentEventType.MODEL_STARTED)
-                    .endsWith(AgentEventType.RUN_COMPLETED);
-            System.out.printf("测试证据：场景=Fake Model可信%s回答，项目=atlas，分支=main，commit=abcdef1，"
-                            + "证据=%d，引用=%d，正文事件=0，状态=%s%n",
-                    basis, ledger.size(), snapshot.citations().size(), snapshot.status());
-        }
+        assertThat(snapshot.status()).isEqualTo(AgentRunStatus.COMPLETED);
+        assertThat(snapshot.resultType()).isEqualTo(AgentResultType.ANSWER);
+        assertThat(snapshot.answerBasis()).isEqualTo(AnswerBasis.BUSINESS_RULE);
+        assertThat(snapshot.resultText()).isEqualTo(answer);
+        assertThat(snapshot.citations()).singleElement().satisfies(citation -> {
+            assertThat(citation.sourceType()).isEqualTo(EvidenceSourceType.KNOWLEDGE);
+            assertThat(citation.projectIdentifier()).isEqualTo("atlas");
+            assertThat(citation.branch()).isEqualTo("main");
+            assertThat(citation.sourceUpdatedAt()).isNotNull();
+        });
+        assertThat(published).noneMatch(event -> event.payload().contains(answer));
+        assertThat(published).extracting(event -> event.sequence()).isSorted().doesNotHaveDuplicates();
+        assertThat(published).extracting(event -> event.type()).containsSubsequence(
+                AgentEventType.RUN_STARTED, AgentEventType.MODEL_STARTED)
+                .endsWith(AgentEventType.RUN_COMPLETED);
+        System.out.printf("测试证据：场景=Fake Model可信文档回答，项目=atlas，分支=main，证据=1，引用=%d，正文事件=0，状态=%s%n",
+                snapshot.citations().size(), snapshot.status());
     }
 
     /**
@@ -411,7 +400,7 @@ class AgentRuntimePersistenceIT {
     }
 
     /**
-     * 业务目的：证据不足、越界、无代码快照和知识代码冲突必须持久化稳定拒答原因与有限当前范围来源。
+     * 业务目的：证据不足、越界、遗留代码回答和文档冲突必须持久化稳定拒答原因与有限当前范围来源。
      */
     @Test
     void refusalMatrixPersistsStableReasonsAndCurrentScopeCitations() {
@@ -421,19 +410,19 @@ class AgentRuntimePersistenceIT {
         Long outOfScopeRun = 8000000000000000219L;
         var outOfScope = executeFake(outOfScopeRun, "out-of-scope", true,
                 refusal(AgentRefusalReason.OUT_OF_SCOPE, List.of()), List.of());
-        Long noSnapshotRun = 8000000000000000220L;
-        var noSnapshot = executeFake(noSnapshotRun, "no-snapshot", false,
+        Long legacyCodeRun = 8000000000000000220L;
+        var legacyCode = executeFake(legacyCodeRun, "legacy-code", false,
                 new ProjectQaModelResult(AgentResultType.ANSWER, AnswerBasis.CURRENT_IMPLEMENTATION,
                         "模型尝试回答实现", null, List.of()), List.of());
         Long conflictRun = 8000000000000000221L;
-        AgentEvidence knowledge = knowledgeEvidence(conflictRun, true);
-        AgentEvidence code = codeEvidence(conflictRun, true);
-        var conflict = executeFake(conflictRun, "conflict", true,
-                new ProjectQaModelResult(AgentResultType.REFUSAL, AnswerBasis.MIXED,
+        AgentEvidence first = knowledgeEvidence(conflictRun, true);
+        AgentEvidence second = knowledgeEvidence(conflictRun, true, 1_001);
+        var conflict = executeFake(conflictRun, "conflict", false,
+                new ProjectQaModelResult(AgentResultType.REFUSAL, AnswerBasis.BUSINESS_RULE,
                         ProjectQaResultConverter.REFUSAL_TEXT, AgentRefusalReason.SOURCE_CONFLICT,
-                        List.of(knowledge.id(), code.id())), List.of(knowledge, code));
+                        List.of(first.id(), second.id())), List.of(first, second));
 
-        assertThat(List.of(insufficient, outOfScope, noSnapshot, conflict))
+        assertThat(List.of(insufficient, outOfScope, legacyCode, conflict))
                 .allSatisfy(snapshot -> {
                     assertThat(snapshot.status()).isEqualTo(AgentRunStatus.COMPLETED);
                     assertThat(snapshot.resultType()).isEqualTo(AgentResultType.REFUSAL);
@@ -441,16 +430,16 @@ class AgentRuntimePersistenceIT {
                 });
         assertThat(insufficient.refusalReason()).isEqualTo(AgentRefusalReason.INSUFFICIENT_EVIDENCE);
         assertThat(outOfScope.refusalReason()).isEqualTo(AgentRefusalReason.OUT_OF_SCOPE);
-        assertThat(noSnapshot.refusalReason()).isEqualTo(AgentRefusalReason.CODE_SNAPSHOT_NOT_INDEXED);
-        assertThat(noSnapshot.scope().branch()).isEqualTo("main");
-        assertThat(noSnapshot.scope().snapshotId()).isNull();
+        assertThat(legacyCode.refusalReason()).isEqualTo(AgentRefusalReason.AGENT_CITATION_INVALID);
+        assertThat(legacyCode.scope().branch()).isEqualTo("main");
+        assertThat(legacyCode.scope().snapshotId()).isNull();
         assertThat(conflict.refusalReason()).isEqualTo(AgentRefusalReason.SOURCE_CONFLICT);
-        assertThat(conflict.answerBasis()).isEqualTo(AnswerBasis.MIXED);
+        assertThat(conflict.answerBasis()).isEqualTo(AnswerBasis.BUSINESS_RULE);
         assertThat(conflict.citations()).extracting(citation -> citation.sourceType())
-                .containsExactly(EvidenceSourceType.KNOWLEDGE, EvidenceSourceType.CODE);
-        System.out.printf("测试证据：场景=可信拒答矩阵，原因=%s，无快照分支=%s，冲突引用=%d%n",
-                List.of(insufficient.refusalReason(), outOfScope.refusalReason(), noSnapshot.refusalReason(),
-                        conflict.refusalReason()), noSnapshot.scope().branch(), conflict.citations().size());
+                .containsExactly(EvidenceSourceType.KNOWLEDGE, EvidenceSourceType.KNOWLEDGE);
+        System.out.printf("测试证据：场景=文档问答拒答矩阵，原因=%s，代码回答分支=%s，文档冲突引用=%d%n",
+                List.of(insufficient.refusalReason(), outOfScope.refusalReason(), legacyCode.refusalReason(),
+                        conflict.refusalReason()), legacyCode.scope().branch(), conflict.citations().size());
     }
 
     private Object insertAfter(CountDownLatch start, AgentRunCreateData data) throws InterruptedException {
@@ -516,7 +505,11 @@ class AgentRuntimePersistenceIT {
     }
 
     private AgentEvidence knowledgeEvidence(Long runId, boolean retained) {
-        return new AgentEvidence(runId + 1_000, runId, EvidenceSourceType.KNOWLEDGE, retained, 0.9,
+        return knowledgeEvidence(runId, retained, 1_000);
+    }
+
+    private AgentEvidence knowledgeEvidence(Long runId, boolean retained, long idOffset) {
+        return new AgentEvidence(runId + idOffset, runId, EvidenceSourceType.KNOWLEDGE, retained, 0.9,
                 DOCUMENT_ID, null, "atlas", "main", null, null, "业务规则", timeProvider.instant());
     }
 

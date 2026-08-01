@@ -122,7 +122,7 @@ class ProjectQaRunTaskExecutorTest {
         when(time.instant()).thenReturn(now);
         when(runs.markRunning(any(), any())).thenReturn(true);
         when(runs.complete(any(), any(), any(), any())).thenReturn(true);
-        when(validator.validate(any(), org.mockito.ArgumentMatchers.anyBoolean(), any(), any()))
+        when(validator.validate(any(), any(), any()))
                 .thenReturn(new TrustedProjectQaResult(AgentResultType.ANSWER, AnswerBasis.BUSINESS_RULE,
                         sensitive, null, List.of(item.id())));
         Logger logger = (Logger) LoggerFactory.getLogger(ProjectQaRunTaskExecutor.class);

@@ -22,8 +22,6 @@ import io.github.loredock.agent.model.result.AgentExecutionResult;
 import io.github.loredock.agent.model.result.AgentToolResult;
 import io.github.loredock.agent.model.snapshot.AgentScopeSnapshot;
 import io.github.loredock.agent.model.snapshot.AgentVersionSnapshot;
-import io.github.loredock.agent.model.tool.CodeSearchToolRequest;
-import io.github.loredock.agent.model.tool.CodeSnippetToolRequest;
 import io.github.loredock.agent.model.tool.KnowledgeSearchToolRequest;
 import io.github.loredock.agent.service.ProjectQaToolService;
 import java.time.Duration;
@@ -50,7 +48,6 @@ class SpringAiAlibabaAgentRuntimeTest {
 
     private static final Long RUN_ID = 1052023740649963522L;
     private static final Long KNOWLEDGE_ID = 1052023740649963523L;
-    private static final Long CODE_ID = 1052023740649963524L;
 
     /**
      * 业务目的：stdout 只显示用户问题、截断后的工具结果预览和模型最终响应，避免 Prompt 与流式分片淹没联调信息。
@@ -61,45 +58,38 @@ class SpringAiAlibabaAgentRuntimeTest {
                 + "\nSHOULD_NOT_BE_PRINTED";
         ScriptedChatModel model = new ScriptedChatModel(List.of(
                 tool("knowledge_search", "{\"query\":\"审核规则\",\"limit\":1}"),
-                tool("code_search", "{\"query\":\"ReviewService\",\"pathPrefix\":\"src\",\"limit\":1}"),
-                tool("code_snippet_read", "{\"repositoryPath\":\"src/ReviewService.java\",\"startLine\":1,\"lineCount\":20}"),
                 answer("""
-                        {"resultType":"ANSWER","answerBasis":"MIXED","text":"审核规则由当前实现执行。",
-                         "citations":["%s","%s"],"refusalReason":null,"sourceConflict":false}
-                        """.formatted(KNOWLEDGE_ID, CODE_ID))), Duration.ZERO, true);
+                        {"resultType":"ANSWER","answerBasis":"BUSINESS_RULE","text":"已发布文档说明该操作需要审核。",
+                         "citations":["%s"],"refusalReason":null,"sourceConflict":false}
+                        """.formatted(KNOWLEDGE_ID))), Duration.ZERO, true);
         ProjectQaToolService tools = mock(ProjectQaToolService.class);
         when(tools.knowledgeSearch(eq(RUN_ID), any(KnowledgeSearchToolRequest.class)))
                 .thenReturn(toolResult(knowledgeEvidence(), longKnowledgeContext));
-        when(tools.codeSearch(eq(RUN_ID), any(CodeSearchToolRequest.class)))
-                .thenReturn(new AgentToolResult("code search", List.of(), 1, 0));
-        when(tools.codeSnippetRead(eq(RUN_ID), any(CodeSnippetToolRequest.class)))
-                .thenReturn(toolResult(codeEvidence(), "code evidence"));
         SpringAiAlibabaAgentRuntime adapter = new SpringAiAlibabaAgentRuntime(model, tools);
 
         AgentExecutionResult result = adapter.execute(request(RUN_ID, "为什么需要审核？", limits(8, 8, 30)));
 
         assertThat(result.modelResult().resultType()).isEqualTo(AgentResultType.ANSWER);
-        assertThat(result.modelResult().basis()).isEqualTo(AnswerBasis.MIXED);
-        assertThat(result.modelResult().citationEvidenceIds()).containsExactly(KNOWLEDGE_ID, CODE_ID);
-        assertThat(result.evidence()).extracting(AgentEvidence::id).containsExactly(KNOWLEDGE_ID, CODE_ID);
-        assertThat(result.usage().modelCallCount()).isEqualTo(4);
-        assertThat(result.usage().stepCount()).isEqualTo(7);
-        assertThat(result.usage().retrievalCount()).isEqualTo(3);
-        assertThat(result.usage().inputTokens()).isEqualTo(40);
-        assertThat(result.usage().outputTokens()).isEqualTo(20);
+        assertThat(result.modelResult().basis()).isEqualTo(AnswerBasis.BUSINESS_RULE);
+        assertThat(result.modelResult().citationEvidenceIds()).containsExactly(KNOWLEDGE_ID);
+        assertThat(result.evidence()).extracting(AgentEvidence::id).containsExactly(KNOWLEDGE_ID);
+        assertThat(result.usage().modelCallCount()).isEqualTo(2);
+        assertThat(result.usage().stepCount()).isEqualTo(3);
+        assertThat(result.usage().retrievalCount()).isEqualTo(1);
+        assertThat(result.usage().inputTokens()).isEqualTo(20);
+        assertThat(result.usage().outputTokens()).isEqualTo(10);
         assertThat(model.prompts().getFirst()).contains("project_qa", "为什么需要审核？");
         verify(tools).knowledgeSearch(eq(RUN_ID), any(KnowledgeSearchToolRequest.class));
-        verify(tools).codeSearch(eq(RUN_ID), any(CodeSearchToolRequest.class));
-        verify(tools).codeSnippetRead(eq(RUN_ID), any(CodeSnippetToolRequest.class));
         assertThat(output).contains(
                 "project_qa.question", "为什么需要审核？",
                 "project_qa.tool_result tool=knowledge_search resultCount=1 evidenceCount=1",
-                "knowledge evidence", "code evidence", "...[truncated]",
-                "project_qa.model_response", "审核规则由当前实现执行。");
+                "knowledge evidence", "...[truncated]",
+                "project_qa.model_response", "已发布文档说明该操作需要审核。");
+        assertThat(output).doesNotContain("code_search", "code_snippet_read");
         assertThat(output).doesNotContain(
                 "SHOULD_NOT_BE_PRINTED", "project_qa.model_prompt",
                 "project_qa.model_response_chunk", "project_qa.agent_messages");
-        System.out.printf("测试证据：场景=ReactAgent三工具循环，模型调用=%d，工具调用=%d，证据=%d，Token=%d/%d%n",
+        System.out.printf("测试证据：场景=ReactAgent文档工具循环，模型调用=%d，工具调用=%d，证据=%d，Token=%d/%d%n",
                 result.usage().modelCallCount(), result.usage().stepCount() - result.usage().modelCallCount(),
                 result.evidence().size(), result.usage().inputTokens(), result.usage().outputTokens());
     }
@@ -328,11 +318,6 @@ class SpringAiAlibabaAgentRuntimeTest {
     private AgentEvidence knowledgeEvidence() {
         return new AgentEvidence(KNOWLEDGE_ID, RUN_ID, EvidenceSourceType.KNOWLEDGE, true, 0.9,
                 8000000000000000186L, null, "atlas", "main", null, null, "规则", Instant.now());
-    }
-
-    private AgentEvidence codeEvidence() {
-        return new AgentEvidence(CODE_ID, RUN_ID, EvidenceSourceType.CODE, true, 1.0,
-                null, 8000000000000000187L, "atlas", "main", "abcdef1", "src/ReviewService.java", null, Instant.now());
     }
 
     private static ChatResponse tool(String name, String arguments) {

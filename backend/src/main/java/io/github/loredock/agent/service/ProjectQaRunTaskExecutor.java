@@ -68,7 +68,7 @@ public class ProjectQaRunTaskExecutor {
                 return;
             }
             TrustedProjectQaResult trusted = validator.validate(
-                    request.runId(), request.scope().hasCodeSnapshot(), result.modelResult(), result.evidence());
+                    request.runId(), result.modelResult(), result.evidence());
             if (!runs.complete(request.runId(), trusted, result.usage(), finishedAt)) {
                 return;
             }

@@ -3,6 +3,7 @@ package io.github.loredock.code.controller;
 import io.github.loredock.code.model.response.ActiveCodeSnapshotResponse;
 import io.github.loredock.code.model.result.ActiveCodeSnapshotView;
 import io.github.loredock.code.service.CodeQueryServiceImpl;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -10,6 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /** ADMIN 与 MEMBER 共用的普通代码快照状态入口。 */
 @RestController
+@ConditionalOnProperty(prefix = "loredock.code", name = "enabled", havingValue = "true")
 public class CodeSnapshotController {
 
     private final CodeQueryServiceImpl snapshots;

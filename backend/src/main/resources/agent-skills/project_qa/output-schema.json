@@ -6,7 +6,7 @@
   "required": ["resultType", "answerBasis", "text", "citations", "refusalReason", "sourceConflict"],
   "properties": {
     "resultType": {"type": "string", "enum": ["ANSWER", "REFUSAL"]},
-    "answerBasis": {"type": "string", "enum": ["BUSINESS_RULE", "CURRENT_IMPLEMENTATION", "MIXED"]},
+    "answerBasis": {"type": ["string", "null"], "enum": [null, "BUSINESS_RULE"]},
     "text": {"type": "string", "minLength": 1, "maxLength": 12000},
     "citations": {
       "type": "array",
@@ -16,7 +16,7 @@
     },
     "refusalReason": {
       "type": ["string", "null"],
-      "enum": [null, "INSUFFICIENT_EVIDENCE", "CODE_SNAPSHOT_NOT_INDEXED", "OUT_OF_SCOPE", "SOURCE_CONFLICT", "AGENT_CITATION_INVALID", "OUTPUT_POLICY_VIOLATION"]
+      "enum": [null, "INSUFFICIENT_EVIDENCE", "OUT_OF_SCOPE", "SOURCE_CONFLICT", "AGENT_CITATION_INVALID", "OUTPUT_POLICY_VIOLATION"]
     },
     "sourceConflict": {"type": "boolean"}
   }

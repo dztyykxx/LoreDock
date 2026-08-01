@@ -28,7 +28,7 @@ class ProjectQaResultConverterTest {
                 AgentResultType.ANSWER, AnswerBasis.BUSINESS_RULE, "业务规则回答", null,
                 List.of(knowledge.id()));
 
-        TrustedProjectQaResult trusted = validator.validate(runId, true, result, List.of(knowledge));
+        TrustedProjectQaResult trusted = validator.validate(runId, result, List.of(knowledge));
 
         assertThat(trusted.resultType()).isEqualTo(AgentResultType.ANSWER);
         assertThat(trusted.citations()).containsExactly(knowledge.id());
@@ -37,20 +37,20 @@ class ProjectQaResultConverterTest {
     }
 
     /**
-     * 业务目的：当前实现回答只能由固定活动快照代码支撑，无快照时必须给出可解释拒答。
+     * 业务目的：即使底层仍存在历史代码证据，问答也不得形成当前实现回答。
      */
     @Test
-    void implementationAnswerWithoutSnapshotBecomesRefusal() {
+    void legacyImplementationAnswerBecomesRefusal() {
         AgentEvidence code = evidence(EvidenceSourceType.CODE, true, runId);
         ProjectQaModelResult result = new ProjectQaModelResult(
                 AgentResultType.ANSWER, AnswerBasis.CURRENT_IMPLEMENTATION, "实现回答", null, List.of(code.id()));
 
-        TrustedProjectQaResult trusted = validator.validate(runId, false, result, List.of(code));
+        TrustedProjectQaResult trusted = validator.validate(runId, result, List.of(code));
 
         assertThat(trusted.resultType()).isEqualTo(AgentResultType.REFUSAL);
-        assertThat(trusted.refusalReason()).isEqualTo(AgentRefusalReason.CODE_SNAPSHOT_NOT_INDEXED);
+        assertThat(trusted.refusalReason()).isEqualTo(AgentRefusalReason.AGENT_CITATION_INVALID);
         assertThat(trusted.text()).contains("当前知识库没有足够依据");
-        System.out.printf("测试证据：场景=无快照实现问题拒答，reason=%s%n", trusted.refusalReason());
+        System.out.printf("测试证据：场景=代码依据类型已停用，reason=%s%n", trusted.refusalReason());
     }
 
     /**
@@ -71,7 +71,7 @@ class ProjectQaResultConverterTest {
         );
 
         List<TrustedProjectQaResult> trusted = invalidResults.stream()
-                .map(result -> validator.validate(runId, true, result, List.of(otherRun, trimmed)))
+                .map(result -> validator.validate(runId, result, List.of(otherRun, trimmed)))
                 .toList();
 
         assertThat(trusted).allSatisfy(value -> {
@@ -84,25 +84,30 @@ class ProjectQaResultConverterTest {
     }
 
     /**
-     * 业务目的：混合结论必须同时引用知识与代码，来源冲突拒答也必须展示两类当前范围证据。
+     * 业务目的：文档冲突拒答必须引用至少两条知识证据，混合回答不能再通过服务端校验。
      */
     @Test
-    void mixedAnswerAndSourceConflictRequireBothEvidenceTypes() {
-        AgentEvidence knowledge = evidence(EvidenceSourceType.KNOWLEDGE, true, runId);
+    void mixedAnswerIsRejectedAndDocumentConflictRequiresTwoKnowledgeSources() {
+        AgentEvidence first = evidence(EvidenceSourceType.KNOWLEDGE, true, runId);
+        AgentEvidence second = new AgentEvidence(
+                8000000000000000300L, runId, EvidenceSourceType.KNOWLEDGE, true, 0.8,
+                8000000000000000301L, null, "atlas", "main", null, null,
+                "另一份业务规则", Instant.parse("2026-07-30T12:00:00Z"));
         AgentEvidence code = evidence(EvidenceSourceType.CODE, true, runId);
-        TrustedProjectQaResult mixed = validator.validate(runId, true,
+        TrustedProjectQaResult mixed = validator.validate(runId,
                 new ProjectQaModelResult(AgentResultType.ANSWER, AnswerBasis.MIXED, "混合回答", null,
-                        List.of(knowledge.id(), code.id())), List.of(knowledge, code));
-        TrustedProjectQaResult conflict = validator.validate(runId, true,
-                new ProjectQaModelResult(AgentResultType.REFUSAL, AnswerBasis.MIXED, "来源冲突",
-                        AgentRefusalReason.SOURCE_CONFLICT, List.of(knowledge.id(), code.id())),
-                List.of(knowledge, code));
+                        List.of(first.id(), code.id())), List.of(first, code));
+        TrustedProjectQaResult conflict = validator.validate(runId,
+                new ProjectQaModelResult(AgentResultType.REFUSAL, AnswerBasis.BUSINESS_RULE, "来源冲突",
+                        AgentRefusalReason.SOURCE_CONFLICT, List.of(first.id(), second.id())),
+                List.of(first, second));
 
-        assertThat(mixed.resultType()).isEqualTo(AgentResultType.ANSWER);
+        assertThat(mixed.resultType()).isEqualTo(AgentResultType.REFUSAL);
+        assertThat(mixed.refusalReason()).isEqualTo(AgentRefusalReason.AGENT_CITATION_INVALID);
         assertThat(conflict.resultType()).isEqualTo(AgentResultType.REFUSAL);
         assertThat(conflict.refusalReason()).isEqualTo(AgentRefusalReason.SOURCE_CONFLICT);
         assertThat(conflict.citations()).hasSize(2);
-        System.out.printf("测试证据：场景=双来源要求，mixedCitations=%d，conflictCitations=%d%n",
+        System.out.printf("测试证据：场景=仅文档来源要求，mixedCitations=%d，conflictCitations=%d%n",
                 mixed.citations().size(), conflict.citations().size());
     }
 
@@ -112,7 +117,7 @@ class ProjectQaResultConverterTest {
     @Test
     void forgedPublicationClaimBecomesRefusal() {
         AgentEvidence knowledge = evidence(EvidenceSourceType.KNOWLEDGE, true, runId);
-        TrustedProjectQaResult trusted = validator.validate(runId, true,
+        TrustedProjectQaResult trusted = validator.validate(runId,
                 new ProjectQaModelResult(AgentResultType.ANSWER, AnswerBasis.BUSINESS_RULE,
                         "我已发布正式知识并修改项目配置", null, List.of(knowledge.id())), List.of(knowledge));
 

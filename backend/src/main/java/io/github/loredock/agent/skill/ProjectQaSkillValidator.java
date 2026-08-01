@@ -15,8 +15,7 @@ import org.springframework.stereotype.Component;
 public class ProjectQaSkillValidator {
 
     private static final Pattern FIELD = Pattern.compile("(?m)^%s:\\s*([^\\r\\n]+)$");
-    private static final List<String> REQUIRED_TOOLS =
-            List.of("knowledge_search", "code_search", "code_snippet_read");
+    private static final List<String> REQUIRED_TOOLS = List.of("knowledge_search");
     private final ObjectMapper objectMapper;
 
     /** @param objectMapper JSON 解析器 */
@@ -39,9 +38,12 @@ public class ProjectQaSkillValidator {
         for (String section : List.of("适用场景", "必要输入", "推荐步骤", "答案与引用规则", "拒答与冲突", "公开模拟验收示例")) {
             require(markdown.contains("## " + section), "Skill 缺少章节 " + section);
         }
-        for (String rule : List.of("BUSINESS_RULE", "CURRENT_IMPLEMENTATION", "MIXED", "INSUFFICIENT_EVIDENCE",
+        for (String rule : List.of("BUSINESS_RULE", "INSUFFICIENT_EVIDENCE", "核对本地最新代码",
                 "当前知识库没有足够依据", "不得创建、修改、归档、索引或发布正式知识")) {
             require(markdown.contains(rule), "Skill 缺少关键规则 " + rule);
+        }
+        for (String disabled : List.of("code_search", "code_snippet_read", "CURRENT_IMPLEMENTATION", "MIXED")) {
+            require(!markdown.contains(disabled), "Skill 不得声明代码问答能力 " + disabled);
         }
         validateSchema(outputSchema, schemaVersion);
         return new ProjectQaSkillDefinition(name, schemaVersion, maxSteps, markdown, outputSchema);

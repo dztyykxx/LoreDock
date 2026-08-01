@@ -23,7 +23,7 @@ class ProjectQaSkillValidatorTest {
     }
 
     /**
-     * 业务目的：内置 Skill 必须完整声明任务、三个只读工具、证据规则、拒答与公开模拟验收示例。
+     * 业务目的：内置 Skill 只能声明知识检索工具和文档证据规则，防止问答重新接入代码检索。
      */
     @Test
     void builtinProjectQaSkillContainsCompleteControlledContract() {
@@ -33,21 +33,22 @@ class ProjectQaSkillValidatorTest {
         assertThat(definition.outputSchemaVersion()).isEqualTo("project-qa-v1");
         assertThat(definition.maxSteps()).isEqualTo(8);
         assertThat(definition.markdown()).contains(
-                "knowledge_search", "code_search", "code_snippet_read",
-                "BUSINESS_RULE", "CURRENT_IMPLEMENTATION", "MIXED",
-                "当前知识库没有足够依据", "无活动代码快照", "不得重复", "公开模拟验收示例");
-        System.out.printf("测试证据：场景=Agent定义结构校验，名称=%s，输出结构=%s，最大步骤=%d，只读工具数=3%n",
+                "knowledge_search", "BUSINESS_RULE", "当前知识库没有足够依据",
+                "核对本地最新代码", "不得重复", "公开模拟验收示例");
+        assertThat(definition.markdown()).doesNotContain(
+                "code_search", "code_snippet_read", "CURRENT_IMPLEMENTATION", "MIXED");
+        System.out.printf("测试证据：场景=Agent定义结构校验，名称=%s，输出结构=%s，最大步骤=%d，只读工具数=1%n",
                 definition.name(), definition.outputSchemaVersion(), definition.maxSteps());
     }
 
     /**
-     * 业务目的：如果 Skill 遗漏任一只读工具或禁止发布规则，引导必须失败而不能降低执行边界。
+     * 业务目的：如果 Skill 遗漏唯一知识检索工具或禁止发布规则，引导必须失败而不能降低执行边界。
      */
     @Test
     void missingToolOrNoPublishRuleMakesSkillInvalid() {
-        assertThatThrownBy(() -> validator.validate(markdown.replace("  - code_snippet_read\n", ""), schema))
+        assertThatThrownBy(() -> validator.validate(markdown.replace("  - knowledge_search\n", ""), schema))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("code_snippet_read");
+                .hasMessageContaining("knowledge_search");
         assertThatThrownBy(() -> validator.validate(
                 markdown.replace("不得创建、修改、归档、索引或发布正式知识", "可以直接发布"), schema))
                 .isInstanceOf(IllegalArgumentException.class)

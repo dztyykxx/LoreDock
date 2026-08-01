@@ -134,6 +134,7 @@ loredock:
   storage:
     root: ${LOREDOCK_STORAGE_ROOT:./data/objects}
   code:
+    enabled: ${LOREDOCK_CODE_ENABLED:false}
     snapshot:
       max-upload-size: ${LOREDOCK_CODE_SNAPSHOT_MAX_UPLOAD_SIZE:100MB}
       max-archive-entries: ${LOREDOCK_CODE_SNAPSHOT_MAX_ARCHIVE_ENTRIES:50000}

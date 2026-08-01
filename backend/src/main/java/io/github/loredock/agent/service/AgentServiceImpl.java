@@ -15,8 +15,6 @@ import io.github.loredock.agent.model.snapshot.AgentScopeSnapshot;
 import io.github.loredock.agent.model.snapshot.AgentVersionSnapshot;
 import io.github.loredock.agent.scheduler.BoundedAgentRunScheduler;
 import io.github.loredock.agent.skill.AgentDefinition;
-import io.github.loredock.code.api.CodeQueryService;
-import io.github.loredock.code.api.ActiveCodeState;
 import io.github.loredock.knowledge.api.KnowledgeSearchService;
 import io.github.loredock.project.api.ProjectScope;
 import io.github.loredock.project.api.ProjectService;
@@ -49,7 +47,6 @@ public class AgentServiceImpl implements AgentService {
     private final AgentProperties configuration;
     private final AgentDefinitionProvider definitions;
     private final ProjectService projects;
-    private final CodeQueryService code;
     private final KnowledgeSearchService knowledge;
     private final AgentRunService runs;
     private final AgentEventService events;
@@ -61,7 +58,6 @@ public class AgentServiceImpl implements AgentService {
      * @param configuration Agent 受控配置
      * @param definitions classpath Agent 定义
      * @param projects 启用项目与分支查询
-     * @param code 活动代码快照查询契约
      * @param knowledge 知识检索与活动索引版本契约
      * @param runs 运行仓储
      * @param events 已提交公开事件仓储与进程内通知
@@ -73,7 +69,6 @@ public class AgentServiceImpl implements AgentService {
             AgentProperties configuration,
             AgentDefinitionProvider definitions,
             ProjectService projects,
-            CodeQueryService code,
             KnowledgeSearchService knowledge,
             AgentRunService runs,
             AgentEventService events,
@@ -84,7 +79,6 @@ public class AgentServiceImpl implements AgentService {
         this.configuration = configuration;
         this.definitions = definitions;
         this.projects = projects;
-        this.code = code;
         this.knowledge = knowledge;
         this.runs = runs;
         this.events = events;
@@ -117,12 +111,10 @@ public class AgentServiceImpl implements AgentService {
             throw new AgentRequestException(AgentRun.ErrorCode.AGENT_SKILL_UNAVAILABLE);
         }
         ProjectScope project = projects.resolveEnabledScope(input.projectIdentifier(), input.branch());
-        ActiveCodeState activeCode = code.getActiveSnapshot(project.projectIdentifier(), project.branchName());
         Long generationId = knowledge.findActiveIndexVersionId().orElse(null);
         AgentScopeSnapshot scope = new AgentScopeSnapshot(
                 project.projectId(), project.projectIdentifier(), project.branchId(), project.branchName(),
-                activeCode.status() == ActiveCodeState.Status.INDEXED ? activeCode.snapshotId() : null,
-                activeCode.status() == ActiveCodeState.Status.INDEXED ? activeCode.commit() : null,
+                null, null,
                 generationId, List.of("GLOBAL", "PROJECT", "BRANCH"));
         AgentVersionSnapshot versions = new AgentVersionSnapshot(
                 definition.name(), configuration.modelName(), definition.outputSchemaVersion());
@@ -145,9 +137,9 @@ public class AgentServiceImpl implements AgentService {
                 configuration.runtimeLimits(), acceptedAt.plus(configuration.totalTimeout()));
         dispatchAfterCommit(request);
         AgentRunSnapshot result = runs.findById(runId).orElse(accepted);
-        log.info("agent_run start completed traceId={} runId={} project={} branch={} snapshotAvailable={} "
+        log.info("agent_run start completed traceId={} runId={} project={} branch={} "
                         + "knowledgeGenerationAvailable={} status={}",
-                traceId(runId), runId, scope.projectIdentifier(), scope.branch(), scope.hasCodeSnapshot(),
+                traceId(runId), runId, scope.projectIdentifier(), scope.branch(),
                 scope.knowledgeGenerationId() != null, result.status());
         return result;
     }

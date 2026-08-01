@@ -1,7 +1,5 @@
 package io.github.loredock.knowledge.service.search;
 
-import io.github.loredock.code.api.CodeQueryService;
-import io.github.loredock.code.api.ActiveCodeState;
 import io.github.loredock.knowledge.api.KnowledgeMatch;
 import io.github.loredock.knowledge.api.KnowledgeMatches;
 import io.github.loredock.knowledge.api.KnowledgeQuery;
@@ -11,7 +9,6 @@ import io.github.loredock.knowledge.exception.KnowledgeIndexUnavailableException
 import io.github.loredock.knowledge.model.enums.KnowledgeBrowseContextType;
 import io.github.loredock.knowledge.model.enums.KnowledgeScopeType;
 import io.github.loredock.knowledge.model.enums.KnowledgeSearchMode;
-import io.github.loredock.knowledge.model.enums.KnowledgeSearchWarning;
 import io.github.loredock.knowledge.model.request.KnowledgeSearchCandidateRequest;
 import io.github.loredock.knowledge.model.request.KnowledgeSearchFilters;
 import io.github.loredock.knowledge.model.request.KnowledgeSearchQuery;
@@ -63,7 +60,6 @@ public class KnowledgeSearchServiceImpl implements io.github.loredock.knowledge.
     private final KnowledgeCandidateDataService semantics;
     private final KnowledgeEmbeddingService embedding;
     private final KnowledgeSearchEligibilityService eligibility;
-    private final CodeQueryService codeSnapshots;
     private final ReciprocalRankFusion fusion;
 
     /**
@@ -73,7 +69,6 @@ public class KnowledgeSearchServiceImpl implements io.github.loredock.knowledge.
      * @param semantics 精确语义候选端口
      * @param embedding 离线查询 Embedding 端口
      * @param eligibility 当前事实表资格复核端口
-     * @param codeSnapshots 项目分支活动代码快照状态端口
      * @param fusion 固定版本 RRF 融合器
      */
     public KnowledgeSearchServiceImpl(
@@ -83,7 +78,6 @@ public class KnowledgeSearchServiceImpl implements io.github.loredock.knowledge.
             KnowledgeCandidateDataService semantics,
             KnowledgeEmbeddingService embedding,
             KnowledgeSearchEligibilityService eligibility,
-            CodeQueryService codeSnapshots,
             ReciprocalRankFusion fusion
     ) {
         this.scopes = scopes;
@@ -92,7 +86,6 @@ public class KnowledgeSearchServiceImpl implements io.github.loredock.knowledge.
         this.semantics = semantics;
         this.embedding = embedding;
         this.eligibility = eligibility;
-        this.codeSnapshots = codeSnapshots;
         this.fusion = fusion;
     }
 
@@ -216,13 +209,12 @@ public class KnowledgeSearchServiceImpl implements io.github.loredock.knowledge.
                 traceId, generation.generationId(), candidateIds.size(), candidateIds.size() - results.size(),
                 results.size());
 
-        List<KnowledgeSearchWarning> warnings = warnings(scope);
         KnowledgeSearchResponse response = new KnowledgeSearchResponse(
                 new KnowledgeSearchContext(scope.contextType(), scope.projectIdentifier(), scope.branch()),
-                query.mode(), generation.generationId(), warnings, results);
+                query.mode(), generation.generationId(), List.of(), results);
         LOGGER.info("knowledge_search completed traceId={} operation=knowledge_search generationId={} "
                         + "resultCount={} warningCount={} elapsedMs={} result=SUCCESS",
-                traceId, generation.generationId(), results.size(), warnings.size(), elapsed(started));
+                traceId, generation.generationId(), results.size(), 0, elapsed(started));
         return response;
     }
 
@@ -289,15 +281,6 @@ public class KnowledgeSearchServiceImpl implements io.github.loredock.knowledge.
                 fused.documentId(), resultScope, candidate.title(), fused.snippet(), fused.truncated(),
                 candidate.format(), candidate.tags(), candidate.source(), candidate.sourceUpdatedAt(),
                 fused.relevance(), fused.matchedBy());
-    }
-
-    private List<KnowledgeSearchWarning> warnings(KnowledgeSearchResolvedScope scope) {
-        if (scope.contextType() == KnowledgeBrowseContextType.GLOBAL) {
-            return List.of();
-        }
-        return codeSnapshots.getActiveSnapshot(scope.projectIdentifier(), scope.branch()).status()
-                == ActiveCodeState.Status.NOT_INDEXED
-                ? List.of(KnowledgeSearchWarning.CODE_SNAPSHOT_NOT_INDEXED) : List.of();
     }
 
     private PreparedQuery prepare(KnowledgeSearchQuery query) {

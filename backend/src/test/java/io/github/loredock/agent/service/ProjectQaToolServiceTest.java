@@ -19,15 +19,7 @@ import io.github.loredock.agent.model.result.AgentToolResult;
 import io.github.loredock.agent.model.snapshot.AgentRunSnapshot;
 import io.github.loredock.agent.model.snapshot.AgentScopeSnapshot;
 import io.github.loredock.agent.model.snapshot.AgentVersionSnapshot;
-import io.github.loredock.agent.model.tool.CodeSearchToolRequest;
-import io.github.loredock.agent.model.tool.CodeSnippetToolRequest;
 import io.github.loredock.agent.model.tool.KnowledgeSearchToolRequest;
-import io.github.loredock.code.api.CodeExcerpt;
-import io.github.loredock.code.api.CodeExcerptQuery;
-import io.github.loredock.code.api.CodeMatches;
-import io.github.loredock.code.api.CodeQuery;
-import io.github.loredock.code.api.CodeQueryService;
-import io.github.loredock.code.api.ActiveCodeState;
 import io.github.loredock.knowledge.api.KnowledgeMatch;
 import io.github.loredock.knowledge.api.KnowledgeMatches;
 import io.github.loredock.knowledge.api.KnowledgeQuery;
@@ -46,12 +38,10 @@ class ProjectQaToolServiceTest {
     private static final Long RUN_ID = 5148216680369618946L;
     private static final Long PROJECT_ID = 5148216680369618947L;
     private static final Long BRANCH_ID = 5148216680369618948L;
-    private static final Long SNAPSHOT_ID = 5148216680369618949L;
     private static final Long GENERATION_ID = 5148216680369618950L;
     private static final Instant NOW = Instant.parse("2026-07-30T03:00:00Z");
     private AgentRunService runs;
     private KnowledgeSearchService knowledge;
-    private CodeQueryService code;
     private AgentProperties configuration;
     private AgentEvidenceService evidence;
     private AgentEventService events;
@@ -62,7 +52,6 @@ class ProjectQaToolServiceTest {
     void setUp() {
         runs = mock(AgentRunService.class);
         knowledge = mock(KnowledgeSearchService.class);
-        code = mock(CodeQueryService.class);
         configuration = mock(AgentProperties.class);
         evidence = mock(AgentEvidenceService.class);
         events = mock(AgentEventService.class);
@@ -72,12 +61,11 @@ class ProjectQaToolServiceTest {
                 new AgentRuntimeLimits(8, 8, Duration.ofSeconds(30), 2, 120, 360, 8000, 200));
         when(configuration.minimumRelevance()).thenReturn(0.4);
         when(knowledge.isActiveIndexVersion(GENERATION_ID)).thenReturn(true);
-        when(code.getActiveSnapshot("atlas", "main")).thenReturn(active(SNAPSHOT_ID, "abcdef1234567"));
         when(timeProvider.instant()).thenReturn(NOW);
         // 真实实现会回填数据库生成 ID；单测用原列表模拟同序回填，避免空返回破坏上下文重建。
         when(evidence.saveAll(eq(RUN_ID), any())).thenAnswer(invocation -> invocation.getArgument(1));
         service = new ProjectQaToolService(
-                runs, knowledge, code, configuration, evidence, events, timeProvider);
+                runs, knowledge, configuration, evidence, events, timeProvider);
     }
 
     /**
@@ -137,62 +125,21 @@ class ProjectQaToolServiceTest {
     }
 
     /**
-     * 业务目的：活动知识 generation 或代码 snapshot 与运行快照变化时必须在访问索引前终止，禁止混用两版证据。
+     * 业务目的：活动知识 generation 与运行快照变化时必须在访问索引前终止，禁止混用两版文档证据。
      */
     @Test
-    void changedKnowledgeOrCodeVersionFailsBeforeSearch() {
+    void changedKnowledgeVersionFailsBeforeSearch() {
         when(knowledge.isActiveIndexVersion(GENERATION_ID)).thenReturn(false);
         assertVersionChanged(() -> service.knowledgeSearch(RUN_ID, new KnowledgeSearchToolRequest("规则", 1)));
         verify(knowledge, never()).search(any());
-
-        when(code.getActiveSnapshot("atlas", "main")).thenReturn(active(8000000000000000093L, "fffffff"));
-        assertVersionChanged(() -> service.codeSearch(RUN_ID, new CodeSearchToolRequest("Service", null, 1)));
-        verify(code, never()).search(any());
-        System.out.println("测试证据：场景=证据版本切换，知识与代码均在索引访问前返回AGENT_EVIDENCE_VERSION_CHANGED");
+        System.out.println("测试证据：场景=知识版本切换，索引访问前返回AGENT_EVIDENCE_VERSION_CHANGED");
     }
 
     /**
-     * 业务目的：代码搜索与片段读取的项目、分支、snapshot、commit 只能来自运行快照，模型只能收紧查询和行范围。
+     * 业务目的：下层返回其他项目或分支的知识结果必须整体拒绝，不能只在展示层隐藏越权来源。
      */
     @Test
-    void codeToolsPinSnapshotAndExposeOnlyRepositoryRelativeBoundedContent() {
-        when(code.search(any())).thenReturn(new CodeMatches(List.of(new CodeMatches.Match(
-                "atlas", "main", SNAPSHOT_ID, "abcdef1234567", NOW, "src/ReviewService.java",
-                "class ReviewService {}", 0.9f, false))));
-        when(code.read(any())).thenReturn(new CodeExcerpt(
-                "atlas", "main", SNAPSHOT_ID, "abcdef1234567", NOW, "src/ReviewService.java",
-                10, 40, "代码".repeat(100), true));
-
-        AgentToolResult searchResult = service.codeSearch(
-                RUN_ID, new CodeSearchToolRequest("ReviewService", "src", 20));
-        AgentToolResult snippetResult = service.codeSnippetRead(
-                RUN_ID, new CodeSnippetToolRequest("src/ReviewService.java", 10, 999));
-
-        ArgumentCaptor<CodeQuery> search = ArgumentCaptor.forClass(CodeQuery.class);
-        verify(code).search(search.capture());
-        assertThat(search.getValue().projectIdentifier()).isEqualTo("atlas");
-        assertThat(search.getValue().branch()).isEqualTo("main");
-        assertThat(search.getValue().limit()).isEqualTo(2);
-        ArgumentCaptor<CodeExcerptQuery> snippet = ArgumentCaptor.forClass(CodeExcerptQuery.class);
-        verify(code).read(snippet.capture());
-        assertThat(snippet.getValue().projectIdentifier()).isEqualTo("atlas");
-        assertThat(snippet.getValue().branch()).isEqualTo("main");
-        assertThat(snippet.getValue().lineCount()).isEqualTo(200);
-        assertThat(searchResult.evidence()).singleElement().extracting(value -> value.snapshotId())
-                .isEqualTo(SNAPSHOT_ID);
-        assertThat(snippetResult.modelContext()).contains("src/ReviewService.java");
-        assertThat(snippetResult.modelContext()).doesNotContain("/Users/");
-        assertThat(snippetResult.modelContext().codePointCount(0, snippetResult.modelContext().length()))
-                .isLessThanOrEqualTo(360);
-        System.out.printf("测试证据：场景=代码工具固定范围，snapshot=%s，commit=%s，搜索limit=%d，片段行数=%d%n",
-                SNAPSHOT_ID, "abcdef1234567", search.getValue().limit(), snippet.getValue().lineCount());
-    }
-
-    /**
-     * 业务目的：下层返回其他项目/分支/快照的结果必须整体拒绝，不能只在展示层隐藏越权来源。
-     */
-    @Test
-    void crossScopeKnowledgeOrCodeResultIsRejectedBeforeEvidencePersistence() {
+    void crossScopeKnowledgeResultIsRejectedBeforeEvidencePersistence() {
         var crossKnowledge = knowledgeResult(8000000000000000094L, "BRANCH", 0.9,
                 "越权规则", "other branch");
         crossKnowledge = new KnowledgeMatch(crossKnowledge.documentId(),
@@ -201,14 +148,8 @@ class ProjectQaToolServiceTest {
         when(knowledge.search(any())).thenReturn(new KnowledgeMatches(List.of(), List.of(crossKnowledge)));
         assertScopeViolation(() -> service.knowledgeSearch(
                 RUN_ID, new KnowledgeSearchToolRequest("规则", 1)));
-
-        when(code.search(any())).thenReturn(new CodeMatches(List.of(new CodeMatches.Match(
-                "other", "main", SNAPSHOT_ID, "abcdef1234567", NOW,
-                "src/Other.java", "class Other {}", 1.0f, false))));
-        assertScopeViolation(() -> service.codeSearch(
-                RUN_ID, new CodeSearchToolRequest("Other", null, 1)));
         verify(evidence, never()).saveAll(org.mockito.ArgumentMatchers.eq(RUN_ID), any());
-        System.out.println("测试证据：场景=工具结果强范围复核，跨分支知识与跨项目代码均拒绝且证据落库数=0");
+        System.out.println("测试证据：场景=知识工具结果强范围复核，跨分支知识被拒绝且证据落库数=0");
     }
 
     private void assertVersionChanged(org.assertj.core.api.ThrowableAssert.ThrowingCallable callable) {
@@ -224,15 +165,10 @@ class ProjectQaToolServiceTest {
     private AgentRunSnapshot run() {
         return new AgentRunSnapshot(RUN_ID, "member", "key", "a".repeat(64), "project_qa",
                 AgentRunStatus.RUNNING, null, null, null, null,
-                new AgentScopeSnapshot(PROJECT_ID, "atlas", BRANCH_ID, "main", SNAPSHOT_ID,
-                        "abcdef1234567", GENERATION_ID, List.of("GLOBAL", "PROJECT", "BRANCH")),
+                new AgentScopeSnapshot(PROJECT_ID, "atlas", BRANCH_ID, "main", null,
+                        null, GENERATION_ID, List.of("GLOBAL", "PROJECT", "BRANCH")),
                 new AgentVersionSnapshot("project_qa", "deepseek-v4-flash", "project-qa-v1"),
                 10, 0, 0, null, null, NOW, NOW, null, List.of());
-    }
-
-    private ActiveCodeState active(Long id, String commit) {
-        return new ActiveCodeState(
-                "atlas", "main", ActiveCodeState.Status.INDEXED, id, commit, NOW, 10L, null);
     }
 
     private KnowledgeMatch knowledgeResult(

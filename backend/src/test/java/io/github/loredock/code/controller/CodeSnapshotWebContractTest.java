@@ -74,7 +74,8 @@ import org.springframework.test.web.servlet.MvcResult;
                 "sa-token.cookie.path=/",
                 "sa-token.cookie.secure=true",
                 "sa-token.cookie.http-only=true",
-                "sa-token.cookie.same-site=Strict"
+                "sa-token.cookie.same-site=Strict",
+                "loredock.code.enabled=true"
         }
 )
 @Import({
