@@ -82,6 +82,13 @@ OpenSpec 是决策记录工具，不是所有修改的强制仪式。必须使�
 
 规格必须先写核心场景、非目标、删除项和复杂度边界。不得因为“以后可能需要”引入当前没有入口的版本、发布、回滚、审计和扩展点；发现规格方向错误时先修正规格，不继续用 TDD 固化错误架构。
 
+需求和 OpenSpec 范围确定前必须先完成“现有能力还是自定义实现”的判断，不能等到编码阶段才检查框架能否复用：
+
+- 对运行时、工作流、Agent、多 Agent、任务调度、持久化、认证等大型能力，proposal 或需求分析必须列出“项目已引入框架的原生能力、LoreDock 需要补充的业务能力、确需自定义的缺口”；
+- 先核对项目锁定版本的本地依赖源码/API，再以官方文档、官方仓库和发行说明确认能力与限制；不得依据类名猜测，也不得把框架已提供的能力写成 LoreDock 自研需求；
+- 框架能够满足核心场景时，需求和 design 必须明确直接使用的框架组件，实施任务只保留配置、薄适配、业务 Tool、权限范围、幂等和业务持久化；
+- 只有确认框架在当前锁定版本中无法满足已验收行为时，才允许把自定义运行时或基础设施写入规格，并记录缺口、替代方案和验证依据。
+
 ## 5. TDD：测试驱动开发
 
 项目采用 TDD（Test-Driven Development）。业务行为的实现遵循“红—绿—重构”：
@@ -199,6 +206,7 @@ OpenSpec 是决策记录工具，不是所有修改的强制仪式。必须使�
 
 ## 11. 能力复用与依赖引入
 
+- 能力复用判断属于需求和规格确定的一部分，不是实现阶段的可选优化；大型功能没有完成框架能力对照前，不得冻结需求范围或进入 TDD；
 - 实现功能前必须按“JDK 标准库 → 项目已引入的框架或依赖 → Hutool → 成熟且持续维护的第三方库 → 自定义实现”的顺序检查现有能力；框架已经提供可靠实现时不得重复造轮子；
 - 优先使用 Spring Boot Starter、自动配置和依赖管理，以及项目已经选定的 Spring、MyBatis-Plus、Sa-Token、Flyway、Jackson、Lombok 等官方能力。不得为了统一外观对框架 API 进行无业务价值的二次封装；
 - 允许并鼓励在实现前通过互联网调研已有工具或框架。调研优先查看官方文档、官方仓库、发行说明、Maven Central 和安全公告，不以未经核验的博客或代码片段作为关键选型依据；
@@ -208,6 +216,14 @@ OpenSpec 是决策记录工具，不是所有修改的强制仪式。必须使�
 - 认证、会话、密码哈希、权限、序列化、参数校验、数据库迁移、事务、重试、缓存、日志、HTTP 客户端和常用 IO 等通用技术能力，优先采用项目框架或成熟库，禁止自行实现安全协议、加密算法或通用基础框架；
 - 只有在现有能力确实无法满足已确认规格时才允许自定义实现，并在设计或代码注释中说明缺口、选择原因、边界和验证方式。领域状态机、范围隔离、引用/拒答等 LoreDock 特有业务规则仍应由项目代码明确表达，不得强行套入通用工具库；
 - 对外部系统或可替换基础设施可以保留必要端口和适配器，但抽象必须对应真实业务边界、测试边界或替换需求，不为单一调用机械创建接口、包装器或 `util/common` 层。
+
+### 11.1 Spring AI Alibaba Agent 能力复用
+
+- Agent 相关需求必须优先直接使用项目锁定版本的 Spring AI Alibaba Agent Framework 与 Graph：`ReactAgent`、`FileSystemSkillRegistry`、`SkillsAgentHook`、`SkillsInterceptor`、`AgentSpecLoader`、`AgentSpecReactAgentFactory`、`TaskToolsBuilder`、`TaskTool`、`AgentTool`、框架 Hook/Interceptor、`ToolCallback`/`ToolCallbackResolver`、`PostgresSaver`、`RunnableConfig.threadId` 和 Human-in-the-Loop；
+- LoreDock 的职责是实现知识搜索、文档读取、证据读取、草稿更新、Diff、报告和冲突候选等业务 Tool，以及 Tool 内的身份、项目范围、知识状态、参数上限、来源、幂等和正式发布边界；
+- 禁止重复实现通用 Agent Runtime、Skill Registry/Loader、Agent Spec Loader、子 Agent 调度器、Tool Registry 框架、Graph Checkpoint、模型/Tool 循环或 Human-in-the-Loop 机制；只允许为框架缺失的明确业务语义增加薄适配；
+- Skill 和 Agent Spec 只获得服务端显式提供的安全 `ToolCallback`；不得向框架注册 Shell、任意 HTTP、数据库管理、任意文件系统或正式知识发布 Tool。框架默认示例中存在的高权限 Tool 不代表 LoreDock 获得使用许可；
+- 若框架默认行为与 LoreDock 安全要求存在差异，例如 Agent Spec 未声明 Tool 时默认取得全部候选 Tool、未知 Tool 被忽略或无效文件只记录告警，项目只增加运行前的确定性校验，不重写框架加载和调度实现。
 
 ## 12. 实现原则
 

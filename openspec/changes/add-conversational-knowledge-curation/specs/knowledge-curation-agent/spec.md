@@ -1,5 +1,20 @@
 ## ADDED Requirements
 
+### Requirement: 知识整理必须复用 Spring AI Alibaba 原生 Agent 运行时
+系统 SHALL 在需求确定和规格设计阶段先核对项目锁定版本的 Spring AI Alibaba Agent Framework 能力，并 SHALL 直接使用框架原生组件承载通用 Agent 运行能力：使用 `FileSystemSkillRegistry`、`SkillsAgentHook` 或 `SkillsInterceptor` 加载 Skill，使用 `AgentSpecLoader` 和 `AgentSpecReactAgentFactory` 装配 Agent Spec，使用 `TaskToolsBuilder`、`TaskTool` 和 `AgentTool` 组织委派，使用 `ToolCallback`、`ToolCallbackProvider` 和 `ToolCallbackResolver` 暴露 LoreDock 业务 Tool，使用 Hook 提供调用限制与人工介入，并使用 `PostgresSaver`、`RunnableConfig.threadId`、Graph interrupt 和 Human-in-the-loop 保存与恢复长任务。LoreDock MUST 只实现业务 Tool、范围和权限校验、幂等、业务持久化以及面向页面的安全事件投影；除非规格记录经验证的框架能力缺口，否则 MUST NOT 自建 Agent Runtime、Skill Registry/Loader、Agent Spec Loader、子 Agent 调度器、通用 Tool Registry、Checkpoint 或人工介入框架。
+
+#### Scenario: 需求确定时框架已覆盖运行能力
+- **WHEN** T6B 需求涉及 Skill 加载、Agent Spec 装配、子 Agent 委派、Tool 调用、暂停恢复或 Checkpoint
+- **THEN** 规格明确映射到项目锁定版本的框架组件，实施任务只保留框架配置、薄适配、LoreDock 业务 Tool 和安全约束，不产生对应的自研运行时任务
+
+#### Scenario: 本地 Skill 或 Agent Spec 修改后开始新运行
+- **WHEN** 管理员修改本地 Skill 或 Agent Spec，随后启动新的知识整理 run
+- **THEN** 系统通过框架加载机制取得新定义并创建 run，正在执行的 run 不被中途替换定义
+
+#### Scenario: Agent Spec 声明未知 Tool
+- **WHEN** Agent Spec 引用了未注册或不在允许集中的 Tool 名称
+- **THEN** LoreDock 在启动 run 前执行确定性预检并明确拒绝启动，不依赖框架默认忽略未知 Tool 的行为，也不另建一套 Tool Registry
+
 ### Requirement: 知识整理必须以系统或人工触发的长期会话运行
 系统 SHALL 为每次手动或定时知识整理创建项目范围内的知识任务会话，并 SHALL 把触发类型、触发原因、目标 Skill 和范围作为首条系统消息。会话 SHALL 关联可见消息、一个或多个独立 Agent run、安全过程事件、来源和当前草稿；定时调度器 MUST 只负责幂等触发会话，不得复制 Skill 的检索、冲突分析或草稿修改逻辑。
 
@@ -12,7 +27,7 @@
 - **THEN** 系统返回原会话和 run，不重复启动 Agent 或创建第二份草稿
 
 ### Requirement: 用户必须能够在安全步骤边界暂停并指导长任务
-管理员 SHALL 能对运行中的知识任务请求暂停。系统 MUST 先把 run 标记为 `PAUSE_REQUESTED`，等待当前模型或 Tool 步骤完成、结果安全提交并写入可读取 Checkpoint 后，再进入 `WAITING_FOR_USER`。用户指导 MUST 在等待状态作为会话消息提交，并 SHALL 在恢复时加入后续 Agent 输入；系统 MUST NOT 把消息注入正在执行的调用或把未完成步骤伪装成已暂停。
+管理员 SHALL 能对运行中的知识任务请求暂停。`PAUSE_REQUESTED` SHALL 是 LoreDock 对框架执行状态的页面投影，而不是另一套执行状态机；系统 MUST 等待当前模型或 Tool 步骤完成、结果安全提交，并通过 Graph interrupt、Human-in-the-loop、`PostgresSaver` 和稳定的 `RunnableConfig.threadId` 写入可读取 Checkpoint 后，再投影为 `WAITING_FOR_USER`。用户指导 MUST 在等待状态作为会话消息提交，并 SHALL 作为框架恢复输入加入后续 Agent 执行；系统 MUST NOT 把消息注入正在执行的调用、把未完成步骤伪装成已暂停，或自行实现与框架并行的 Checkpoint/恢复机制。
 
 #### Scenario: Tool 执行期间请求暂停
 - **WHEN** 管理员在知识读取 Tool 执行期间点击暂停
@@ -27,7 +42,7 @@
 - **THEN** run 保留真实失败状态，不显示为等待人工，也不执行未经确认的恢复
 
 ### Requirement: Agent 必须通过版本化 Tool 增量修改草稿
-系统 SHALL 把待审核草稿作为独立版本化产物。Agent MUST 先通过 `draft_read` 获取当前修订和服务端区块 ID，再通过 `draft_update` 提交基础修订号、调用幂等键、有界的 `insert_after|replace_block|delete_block` 操作及 `sourceRefs`。来源可引用本轮 evidenceId 或当前会话用户消息；新增项目事实 MUST 至少引用有效 evidenceId，纯结构、措辞或用户明确要求的修改 MAY 引用用户消息。服务端 MUST 原子校验和应用操作，并为每次成功更新生成不可变新修订、来源关联和变更摘要。Agent 最终消息 MUST NOT 作为草稿正文，也不得使用未授权的全量覆盖或任意文件写能力。
+系统 SHALL 把待审核草稿作为独立版本化产物，并 SHALL 通过 Spring AI `ToolCallback` 机制暴露草稿业务能力。Agent MUST 先通过 `draft_read` 获取当前修订和服务端区块 ID，再通过 `draft_update` 提交基础修订号、调用幂等键、有界的 `insert_after|replace_block|delete_block` 操作及 `sourceRefs`。来源可引用本轮 evidenceId 或当前会话用户消息；新增项目事实 MUST 至少引用有效 evidenceId，纯结构、措辞或用户明确要求的修改 MAY 引用用户消息。服务端 MUST 原子校验和应用操作，并为每次成功更新生成不可变新修订、来源关联和变更摘要。Agent 最终消息 MUST NOT 作为草稿正文，也不得使用未授权的全量覆盖或任意文件写能力。
 
 #### Scenario: 分区块生成初始草稿
 - **WHEN** Agent 为一个空草稿生成背景、冲突点和建议三个部分

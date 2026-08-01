@@ -283,7 +283,20 @@ MVP 的知识整理只覆盖以下四类问题：
 
 #### 7.3.2 知识 Agent、Skill、Agent Spec 与平台 Tool
 
-Web 问答、知识生成和知识整理复用同一套受控模型适配、工具注册、项目范围、运行记录和错误语义。业务编排尽量由 Skill 和预定义子 Agent 驱动；Java 只保留 Tool 实现、权限与范围、资源上限、幂等写入、引用完整性和正式知识发布边界，不为“先检索、再审查、再整理”等业务顺序编写固定流程。
+Web 问答、知识生成和知识整理复用同一套受控模型适配、工具注册、项目范围、运行记录和错误语义。业务编排尽量由 Skill 和预定义子 Agent 驱动；Java 只保留 LoreDock 业务 Tool、权限与范围、幂等写入、引用完整性、业务产物持久化和正式知识发布边界，不为“先检索、再审查、再整理”等业务顺序编写固定流程。
+
+大型 Agent 能力在需求确定阶段就必须判断“框架原生提供还是 LoreDock 自定义”，不能先把自研写成需求、再到实现阶段寻找复用方案。本项目以锁定版本的 Spring AI Alibaba Agent Framework 与 Graph 为运行时事实来源：需求和 OpenSpec 必须先核对本地依赖源码/API及官方资料，明确框架能力、业务扩展与真实缺口。框架已经提供的能力不得由 LoreDock 重复实现：
+
+| 能力 | 直接使用的 Spring AI Alibaba 能力 | LoreDock 只负责 |
+|---|---|---|
+| 本地 Skill | `FileSystemSkillRegistry`、`SkillsAgentHook`、`SkillsInterceptor` | 受控目录配置、允许 Skill 和运行摘要 |
+| 文件化子 Agent | `AgentSpecLoader`、`AgentSpecReactAgentFactory`、`TaskToolsBuilder` | 提供 Agent Spec 文件并校验其 Tool 名称 |
+| 动态子 Agent 调用 | `TaskTool`、`TaskOutputTool`、`AgentTool` | 决定哪些预定义子 Agent 和业务 Tool 可用 |
+| Tool 注册与解析 | Spring AI `ToolCallback`、`ToolCallbackProvider`、`ToolCallbackResolver` | 实现 LoreDock 业务 Tool 及其服务端权限和范围校验 |
+| Agent 循环与限制 | `ReactAgent`、框架 Hook/Interceptor、模型/Tool 调用限制 Hook | 配置已确认上限并持久化安全结果摘要 |
+| 长任务暂停与恢复 | `PostgresSaver`、`RunnableConfig.threadId`、Graph interrupt、Human-in-the-Loop | 稳定业务 threadId、幂等副作用和页面状态投影 |
+
+除非当前锁定版本经验证存在不能满足已确认行为的明确缺口，LoreDock 不建设通用 Agent Runtime、Skill Registry/Loader、Agent Spec Loader、子 Agent 调度器、Tool Registry 框架、Graph Checkpoint 或 Human-in-the-Loop 机制。
 
 Skill 和 Agent Spec 都使用本地文件：
 
@@ -293,7 +306,7 @@ Skill 和 Agent Spec 都使用本地文件：
 - 运行开始时固定本次使用的 Skill、Agent Spec 内容摘要和允许工具，执行期间文件变化只影响后续新运行；
 - 不建设数据库 Skill 版本、在线市场、Web 编辑发布、自动下载执行或复杂回滚体系。
 
-从外部取得的 Skill 和 Agent Spec 视为不可信输入。文件只能引用服务端安全 Tool Registry 中已经注册并授权的工具；未知工具、Shell、任意 HTTP、数据库管理、任意文件系统和正式知识发布能力必须拒绝加载或拒绝调用。下载包携带的脚本默认不得执行。
+从外部取得的 Skill 和 Agent Spec 视为不可信输入。文件只能引用服务端通过 `ToolCallback`/`ToolCallbackResolver` 明确提供且当前任务授权的工具；未知工具必须在模型调用前明确失败，Shell、任意 HTTP、数据库管理、任意文件系统和正式知识发布 Tool 不得进入候选集合。下载包携带的脚本默认不得执行。
 
 协调 Agent 可以通过 Spring AI Alibaba 的 Agent Tool、TaskTool 或等价子 Agent 能力，自行决定是否以及何时调用本地文件中预定义的检索、证据审查、冲突分析和回答/文档整理 Agent。模型不得创建未注册角色、为子 Agent 增加工具或切换到其他项目范围。固定顺序的 `SequentialAgent` 只用于产品明确要求的确定性流程，不作为知识挖掘与冲突整理的默认实现。
 
@@ -312,7 +325,7 @@ MVP 规划以下面向用户的协调 Skill：
 - `conflict_reviewer`：比较多个已发布来源，输出冲突点、适用范围差异和处理建议；
 - `answer_writer`/`document_writer`：只根据已取得证据和审查结果形成最终回答或待审核文档。
 
-平台 Tool Registry 至少逐步提供：
+通过 Spring AI ToolCallback 机制注册的 LoreDock 平台 Tool 至少逐步提供：
 
 - 搜索知识和读取指定文档；
 - 查询知识缺口、人工反馈和文档元数据；
@@ -325,31 +338,31 @@ MVP 规划以下面向用户的协调 Skill：
 
 搜索、读取和子 Agent 调用都由模型根据当前 Skill 自行决定；服务端不根据问题类型硬编码搜索词、检索次数或子 Agent 顺序。定时任务只负责在确定项目范围内触发指定 Skill，不复制 Skill 内的知识整理流程。
 
-知识挖掘、冲突整理和等待人工确认属于可恢复长任务。每个任务拥有长期会话：首次系统/人工触发创建一个独立 Agent run，等待状态下的用户指导恢复同一个 run，一轮正常完成后的追加调整再创建新的 run。消息、公开执行事件、草稿修订和引用都按会话串联，但每个 run 仍保留独立状态、用量和错误事实。系统使用 Spring AI Alibaba Graph 的持久化 Checkpoint 和稳定 `threadId`，把状态保存到项目 PostgreSQL；服务重启后由应用识别未完成运行，并从最近已提交 Checkpoint 的下一节点继续。Graph 在这里作为 Agent Framework 的状态与恢复底座，不用于把知识业务顺序硬编码为固定节点。
+知识挖掘、冲突整理和等待人工确认属于可恢复长任务。每个任务拥有长期会话：首次系统/人工触发创建一个独立 Agent run，等待状态下的用户指导恢复同一个 run，一轮正常完成后的追加调整再创建新的 run。消息、公开执行事件、草稿修订和引用都按会话串联，但每个 run 仍保留独立状态、用量和错误事实。系统直接使用 Spring AI Alibaba Graph 的 `PostgresSaver`、稳定 `RunnableConfig.threadId`、interrupt 和 Human-in-the-Loop，把框架状态保存到项目 PostgreSQL；服务重启后由应用识别未完成运行，并从最近已提交 Checkpoint 的下一节点继续。Graph 是 Agent Framework 的状态与恢复底座，LoreDock 不复制 Checkpoint 或暂停恢复执行器，也不把知识业务顺序硬编码为固定节点。
 
-管理员请求暂停时，运行先进入 `PAUSE_REQUESTED`，执行器在当前模型或 Tool 调用结束、结果已安全提交后写入 Checkpoint，再进入 `WAITING_FOR_USER`；用户指导作为明确消息写入会话后才能恢复。系统不得尝试中断正在传输的模型响应后继续半段文本，也不得在 Tool 副作用是否提交不明时直接切换指令。Checkpoint 之后可能重放的写 Tool 必须使用稳定业务幂等键，已经提交的草稿修订、报告、冲突候选或人工决定不得重复写入。短时 `project_qa` 仍采用中断后失败并新建运行重试。
+管理员请求暂停时，页面先显示 `PAUSE_REQUESTED`，该状态只投影框架执行事实；框架在安全边界产生 interrupt 并提交 Checkpoint 后，页面才显示 `WAITING_FOR_USER`，用户指导再通过 human feedback 恢复同一 thread。系统不得尝试中断正在传输的模型响应后继续半段文本，也不得在 Tool 副作用是否提交不明时直接切换指令。Checkpoint 之后可能重放的写 Tool 必须使用稳定业务幂等键，已经提交的草稿修订、报告、冲突候选或人工决定不得重复写入。短时 `project_qa` 仍采用中断后失败并新建运行重试。
 
 草稿是独立于对话文本的受控产物。首次生成先创建空草稿或以待修订正式文档作为基线；Agent 使用 `draft_read` 获取当前修订和区块标识，再以 `draft_update(baseRevision, idempotencyKey, operations, sourceRefs)` 提交插入、替换或删除操作。`sourceRefs` 可以引用本次运行 evidenceId 或当前会话用户消息；新增项目事实必须至少引用有效证据，纯结构、措辞或用户明确要求的修改可以引用用户消息。服务端执行乐观修订校验、范围与来源校验，成功后生成新的不可变修订和可展示 Diff；基础修订过期时拒绝写入并要求 Agent 重新读取。Agent 的最终对话消息只引用草稿修订并总结所做修改，不能携带一份未经过 Tool 落库的“最终全文”替代草稿。
 
 | 编号 | 优先级 | 需求 | 验收标准 |
 |---|---|---|---|
-| FR-AGENT-01 | P0 | 统一 Agent Runtime | Web 问答和文档生成均通过同一套模型、工具调用和运行记录机制执行 |
-| FR-AGENT-02 | P0 | 本地 Skill 加载 | 系统从受控本地目录加载 `SKILL.md`，下一次新运行使用修改后的内容并记录内容摘要 |
+| FR-AGENT-01 | P0 | 统一 Agent Runtime | Web 问答和文档生成均直接使用 Spring AI Alibaba `ReactAgent`/Graph、工具调用和运行记录机制，不另建通用 Agent Runtime |
+| FR-AGENT-02 | P0 | 本地 Skill 加载 | 系统使用 `FileSystemSkillRegistry` 与 `SkillsAgentHook` 从受控本地目录加载 `SKILL.md`，下一次新运行使用修改后的内容并记录内容摘要 |
 | FR-AGENT-03 | P0 | Skill 选择 | Web 问答使用 `project_qa`；需求与 PR 整理使用 `change_documenter`；知识库整理使用 `knowledge_curator` |
-| FR-AGENT-04 | P0 | 安全 Tool Registry | Skill 和 Agent Spec 只能解析服务端已注册且当前任务授权的 Tool，不允许任意命令、网络、数据库或文件系统访问 |
-| FR-AGENT-05 | P0 | 运行限制 | 每次运行设置跨协调 Agent、子 Agent 和 Tool 的最大步骤数、模型调用数、超时、检索条数和上下文长度 |
+| FR-AGENT-04 | P0 | 安全 Tool 解析 | Skill 和 Agent Spec 只能通过 `ToolCallback`/`ToolCallbackResolver` 解析服务端显式提供且当前任务授权的 Tool，不允许任意命令、网络、数据库或文件系统访问 |
+| FR-AGENT-05 | P0 | 运行限制 | 协调 Agent 和子 Agent 使用框架 Hook/Interceptor 配置最大步骤数、模型调用数、超时、检索条数和上下文长度，不复制模型/Tool 循环 |
 | FR-AGENT-06 | P0 | 可追溯运行 | 保存 Skill/Agent Spec 摘要、模型、Agent/工具调用摘要、输入来源、最终引用和运行状态 |
 | FR-AGENT-07 | P0 | 写入隔离 | Agent 只能创建草稿、报告和知识缺口，不能直接修改或发布正式知识 |
 | FR-AGENT-08 | P0 | 知识整理 Skill | 手动任务能够调用 `knowledge_curator`，并将报告或修订建议保存为待审核产物 |
 | FR-AGENT-09 | P1 | 定期整理触发 | 定时任务按项目触发本地 `knowledge_curator` Skill，失败不影响正式知识检索且不重复实现整理逻辑 |
-| FR-AGENT-10 | P0 | 文件化子 Agent | 系统从本地 Markdown Agent Spec 加载预定义子 Agent，修改职责或提示不要求新增 Java 类 |
+| FR-AGENT-10 | P0 | 文件化子 Agent | 系统使用 `AgentSpecLoader` 与 `TaskToolsBuilder` 从本地 Markdown Agent Spec 加载预定义子 Agent，修改职责或提示不要求新增 Java 类 |
 | FR-AGENT-11 | P0 | 人在回路 | 证据不足或检查阻断时保存未确认项，管理员可补充方向、修改草稿、发布或取消 |
 | FR-AGENT-12 | P0 | 运行过程展示 | Web 可折叠展示 Agent、Tool、搜索摘要、文档标题、校验摘要、Token、耗时、错误和最终产物，不把模型自述当成已执行事实 |
-| FR-AGENT-13 | P0 | 模型自主编排 | 协调 Agent 根据 Skill 动态选择已注册子 Agent 和 Tool；Java 不固定检索、审查和整理的业务顺序 |
+| FR-AGENT-13 | P0 | 模型自主编排 | 协调 Agent 根据 Skill 通过框架 `TaskTool`/`AgentTool` 动态选择已注册子 Agent 和 Tool；Java 不固定检索、审查和整理的业务顺序 |
 | FR-AGENT-14 | P0 | 运行时定义固定 | 运行开始后固定本次 Skill/Agent Spec 内容与工具集合，文件修改只影响后续运行 |
 | FR-AGENT-15 | P0 | 外部文件安全 | 下载的 Skill/Agent Spec 不能执行携带脚本、获得未知工具或扩大范围；无效定义在模型调用前明确失败 |
 | FR-AGENT-16 | P1 | 多 Agent 安全事件 | 运行事件可区分协调 Agent、子 Agent 和 Tool 的开始、完成、来源与错误，且不保存完整提示、证据正文或模型原始思维链 |
-| FR-AGENT-17 | P0 | 长任务节点级恢复 | 知识挖掘、冲突整理和人工审核等待使用持久化 Graph Checkpoint；重启后从最近已提交节点继续，幂等 Tool 不重复已提交业务写入 |
+| FR-AGENT-17 | P0 | 长任务节点级恢复 | 知识挖掘、冲突整理和人工审核等待使用框架 `PostgresSaver`、稳定 threadId 和 Human-in-the-Loop；重启后从最近已提交节点继续，幂等 Tool 不重复已提交业务写入 |
 | FR-AGENT-18 | P0 | 对话式长任务 | 系统任务和人工追加指令统一记录为任务会话消息；每轮 Agent 运行、公开事件、草稿修订和来源可按会话连续查看 |
 | FR-AGENT-19 | P0 | 暂停边界 | 暂停请求只在当前模型/Tool 步骤安全结束并提交 Checkpoint 后生效；恢复时加入用户指导且保留暂停前事实 |
 | FR-AGENT-20 | P0 | 版本化草稿 Tool | 草稿写入必须经过带基础修订号、幂等键、结构化区块操作和来源的 Tool，版本冲突不得静默覆盖 |
@@ -545,7 +558,7 @@ MVP 只建设以下页面：
 - Web 答案生成调用 DeepSeek `deepseek-v4-flash` OpenAI 兼容接口；
 - 模型接口与业务逻辑解耦，接口不可用时文档浏览和搜索仍可使用。
 - Agent Runtime、Skill 定义和底层模型接口解耦，替换模型不应改变知识与权限边界。
-- 协调 Agent 只从本地文件预定义的子 Agent 与安全 Tool Registry 中动态选择；增加或修改编排策略优先修改 Skill/Agent Spec，不在 Java 中复制业务流程；
+- 协调 Agent 只通过 Spring AI Alibaba `TaskTool`/`AgentTool` 从本地文件预定义的子 Agent 与服务端 ToolCallback 候选集合中动态选择；增加或修改编排策略优先修改 Skill/Agent Spec，不在 Java 中复制业务流程；
 - 运行、公开事件和最终产物元数据持久化到 PostgreSQL，大型 Markdown 产物通过 ObjectStorage 保存；
 
 ### 10.2 性能目标
@@ -564,7 +577,7 @@ MVP 只建设以下页面：
 - Web 和 MCP 均不能匿名访问；
 - 管理写操作和普通查询操作分离；
 - MCP 只读；
-- 知识 Agent 按 Skill 只能使用安全 Tool Registry 中当前运行授权的工具，不能执行 Shell、任意 HTTP 请求或数据库管理操作；
+- 知识 Agent 按 Skill 只能使用服务端通过 `ToolCallback`/`ToolCallbackResolver` 为当前运行提供的工具，不能执行 Shell、任意 HTTP 请求或数据库管理操作；
 - 项目记忆、Skill、人工反馈和导入材料中的文本不能扩大 Agent 工具、项目范围、文件系统、网络或发布权限；
 - Agent 产生的内容只能写入草稿、整理报告或知识缺口，发布操作必须由管理员执行；
 - 本地 Skill/Agent Spec 和下载内容不能获得服务端未注册工具、执行携带脚本或扩大项目范围；
@@ -628,7 +641,7 @@ MVP 只建设以下页面：
 - 需求实现整理运行记录显示使用了 `change_documenter` Skill；
 - 知识库整理运行记录显示使用了 `knowledge_curator` Skill；
 - Skill 和 Agent Spec 可以从受控本地目录加载，修改文件后下一次新运行生效且不需要重新编译；
-- 下载的定义无法调用安全 Tool Registry 之外的工具或执行携带脚本；
+- 下载的定义无法调用服务端 ToolCallback 候选集合之外的工具或执行携带脚本；
 - 协调 Agent 可以按 Skill 自主选择预定义检索、证据审查、冲突分析和整理 Agent，不由 Java 固定调用顺序；
 - Agent 达到最大步骤数或超时后能够安全停止，不产生半发布状态；
 - Agent 只能保存草稿、报告和知识缺口，不能直接发布文档；
@@ -683,8 +696,8 @@ MVP 只建设以下页面：
 2. 管理员导入与编辑、普通用户浏览；
 3. 业务文档关键词与向量检索；
 4. `project_qa` 的可折叠处理过程、真实 Tool/来源事件、流式结果与多轮项目会话；
-5. 本地文件 Skill/Agent Spec、安全 Tool Registry、持久化 Graph Checkpoint 和模型自主子 Agent 编排基础；
-6. 知识搜索、文档读取、任务会话、草稿读取/增量更新、修订 Diff 和报告保存等平台能力工具化；
+5. 接入 Spring AI Alibaba 的本地 Skill/Agent Spec、Task/Agent Tool、Hook、Human-in-the-Loop 和持久化 Graph Checkpoint，不重复建设对应运行时基础；
+6. 使用 Spring AI ToolCallback 机制把知识搜索、文档读取、任务会话、草稿读取/增量更新、修订 Diff 和报告保存等 LoreDock 平台能力工具化；
 7. `knowledge_curator` 通过预定义子 Agent 完成可暂停、可继续调整的对话式知识挖掘、冲突整理和待审核修订；
 8. 需求文档、PR、diff/patch 和测试材料导入；
 9. `change_documenter` 复用同一多 Agent/Tool 基础生成业务知识草稿并由管理员审核发布；

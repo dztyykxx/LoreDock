@@ -24,7 +24,7 @@
 
 为尽早验证 LoreDock 的核心用户价值，当前首个可用闭环收口为：管理员上传并发布知识，用户随后可以在指定项目内进行混合检索与带引用问答。代码快照和前端分支操作均已退出当前 MVP；后端保留既有分支能力，所有 Web 流程省略分支并使用默认 `main`。
 
-首个可用闭环不等同于需求基线定义的完整 MVP。近期先用 T7A 补齐单 Agent 的安全过程展示、流式事件和多轮会话；随后由 T6B 将平台检索、读文档、写草稿、校验证据等能力工具化，并建立本地文件 Skill、Agent Spec、安全 Tool Registry 和持久化 Graph Checkpoint。T8 起使用这些通用能力编排知识挖掘与冲突整理 Agent。短时 QA 续跑、单个模型/Tool 调用内部精确续传、项目长期记忆、Web Skill 市场和运行时任意创建 Agent 不进入当前 MVP。
+首个可用闭环不等同于需求基线定义的完整 MVP。近期先用 T7A 补齐单 Agent 的安全过程展示、流式事件和多轮会话；随后由 T6B 直接接入 Spring AI Alibaba 已提供的本地 Skill、Agent Spec、Task/Agent Tool、Hook、Human-in-the-Loop 和持久化 Graph Checkpoint，把平台检索、读文档、写草稿、校验证据等 LoreDock 业务能力实现为安全 Tool。T8 起使用这些框架能力和业务 Tool 编排知识挖掘与冲突整理 Agent。短时 QA 续跑、单个模型/Tool 调用内部精确续传、项目长期记忆、Web Skill 市场和运行时任意创建 Agent 不进入当前 MVP。
 
 ## 2. 功能依赖关系
 
@@ -171,33 +171,33 @@ flowchart TD
 
 重点验收：依赖树中不存在 Spring Boot 4 或 Spring AI 2.0 残留；T1～T5 相关测试在新版本基线上通过；`project_qa` 能在指定项目内调用知识检索工具并返回引用；越权工具调用、跨范围读取和无依据回答被拒绝；达到步骤或时间限制后安全停止。
 
-### [ ] T6B：本地 Skill、Agent Spec 与安全 Tool 平台
+### [ ] T6B：Spring AI Alibaba Skill/Agent Spec 接入与平台 Tool
 
-目标：在 T6A 的统一运行时上，把平台能力沉淀为受服务端约束的安全 Tool，并用可下载、可编辑的本地文件定义 Skill、协调 Agent 和预定义子 Agent，同时接通长任务持久化 Checkpoint，为 T8～T10 提供可迭代的编排基础。
+目标：在 T6A 的统一运行时上直接复用 Spring AI Alibaba Agent Framework 与 Graph 的 Skill、Agent Spec、子 Agent、Hook、Human-in-the-Loop 和 Checkpoint 能力，只把 LoreDock 平台业务能力实现为受服务端约束的安全 Tool，为 T8～T10 提供可迭代的编排基础。
 
-覆盖需求：FR-AGENT-01～20 中的本地定义、Tool Registry、子 Agent 编排、运行固定、对话式长任务、版本化草稿、暂停恢复与安全边界；FR-AGENT-08 由 T8 完成业务接入，FR-AGENT-09 由 T10 完成定时触发。
+覆盖需求：FR-AGENT-01～20 中的框架接入、平台 Tool、运行固定、对话式长任务、版本化草稿、暂停恢复与安全边界；FR-AGENT-08 由 T8 完成业务接入，FR-AGENT-09 由 T10 完成定时触发。
 
 功能范围：
 
-- Skill 采用本地目录和 Markdown 文件，Agent Spec 采用带 YAML frontmatter 的本地 Markdown；开发环境读取仓库目录，部署环境读取挂载目录；
-- 新运行开始时重新加载定义，并记录 Skill、Agent Spec、模型和工具集合的内容摘要，已有运行不受文件中途修改影响；
-- 建立安全 Tool Registry，首批提供项目知识检索、文档读取、证据核验、引用校验、任务会话、草稿创建/读取/增量更新、修订 Diff、冲突候选保存和运行事件记录等平台能力；
-- Tool 在服务端强制校验身份、项目范围、知识状态、参数、结果数量、超时和写入目标，Skill 或提示词不能扩大权限；
-- 使用 Spring AI Alibaba `AgentTool`、`TaskTool`、`TaskToolsBuilder`、`AgentSpecLoader` 或等价扩展，让协调 Agent 自主选择是否检索、调用哪个预定义子 Agent 以及是否补充核验；
-- 预定义 `knowledge_researcher`、`evidence_reviewer`、`conflict_reviewer`、`answer_writer`、`document_writer` 等子 Agent；Java 只负责注册、调度、安全边界和事件，不硬编码“检索→审查→写作”的业务顺序；
-- 统一限制总步骤数、总模型调用次数、并发子 Agent 数、Token、超时、检索数量和中间产物大小；
-- 将现有 `PostgresSaver` 接入可恢复长任务，使用稳定运行 `threadId` 和 Flyway 管理的 Graph 表保存节点级 Checkpoint；应用启动时识别未完成长任务并从最近已提交节点继续；
+- 需求和设计阶段先对照项目锁定的 Spring AI Alibaba 版本核对本地源码/API 与官方资料；框架已提供的 Runtime、Skill Registry/Loader、Agent Spec Loader、子 Agent 调度、Tool 解析、Hook、Checkpoint 和 Human-in-the-Loop 不得由 LoreDock 重复实现；
+- 使用 `FileSystemSkillRegistry`、`SkillsAgentHook.autoReload(true)` 和 `SkillsInterceptor` 从仓库或部署挂载目录加载 Skill，并使用框架渐进披露和运行内稳定语义；LoreDock 只记录本次运行实际定义和 Tool 集合摘要；
+- 使用 `AgentSpecLoader`、`AgentSpecReactAgentFactory`、`TaskToolsBuilder`、`TaskTool`/`TaskOutputTool` 或 `AgentTool` 加载预定义子 Agent，让协调 Agent 自主决定是否以及何时调用；不自建 Agent Spec Loader 或子 Agent 调度器；
+- 使用 Spring AI `ToolCallback`、`ToolCallbackProvider` 和 `ToolCallbackResolver` 注册 LoreDock Tool，不自建通用 Tool Registry；Agent Spec 必须显式声明 Tool，运行前校验未知名称，候选 Tool 集合不包含 Shell、任意 HTTP、数据库管理、任意文件系统或正式知识发布能力；
+- 首批 LoreDock Tool 提供项目知识检索、指定文档读取、证据来源读取、草稿创建/读取/增量更新、修订 Diff、整理报告、冲突候选和知识缺口保存；引用与来源完整性、运行事件记录和正式发布门禁由服务端强制执行，不依赖模型主动调用；
+- Tool 使用框架 `ToolContext`/运行配置取得操作者、项目、run、会话和截止时间，模型请求不得携带或扩大这些范围；Tool 内强制校验知识状态、参数、结果数量、超时、来源、幂等键和写入目标；
+- 使用框架 `ModelCallLimitHook`、`ToolCallLimitHook` 及既有服务端上限限制调用；如需运行级聚合统计，只通过 Hook/事件做薄扩展，不另建运行时；
+- 使用现有 `PostgresSaver`、稳定 `RunnableConfig.threadId`、Graph interrupt 和 Human-in-the-Loop 接入可恢复知识长任务；不自建 Checkpoint 或暂停恢复执行器；
 - 建立长期任务会话与 Agent 运行边界：首次系统/人工触发创建 run，等待状态下的用户指导恢复当前 run，正常完成后的追加调整创建新 run；每个 run 拥有独立状态、用量与错误；
-- 定义 `PAUSE_REQUESTED → WAITING_FOR_USER → RUNNING` 安全暂停语义，只在当前模型/Tool 步骤结束并提交 Checkpoint 后等待和接受用户指导；
+- `PAUSE_REQUESTED`、`WAITING_FOR_USER` 等页面状态只投影框架 interrupt、Checkpoint 和 human feedback 的真实状态，不在业务代码复制一套 Agent 状态机；
 - 草稿先创建空基线或绑定待修订文档，再通过 `draft_read` 和 `draft_update(baseRevision, idempotencyKey, operations, sourceRefs)` 进行区块级插入、替换和删除；事实修改引用 evidenceId，用户要求的措辞/结构修改可引用用户消息；禁止模型最终消息直接覆盖全文；
 - 每次成功更新生成不可变草稿修订和 Markdown Diff；基础修订冲突必须拒绝并重新读取，不自动覆盖；
 - 为草稿修订、报告、冲突候选和人工决定等写 Tool 定义稳定幂等键与重复提交语义，防止暂停、恢复或节点重放造成重复副作用；
-- 保存 Agent/Tool 开始、结束、失败、输入输出摘要、来源引用和最终结果等安全事件，不保存或展示原始思维链、完整系统提示词和全量证据正文；
-- 本地下载的 Skill/Agent 文件按不可信配置处理，只能引用 Registry 中已授权的 Tool，不允许执行任意脚本、命令或网络请求；
+- 从 ReactAgent/Graph 的模型、Tool、Hook 输出投影并保存开始、结束、失败、输入输出摘要、来源引用和最终结果等安全事件，不提供让模型自行声明事件的 Tool；
+- 本地下载的 Skill/Agent 文件按不可信配置处理，只能引用服务端显式提供的 ToolCallback，不允许执行任意脚本、命令或网络请求；
 - 写入能力仅允许生成草稿、报告、冲突候选和知识缺口，禁止 Agent 自动发布或覆盖正式知识；
 - Graph 只作为 Agent Framework 的状态与恢复底座，不用于硬编码知识挖掘的固定业务节点顺序；Checkpoint 不承诺恢复正在传输的模型 Token 或单个 Tool 调用内部状态；当前阶段不为短时 QA 建设续跑，也不建设项目长期记忆、数据库/Web Skill 市场、可视化编排器、运行时任意创建 Agent 或多实例自动抢占。
 
-重点验收：修改本地 Skill 或 Agent Spec 后，新运行无需修改 Java 业务流程即可体现行为变化；协调 Agent 可以按任务动态调用零个或多个预定义子 Agent；所有 Tool 调用均经过服务端授权和范围校验；重启后可恢复长任务从 PostgreSQL 最近 Checkpoint 继续且不重复已提交写入；暂停只在安全步骤边界生效；草稿更新产生可追溯修订和 Diff，旧基础修订不能覆盖新内容；失败运行不产生半发布状态；运行记录可说明所用定义摘要、工具、来源和结果，但不泄露原始思维链。
+重点验收：实现中没有自建 Skill/Agent Spec Loader、通用 Tool Registry、子 Agent 调度器、Graph Checkpoint 或 Human-in-the-Loop；修改本地 Skill 或 Agent Spec 后，新运行通过框架加载并体现变化；协调 Agent 通过框架 Task/Agent Tool 动态调用零个或多个预定义子 Agent；所有 LoreDock Tool 调用均经过服务端授权和范围校验；重启后通过 PostgreSQL Checkpoint 恢复且不重复已提交业务写入；草稿更新产生可追溯修订和 Diff；运行记录来自框架真实事件且不泄露原始思维链。
 
 ### [x] T7：Web 项目问答与知识缺口
 
@@ -366,7 +366,7 @@ flowchart TD
 本计划保留需求基线中的全部 P0 和 P1 功能，包括但不限于：
 
 - 项目停用、批量导入结果和知识替代关系；
-- 本地文件化场景 Skill、协调 Agent 与预定义子 Agent，以及受服务端约束的平台 Tool Registry；当前阶段不建设项目长期记忆、数据库/Web 版本目录或任意 Agent 市场；
+- Spring AI Alibaba 原生加载的本地场景 Skill、协调 Agent 与预定义子 Agent，以及通过框架 `ToolCallback` 机制提供的受服务端约束的 LoreDock 业务 Tool；当前阶段不建设项目长期记忆、数据库/Web 版本目录或任意 Agent 市场；
 - 历史变更的连续沉淀；
 - 快照变化提示和搜索条件过滤；
 - 手动知识体检、整理建议和每周整理任务；
