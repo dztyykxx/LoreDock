@@ -44,6 +44,7 @@ public class KnowledgeDocumentController {
      * @param project 项目业务标识
      * @param branch 可选分支名，空值由项目能力解析 main
      * @param directory 可选逻辑目录；缺省表示全部文档，显式空字符串表示根目录
+     * @param includeDescendants 是否同时分页返回目录后代；缺省保留精确目录兼容语义
      * @param page 零基页码
      * @param size 页容量
      * @return 当前上下文目录与已发布摘要
@@ -54,13 +55,15 @@ public class KnowledgeDocumentController {
             @RequestParam(required = false) String project,
             @RequestParam(required = false) String branch,
             @RequestParam(required = false) String directory,
+            @RequestParam(defaultValue = "false") boolean includeDescendants,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
         KnowledgeBrowseContext resolved = scopes.resolveBrowse(context, project, branch);
         return KnowledgeDocumentHttpMapper.toBrowseResponse(queries.browse(
                 new BrowseKnowledgeDocumentsQuery(
-                        resolved, directory == null ? null : new DocumentDirectory(directory), page, size)));
+                        resolved, directory == null ? null : new DocumentDirectory(directory),
+                        includeDescendants, page, size)));
     }
 
     /**

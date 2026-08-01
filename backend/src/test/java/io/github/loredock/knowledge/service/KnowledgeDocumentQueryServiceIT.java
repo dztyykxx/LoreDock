@@ -19,6 +19,7 @@ import io.github.loredock.knowledge.model.enums.DocumentStatus;
 import io.github.loredock.knowledge.model.enums.KnowledgeBrowseContextType;
 import io.github.loredock.knowledge.model.enums.KnowledgeScopeType;
 import io.github.loredock.knowledge.model.request.AdminKnowledgeDocumentQuery;
+import io.github.loredock.knowledge.model.request.AdminBrowseKnowledgeDocumentsQuery;
 import io.github.loredock.knowledge.model.request.BrowseKnowledgeDocumentsQuery;
 import io.github.loredock.knowledge.model.request.ReadKnowledgeDocumentQuery;
 import io.github.loredock.knowledge.model.result.KnowledgeBrowseResult;
@@ -114,6 +115,36 @@ class KnowledgeDocumentQueryServiceIT {
         assertThat(guides.directories()).containsExactly(
                 new KnowledgeDirectoryNode("guides/start", "start", 1));
         assertThat(guides.documents().items()).extracting(KnowledgeDocumentSummary::title).containsExactly("Guide");
+    }
+
+    /**
+     * 业务目的：父目录必须递归包含全部后代文档，完整目录计数不能被当前分页或 SQL 通配符字符破坏。
+     */
+    @Test
+    void subtreeBrowseKeepsCompleteDirectoryCountsAndTreatsWildcardsLiterally() {
+        create("Parent direct", "测试资料", KnowledgeScope.global());
+        create("Runtime one", "测试资料/Atlas/source/runtime", KnowledgeScope.global());
+        create("Runtime two", "测试资料/Atlas/source/runtime", KnowledgeScope.global());
+        create("Literal wildcard", "测试%_资料/精确", KnowledgeScope.global());
+        create("Would match wildcard", "测试甲资料/错误", KnowledgeScope.global());
+
+        KnowledgeBrowseResult parent = adminQueries.browseAdmin(new AdminBrowseKnowledgeDocumentsQuery(
+                globalContext(), new DocumentDirectory("测试资料"), 0, 2));
+        KnowledgeBrowseResult literalWildcard = adminQueries.browseAdmin(new AdminBrowseKnowledgeDocumentsQuery(
+                globalContext(), new DocumentDirectory("测试%_资料"), 0, 20));
+
+        assertThat(parent.documents().totalElements()).isEqualTo(3);
+        assertThat(parent.documents().items()).hasSize(2);
+        assertThat(parent.directories()).contains(
+                new KnowledgeDirectoryNode("测试资料", "测试资料", 3),
+                new KnowledgeDirectoryNode("测试资料/Atlas", "Atlas", 2),
+                new KnowledgeDirectoryNode("测试资料/Atlas/source/runtime", "runtime", 2),
+                new KnowledgeDirectoryNode("测试%_资料", "测试%_资料", 1));
+        assertThat(literalWildcard.documents().items()).extracting(KnowledgeDocumentSummary::title)
+                .containsExactly("Literal wildcard");
+        System.out.printf("测试证据：场景=管理员父目录子树浏览，目录=测试资料，命中=%d，目录节点=%d，通配符字面命中=%d%n",
+                parent.documents().totalElements(), parent.directories().size(),
+                literalWildcard.documents().totalElements());
     }
 
     /**

@@ -90,6 +90,24 @@ describe('ProjectQaView', () => {
   })
 
   /**
+   * 业务目的：侧栏新建问答必须打开空白会话并保留历史列表，不能自动重新选中上一条问题。
+   */
+  it('opens an empty composer when new question navigation is requested', async () => {
+    const existing = snapshot()
+    const qa = qaApi({
+      history: vi.fn().mockResolvedValue({ items: [existing], nextCursor: null }),
+      detail: vi.fn().mockResolvedValue(existing),
+    })
+    const { wrapper, router } = await mountView('/projects/network-designer/qa?new=1', qa)
+
+    expect(qa.history).toHaveBeenCalled()
+    expect(qa.detail).not.toHaveBeenCalled()
+    expect(wrapper.text()).toContain('还没有问答')
+    expect(wrapper.find('textarea').exists()).toBe(true)
+    expect(router.currentRoute.value.query.new).toBeUndefined()
+  })
+
+  /**
    * 业务目的：问答创建请求不得包含分支参数，服务端响应中的历史分支也不能重新成为前端操作入口。
    */
   it('creates questions without exposing or sending branch scope', async () => {

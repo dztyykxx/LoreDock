@@ -25,6 +25,7 @@ import io.github.loredock.knowledge.model.enums.DocumentSourceType;
 import io.github.loredock.knowledge.model.enums.DocumentStatus;
 import io.github.loredock.knowledge.model.enums.KnowledgeBrowseContextType;
 import io.github.loredock.knowledge.model.enums.KnowledgeScopeType;
+import io.github.loredock.knowledge.model.request.AdminBrowseKnowledgeDocumentsQuery;
 import io.github.loredock.knowledge.model.request.AdminKnowledgeDocumentQuery;
 import io.github.loredock.knowledge.model.request.BrowseKnowledgeDocumentsQuery;
 import io.github.loredock.knowledge.model.result.PageResult;
@@ -184,13 +185,36 @@ public class KnowledgeDocumentDataService {
         return selectPage(wrapper, query.page(), query.size());
     }
 
+    /**
+     * 管理员按通用或项目联合上下文读取全部生命周期文档，目录使用自身及后代子树语义。
+     *
+     * @param query 已解析上下文与分页
+     * @return 当前目录子树摘要页
+     */
+    @Transactional(readOnly = true)
+    public PageResult<KnowledgeDocument> findAdmin(AdminBrowseKnowledgeDocumentsQuery query) {
+        requirePage(query.page(), query.size());
+        LambdaQueryWrapper<KnowledgeDocumentEntity> wrapper = contextWrapper(query.context());
+        applyDirectoryFilter(wrapper, query.directory(), true);
+        return selectPage(wrapper, query.page(), query.size());
+    }
+
+    /**
+     * @param context 管理员当前通用或项目上下文
+     * @return 全部生命周期文档目录路径，供完整树递归计数
+     */
+    @Transactional(readOnly = true)
+    public List<String> findAdminDirectoryPaths(KnowledgeBrowseContext context) {
+        return documentMapper.selectList(contextWrapper(context)
+                        .select(KnowledgeDocumentEntity::getDirectoryPath))
+                .stream().map(KnowledgeDocumentEntity::getDirectoryPath).toList();
+    }
+
     @Transactional(readOnly = true)
     public PageResult<KnowledgeDocument> findPublished(BrowseKnowledgeDocumentsQuery query) {
         requirePage(query.page(), query.size());
         LambdaQueryWrapper<KnowledgeDocumentEntity> wrapper = publishedWrapper(query.context());
-        if (query.directory() != null) {
-            wrapper.eq(KnowledgeDocumentEntity::getDirectoryPath, query.directory().value());
-        }
+        applyDirectoryFilter(wrapper, query.directory(), query.includeDescendants());
         return selectPage(wrapper, query.page(), query.size());
     }
 
@@ -224,6 +248,17 @@ public class KnowledgeDocumentDataService {
     private LambdaQueryWrapper<KnowledgeDocumentEntity> publishedWrapper(KnowledgeBrowseContext context) {
         LambdaQueryWrapper<KnowledgeDocumentEntity> wrapper = Wrappers.<KnowledgeDocumentEntity>lambdaQuery()
                 .eq(KnowledgeDocumentEntity::getStatus, DocumentStatus.PUBLISHED.name());
+        return applyContext(wrapper, context);
+    }
+
+    private LambdaQueryWrapper<KnowledgeDocumentEntity> contextWrapper(KnowledgeBrowseContext context) {
+        return applyContext(Wrappers.lambdaQuery(), context);
+    }
+
+    private LambdaQueryWrapper<KnowledgeDocumentEntity> applyContext(
+            LambdaQueryWrapper<KnowledgeDocumentEntity> wrapper,
+            KnowledgeBrowseContext context
+    ) {
         if (context.type() == KnowledgeBrowseContextType.GLOBAL) {
             return wrapper.eq(KnowledgeDocumentEntity::getScopeType, KnowledgeScopeType.GLOBAL.name());
         }
@@ -240,6 +275,33 @@ public class KnowledgeDocumentDataService {
                         .eq(KnowledgeDocumentEntity::getScopeType, KnowledgeScopeType.BRANCH.name())
                         .eq(KnowledgeDocumentEntity::getProjectId, context.projectId())
                         .eq(KnowledgeDocumentEntity::getBranchId, context.branchId())));
+    }
+
+    private void applyDirectoryFilter(
+            LambdaQueryWrapper<KnowledgeDocumentEntity> wrapper,
+            DocumentDirectory directory,
+            boolean includeDescendants
+    ) {
+        if (directory == null) {
+            return;
+        }
+        String path = directory.value();
+        if (!includeDescendants) {
+            wrapper.eq(KnowledgeDocumentEntity::getDirectoryPath, path);
+            return;
+        }
+        if (path.isEmpty()) {
+            return;
+        }
+        String descendantPattern = escapeLikeLiteral(path + "/") + "%";
+        // 目录允许百分号和下划线；显式 ESCAPE 保证它们只按业务路径字面值匹配。
+        wrapper.and(filter -> filter
+                .eq(KnowledgeDocumentEntity::getDirectoryPath, path)
+                .or().apply("directory_path LIKE {0} ESCAPE '!'", descendantPattern));
+    }
+
+    private String escapeLikeLiteral(String value) {
+        return value.replace("!", "!!").replace("%", "!%").replace("_", "!_");
     }
 
     private PageResult<KnowledgeDocument> selectPage(

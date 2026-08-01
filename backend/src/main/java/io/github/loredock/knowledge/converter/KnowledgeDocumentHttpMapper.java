@@ -3,6 +3,7 @@ package io.github.loredock.knowledge.converter;
 import io.github.loredock.knowledge.model.DocumentSource;
 import io.github.loredock.knowledge.model.KnowledgeScope;
 import io.github.loredock.knowledge.model.response.AdminKnowledgeDocumentResponse;
+import io.github.loredock.knowledge.model.response.BatchPublishKnowledgeDocumentsResponse;
 import io.github.loredock.knowledge.model.response.DocumentSourceResponse;
 import io.github.loredock.knowledge.model.response.KnowledgeBrowseResponse;
 import io.github.loredock.knowledge.model.response.KnowledgeDirectoryNodeResponse;
@@ -11,6 +12,7 @@ import io.github.loredock.knowledge.model.response.KnowledgeDocumentSummaryRespo
 import io.github.loredock.knowledge.model.response.KnowledgeScopeResponse;
 import io.github.loredock.knowledge.model.response.PageResponse;
 import io.github.loredock.knowledge.model.response.ReplacementResponse;
+import io.github.loredock.knowledge.model.result.BatchPublishKnowledgeDocumentsResult;
 import io.github.loredock.knowledge.model.result.KnowledgeBrowseResult;
 import io.github.loredock.knowledge.model.result.KnowledgeDocumentSummary;
 import io.github.loredock.knowledge.model.result.KnowledgeDocumentView;
@@ -33,6 +35,17 @@ public final class KnowledgeDocumentHttpMapper {
                 result.directories().stream().map(directory -> new KnowledgeDirectoryNodeResponse(
                         directory.path(), directory.name(), directory.documentCount())).toList(),
                 toSummaryPage(result.documents()));
+    }
+
+    /**
+     * @param result 已提交的批量发布数量
+     * @return 不含正文的批量发布响应
+     */
+    public static BatchPublishKnowledgeDocumentsResponse toBatchPublishResponse(
+            BatchPublishKnowledgeDocumentsResult result
+    ) {
+        return new BatchPublishKnowledgeDocumentsResponse(
+                result.requestedCount(), result.publishedCount(), result.alreadyPublishedCount());
     }
 
     /**

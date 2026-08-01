@@ -6,6 +6,7 @@ import FormField from './FormField.vue'
 import ProjectCard from './ProjectCard.vue'
 import ProjectTabs from './ProjectTabs.vue'
 import AppSidebar from './AppSidebar.vue'
+import AppTopBar from './AppTopBar.vue'
 import type { ProjectSummary } from '../api/types'
 
 const project: ProjectSummary = {
@@ -96,6 +97,7 @@ describe('design components', () => {
       history: createMemoryHistory(),
       routes: [
         { path: '/projects/:identifier', name: 'project-knowledge', component: { template: '<div />' } },
+        { path: '/projects/:identifier/qa', name: 'project-qa', component: { template: '<div />' } },
         { path: '/projects/:projectId/settings', name: 'project-settings', component: { template: '<div />' } },
       ],
     })
@@ -124,6 +126,7 @@ describe('design components', () => {
         { path: '/projects', component: { template: '<div />' } },
         { path: '/knowledge', name: 'knowledge-global', component: { template: '<div />' } },
         { path: '/projects/:identifier', name: 'project-knowledge', component: { template: '<div />' } },
+        { path: '/projects/:identifier/qa', name: 'project-qa', component: { template: '<div />' } },
       ],
     })
     const wrapper = mount(AppSidebar, {
@@ -137,5 +140,40 @@ describe('design components', () => {
 
     expect(wrapper.get('[data-testid="global-knowledge-link"]').attributes('href')).toBe('/knowledge')
     expect(wrapper.get('[data-testid="current-project-link"]').attributes('href')).toBe('/projects/api-project')
+    expect(wrapper.get('[data-testid="sidebar-qa-link"]').attributes('href')).toBe('/projects/api-project/qa')
+    expect(wrapper.get('[data-testid="sidebar-new-question-link"]').attributes('href')).toBe('/projects/api-project/qa?new=1')
+  })
+
+  /**
+   * 业务目的：项目顶部工作空间必须是返回项目列表的真实链接，不能继续以不可点击文本制造导航死路。
+   */
+  it('links the project breadcrumb workspace back to projects', () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/projects', name: 'projects', component: { template: '<div />' } }],
+    })
+    const wrapper = mount(AppTopBar, {
+      props: { projectName: '接口返回项目' },
+      global: { plugins: [router] },
+    })
+
+    expect(wrapper.get('[data-testid="workspace-link"]').attributes('href')).toBe('/projects')
+  })
+
+  /**
+   * 业务目的：没有当前项目时问答入口仍应可点击并引导选择项目，不能伪造一个默认问答范围。
+   */
+  it('routes generic sidebar questions to explicit project selection', () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: '/projects', name: 'projects', component: { template: '<div />' } }],
+    })
+    const wrapper = mount(AppSidebar, {
+      props: { displayName: '管理员', role: 'ADMIN' },
+      global: { plugins: [router] },
+    })
+
+    expect(wrapper.get('[data-testid="sidebar-qa-link"]').attributes('href')).toBe('/projects')
+    expect(wrapper.get('[data-testid="sidebar-new-question-link"]').attributes('href')).toBe('/projects')
   })
 })

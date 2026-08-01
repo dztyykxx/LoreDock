@@ -4,12 +4,12 @@
       <span class="brand-mark">L</span><strong>LoreDock</strong>
     </RouterLink>
 
-    <button class="sidebar-new-question" type="button" disabled>
+    <RouterLink data-testid="sidebar-new-question-link" class="sidebar-new-question" :to="newQuestionTarget">
       <IconGlyph name="message" />新建问答
-    </button>
+    </RouterLink>
 
     <nav class="sidebar-nav" aria-label="主导航">
-      <button type="button" disabled><IconGlyph name="message" />问答</button>
+      <RouterLink data-testid="sidebar-qa-link" :to="qaTarget"><IconGlyph name="message" />问答</RouterLink>
       <RouterLink to="/projects"><IconGlyph name="folder" />项目</RouterLink>
       <RouterLink data-testid="global-knowledge-link" to="/knowledge"><IconGlyph name="book" />通用业务知识</RouterLink>
       <button type="button" disabled><IconGlyph name="search" />全局搜索</button>
@@ -36,16 +36,24 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import type { WebRole } from '../api/types'
 import { DESIGN_SAMPLES } from '../designSamples'
 import IconGlyph from './IconGlyph.vue'
 
-defineProps<{
+const props = defineProps<{
   displayName: string
   role: WebRole
   currentProject?: { name: string; identifier: string }
 }>()
+
+const qaTarget = computed(() => props.currentProject
+  ? `/projects/${props.currentProject.identifier}/qa`
+  : '/projects')
+const newQuestionTarget = computed(() => props.currentProject
+  ? { path: `/projects/${props.currentProject.identifier}/qa`, query: { new: '1' } }
+  : '/projects')
 
 defineEmits<{ logout: [] }>()
 </script>

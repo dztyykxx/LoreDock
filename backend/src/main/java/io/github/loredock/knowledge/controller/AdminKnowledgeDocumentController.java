@@ -10,15 +10,20 @@ import io.github.loredock.knowledge.model.DocumentTags;
 import io.github.loredock.knowledge.model.DocumentTitle;
 import io.github.loredock.knowledge.model.KnowledgeScope;
 import io.github.loredock.knowledge.model.command.ArchiveKnowledgeDocumentCommand;
+import io.github.loredock.knowledge.model.command.BatchPublishKnowledgeDocumentsCommand;
 import io.github.loredock.knowledge.model.command.CreateKnowledgeDocumentCommand;
 import io.github.loredock.knowledge.model.command.EditKnowledgeDocumentCommand;
 import io.github.loredock.knowledge.model.command.PublishKnowledgeDocumentCommand;
 import io.github.loredock.knowledge.model.enums.KnowledgeScopeType;
+import io.github.loredock.knowledge.model.request.AdminBrowseKnowledgeDocumentsQuery;
 import io.github.loredock.knowledge.model.request.AdminKnowledgeDocumentQuery;
+import io.github.loredock.knowledge.model.request.BatchPublishKnowledgeDocumentsRequest;
 import io.github.loredock.knowledge.model.request.DocumentSourceRequest;
 import io.github.loredock.knowledge.model.request.KnowledgeDocumentWriteRequest;
 import io.github.loredock.knowledge.model.request.PublishKnowledgeDocumentRequest;
 import io.github.loredock.knowledge.model.response.AdminKnowledgeDocumentResponse;
+import io.github.loredock.knowledge.model.response.BatchPublishKnowledgeDocumentsResponse;
+import io.github.loredock.knowledge.model.response.KnowledgeBrowseResponse;
 import io.github.loredock.knowledge.model.response.KnowledgeDocumentSummaryResponse;
 import io.github.loredock.knowledge.model.response.PageResponse;
 import io.github.loredock.knowledge.service.KnowledgeDocumentCommandService;
@@ -88,6 +93,30 @@ public class AdminKnowledgeDocumentController {
     }
 
     /**
+     * 管理员知识工作区上下文浏览；目录统计包含全部生命周期，文档按选中目录子树服务端分页。
+     *
+     * @param context 明确通用或项目上下文
+     * @param project 项目标识；通用上下文必须为空
+     * @param directory 可选目录子树
+     * @param page 零基页码
+     * @param size 页容量
+     * @return 完整目录树与当前子树摘要页
+     */
+    @GetMapping("/browse")
+    public KnowledgeBrowseResponse browse(
+            @RequestParam io.github.loredock.knowledge.model.enums.KnowledgeBrowseContextType context,
+            @RequestParam(required = false) String project,
+            @RequestParam(required = false) String directory,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        var resolved = scopes.resolveBrowse(context, project, null);
+        return KnowledgeDocumentHttpMapper.toBrowseResponse(queries.browseAdmin(
+                new AdminBrowseKnowledgeDocumentsQuery(
+                        resolved, directory == null ? null : new DocumentDirectory(directory), page, size)));
+    }
+
+    /**
      * @param documentId 文档 Long
      * @return 包含审计、替代和同步状态的管理详情
      */
@@ -140,6 +169,20 @@ public class AdminKnowledgeDocumentController {
         Long replacesId = request == null ? null : request.replacesDocumentId();
         return KnowledgeDocumentHttpMapper.toAdminResponse(
                 lifecycle.publish(new PublishKnowledgeDocumentCommand(documentId, replacesId)));
+    }
+
+    /**
+     * 原子发布管理员在当前页显式勾选的文档；替代关系和重新索引仍使用独立操作。
+     *
+     * @param request 一至一百个唯一文档标识
+     * @return 新发布与幂等已发布数量
+     */
+    @PostMapping("/batch-publish")
+    public BatchPublishKnowledgeDocumentsResponse publishBatch(
+            @Valid @RequestBody BatchPublishKnowledgeDocumentsRequest request
+    ) {
+        return KnowledgeDocumentHttpMapper.toBatchPublishResponse(lifecycle.publishBatch(
+                new BatchPublishKnowledgeDocumentsCommand(request.documentIds())));
     }
 
     /**

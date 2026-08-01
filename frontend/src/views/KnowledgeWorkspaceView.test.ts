@@ -47,12 +47,14 @@ function browseResult(items: KnowledgeDocumentSummary[] = []): KnowledgeBrowseRe
 function createKnowledgeApi(overrides: Partial<KnowledgeApi> = {}): KnowledgeApi {
   return {
     browse: vi.fn().mockResolvedValue(browseResult()),
+    browseAdmin: vi.fn().mockResolvedValue(browseResult()),
     getDocument: vi.fn(),
     listAdmin: vi.fn().mockResolvedValue({ items: [], page: 0, size: 20, totalElements: 0, totalPages: 0 }),
     getAdminDocument: vi.fn(),
     createDocument: vi.fn(),
     updateDocument: vi.fn(),
     publishDocument: vi.fn(),
+    batchPublishDocuments: vi.fn(),
     archiveDocument: vi.fn(),
     importDocuments: vi.fn(),
     getImportBatch: vi.fn(),
@@ -81,6 +83,7 @@ async function mountView(path: string, identity: SessionView, api: KnowledgeApi,
       { path: '/projects', name: 'projects', component: { template: '<div />' } },
       { path: '/knowledge/:documentId', name: 'knowledge-global-detail', component: KnowledgeWorkspaceView },
       { path: '/projects/:identifier', name: 'project-knowledge', component: KnowledgeWorkspaceView },
+      { path: '/projects/:identifier/qa', name: 'project-qa', component: { template: '<div />' } },
       { path: '/projects/:identifier/knowledge/:documentId', name: 'project-knowledge-detail', component: KnowledgeWorkspaceView },
       { path: '/projects/:identifier/knowledge/new', name: 'project-knowledge-new', component: { template: '<div />' } },
       { path: '/projects/:identifier/knowledge/import', name: 'project-knowledge-import', component: { template: '<div />' } },
@@ -198,7 +201,7 @@ describe('KnowledgeWorkspaceView', () => {
   it('shows administrator lifecycle states and actions', async () => {
     const draft = { ...published, id: 56, title: '待发布规则', status: 'DRAFT' as const, syncStatus: 'NOT_APPLICABLE' as const }
     const api = createKnowledgeApi({
-      listAdmin: vi.fn().mockResolvedValue({ items: [draft], page: 0, size: 20, totalElements: 1, totalPages: 1 }),
+      browseAdmin: vi.fn().mockResolvedValue(browseResult([draft])),
     })
     const { wrapper } = await mountView('/projects/network-designer', {
       username: 'admin', displayName: '管理员', role: 'ADMIN',
@@ -210,6 +213,44 @@ describe('KnowledgeWorkspaceView', () => {
     expect(wrapper.get('[data-testid="new-knowledge"]').text()).toContain('新建知识')
     expect(wrapper.get('[data-testid="import-knowledge"]').text()).toContain('导入资料')
     expect(wrapper.get('[data-testid="reindex-knowledge"]').text()).toContain('重新索引')
+  })
+
+  /**
+   * 业务目的：管理员必须能在父目录看到后代草稿、选择本页并一次确认发布，成功后立即刷新服务端状态。
+   */
+  it('browses administrator subtrees and batch publishes selected drafts', async () => {
+    const first = { ...published, id: 56, title: '导入草稿一', directory: '测试资料/Atlas/source', status: 'DRAFT' as const, syncStatus: 'NOT_APPLICABLE' as const }
+    const second = { ...first, id: 57, title: '导入草稿二', directory: '测试资料/Atlas/runtime' }
+    const directories = [
+      { path: '测试资料', name: '测试资料', documentCount: 2 },
+      { path: '测试资料/Atlas', name: 'Atlas', documentCount: 2 },
+    ]
+    const browseAdmin = vi.fn()
+      .mockResolvedValueOnce({ directories, documents: { items: [first, second], page: 0, size: 20, totalElements: 2, totalPages: 1 } })
+      .mockResolvedValueOnce({ directories, documents: { items: [first, second], page: 0, size: 20, totalElements: 2, totalPages: 1 } })
+      .mockResolvedValueOnce({ directories, documents: { items: [{ ...first, status: 'PUBLISHED', syncStatus: 'PENDING' }, { ...second, status: 'PUBLISHED', syncStatus: 'PENDING' }], page: 0, size: 20, totalElements: 2, totalPages: 1 } })
+    const batchPublishDocuments = vi.fn().mockResolvedValue({ requestedCount: 2, publishedCount: 2, alreadyPublishedCount: 0 })
+    const api = createKnowledgeApi({ browseAdmin, batchPublishDocuments })
+    const { wrapper } = await mountView('/projects/network-designer', {
+      username: 'admin', displayName: '管理员', role: 'ADMIN',
+    }, api)
+    await flushPromises()
+
+    expect(wrapper.get('[data-directory="测试资料"]').text()).toContain('2')
+    await wrapper.get('[data-directory="测试资料"]').trigger('click')
+    await flushPromises()
+    expect(browseAdmin).toHaveBeenLastCalledWith(expect.objectContaining({ directory: '测试资料', page: 0 }))
+
+    await wrapper.get('[data-testid="select-all-drafts"]').setValue(true)
+    expect(wrapper.get('[data-testid="batch-publish"]').text()).toContain('批量发布 2')
+    await wrapper.get('[data-testid="batch-publish"]').trigger('click')
+    expect(wrapper.get('[role="dialog"]').text()).toContain('2 篇草稿')
+    await wrapper.get('[data-testid="confirm-dialog-submit"]').trigger('click')
+    await flushPromises()
+
+    expect(batchPublishDocuments).toHaveBeenCalledWith([56, 57])
+    expect(wrapper.text()).toContain('已发布 2 篇，重新索引后可参与检索。')
+    expect(wrapper.find('[data-testid="select-all-drafts"]').exists()).toBe(false)
   })
 
   /**
@@ -242,7 +283,7 @@ describe('KnowledgeWorkspaceView', () => {
       id: 31, status: 'FAILED', progress: 60, startedAt: '2026-07-30T00:00:00Z', finishedAt: '2026-07-30T00:01:00Z', failureSummary: '重建失败，请检查服务日志。',
     })
     const api = createKnowledgeApi({
-      listAdmin: vi.fn().mockResolvedValue({ items: [published], page: 0, size: 20, totalElements: 1, totalPages: 1 }),
+      browseAdmin: vi.fn().mockResolvedValue(browseResult([published])),
       submitIndexJob,
       pollIndexJob,
     })
@@ -267,11 +308,11 @@ describe('KnowledgeWorkspaceView', () => {
     const pending = { ...published, syncStatus: 'PENDING' as const }
     const indexed = { ...published, syncStatus: 'SYNCED' as const }
     const imported = { ...indexed, id: 52, title: '新导入规则' }
-    const listAdmin = vi.fn()
-      .mockResolvedValueOnce({ items: [pending], page: 0, size: 20, totalElements: 1, totalPages: 1 })
-      .mockResolvedValueOnce({ items: [indexed, imported], page: 0, size: 20, totalElements: 2, totalPages: 1 })
+    const browseAdmin = vi.fn()
+      .mockResolvedValueOnce(browseResult([pending]))
+      .mockResolvedValueOnce(browseResult([indexed, imported]))
     const api = createKnowledgeApi({
-      listAdmin,
+      browseAdmin,
       submitIndexJob: vi.fn().mockResolvedValue({ id: 31, status: 'PENDING', progress: 0, startedAt: null, finishedAt: null, failureSummary: null }),
       pollIndexJob: vi.fn().mockResolvedValue({ id: 31, status: 'SUCCEEDED', progress: 100, startedAt: '2026-07-30T00:00:00Z', finishedAt: '2026-07-30T00:01:00Z', failureSummary: null }),
     })
@@ -285,7 +326,7 @@ describe('KnowledgeWorkspaceView', () => {
     await wrapper.get('[data-testid="reindex-knowledge"]').trigger('click')
     await flushPromises()
 
-    expect(listAdmin).toHaveBeenCalledTimes(2)
+    expect(browseAdmin).toHaveBeenCalledTimes(2)
     expect(wrapper.get('.knowledge-panel-heading span').text()).toBe('2')
     expect(wrapper.text()).toContain('新导入规则')
     expect(wrapper.text()).toContain('索引已同步')
@@ -297,7 +338,7 @@ describe('KnowledgeWorkspaceView', () => {
   it('disables duplicate reindex submissions and aborts polling on leave', async () => {
     let pollingSignal: AbortSignal | undefined
     const api = createKnowledgeApi({
-      listAdmin: vi.fn().mockResolvedValue({ items: [], page: 0, size: 20, totalElements: 0, totalPages: 0 }),
+      browseAdmin: vi.fn().mockResolvedValue(browseResult()),
       submitIndexJob: vi.fn().mockResolvedValue({ id: 31, status: 'PENDING', progress: 0, startedAt: null, finishedAt: null, failureSummary: null }),
       pollIndexJob: vi.fn().mockImplementation((_jobId, options) => {
         pollingSignal = options?.signal

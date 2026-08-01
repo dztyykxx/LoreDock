@@ -49,6 +49,7 @@ import io.github.loredock.knowledge.model.enums.ImportItemStatus;
 import io.github.loredock.knowledge.model.enums.KnowledgeBrowseContextType;
 import io.github.loredock.knowledge.model.enums.KnowledgeIndexSyncStatus;
 import io.github.loredock.knowledge.model.request.ReadKnowledgeDocumentQuery;
+import io.github.loredock.knowledge.model.result.BatchPublishKnowledgeDocumentsResult;
 import io.github.loredock.knowledge.model.result.KnowledgeBrowseResult;
 import io.github.loredock.knowledge.model.result.KnowledgeDirectoryNode;
 import io.github.loredock.knowledge.model.result.KnowledgeDocumentSummary;
@@ -288,6 +289,50 @@ class KnowledgeDocumentWebContractTest {
                 .andExpect(jsonPath("$.publishedBy").value("admin"))
                 .andExpect(jsonPath("$.replacement.replacesDocumentId").doesNotExist())
                 .andExpect(jsonPath("$.syncStatus").value("PENDING"));
+    }
+
+    /**
+     * 业务目的：管理员工作区必须通过单一上下文浏览契约获得完整目录和子树分页，不能继续在前端拼接有限列表。
+     */
+    @Test
+    void adminCanBrowseSubtreeWithCombinedDirectoryContract() throws Exception {
+        KnowledgeBrowseContext context = new KnowledgeBrowseContext(
+                KnowledgeBrowseContextType.PROJECT, PROJECT_ID, BRANCH_ID);
+        when(scopeResolver.resolveBrowse(KnowledgeBrowseContextType.PROJECT, "alpha", null)).thenReturn(context);
+        when(queries.browseAdmin(any())).thenReturn(new KnowledgeBrowseResult(
+                List.of(new KnowledgeDirectoryNode("测试资料", "测试资料", 18)),
+                new PageResult<>(List.of(summary()), 0, 20, 18, 1)));
+
+        mockMvc.perform(get("/api/admin/knowledge-documents/browse")
+                        .queryParam("context", "PROJECT").queryParam("project", "alpha")
+                        .queryParam("directory", "测试资料").cookie(loginCookie("admin")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.directories[0].documentCount").value(18))
+                .andExpect(jsonPath("$.documents.totalElements").value(18));
+        verify(scopeResolver).resolveBrowse(KnowledgeBrowseContextType.PROJECT, "alpha", null);
+    }
+
+    /**
+     * 业务目的：批量发布响应必须给出实际数量，成员绕过前端时必须在调用生命周期服务前被拒绝。
+     */
+    @Test
+    void adminCanBatchPublishWhileMemberIsForbidden() throws Exception {
+        when(lifecycle.publishBatch(any())).thenReturn(new BatchPublishKnowledgeDocumentsResult(2, 2, 0));
+        String request = "{\"documentIds\":[" + DOCUMENT_ID + "," + (DOCUMENT_ID + 1) + "]}";
+
+        mockMvc.perform(post("/api/admin/knowledge-documents/batch-publish")
+                        .cookie(loginCookie("admin")).contentType(MediaType.APPLICATION_JSON).content(request))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.requestedCount").value(2))
+                .andExpect(jsonPath("$.publishedCount").value(2))
+                .andExpect(jsonPath("$.alreadyPublishedCount").value(0));
+
+        reset(lifecycle);
+        mockMvc.perform(post("/api/admin/knowledge-documents/batch-publish")
+                        .cookie(loginCookie("member")).contentType(MediaType.APPLICATION_JSON).content(request))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("AUTH_FORBIDDEN"));
+        verify(lifecycle, never()).publishBatch(any());
     }
 
     /**

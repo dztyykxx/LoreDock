@@ -83,14 +83,35 @@
           <section class="knowledge-list-panel">
             <div class="knowledge-list-toolbar">
               <div><h2>{{ currentDirectory || '全部文档' }}</h2><p>{{ isAdministrator ? '全部生命周期状态' : '仅已发布文档' }}</p></div>
-              <span>第 {{ page + 1 }} 页</span>
+              <div class="knowledge-list-toolbar__actions">
+                <label v-if="isAdministrator && draftsOnPage.length" class="knowledge-select-all">
+                  <input data-testid="select-all-drafts" type="checkbox" :checked="allDraftsSelected" @change="toggleAllDrafts">
+                  <span>选择本页草稿</span>
+                </label>
+                <AppButton
+                  v-if="isAdministrator && selectedDocumentIds.length"
+                  data-testid="batch-publish"
+                  :disabled="batchPublishing"
+                  @click="batchConfirmOpen = true"
+                >批量发布 {{ selectedDocumentIds.length }}</AppButton>
+                <span>第 {{ page + 1 }} 页</span>
+              </div>
             </div>
+            <p v-if="batchMessage" data-testid="batch-publish-message" class="knowledge-batch-message" :class="{ 'knowledge-batch-message--error': batchError }" role="status">{{ batchMessage }}</p>
             <div v-if="documents.length === 0" data-testid="knowledge-empty" class="knowledge-empty">
               <IconGlyph name="book" />
               <strong>{{ isAdministrator ? '当前范围暂无知识文档' : '暂无已发布知识' }}</strong>
               <p>{{ isAdministrator ? '可以新建或导入资料后再发布。' : '请联系管理员补充并发布知识。' }}</p>
             </div>
-            <DocumentList v-else :documents="documents" :selected-id="selectedDocumentId" @select="openDocument" />
+            <DocumentList
+              v-else
+              :documents="documents"
+              :selected-id="selectedDocumentId"
+              :selectable="isAdministrator"
+              :selected-ids="selectedDocumentIds"
+              @select="openDocument"
+              @toggle="toggleDocumentSelection"
+            />
             <nav v-if="totalPages > 1" class="knowledge-pagination" aria-label="知识分页">
               <AppButton variant="secondary" :disabled="page === 0" @click="changePage(page - 1)">上一页</AppButton>
               <AppButton variant="secondary" :disabled="page >= totalPages - 1" @click="changePage(page + 1)">下一页</AppButton>
@@ -128,6 +149,15 @@
         </div>
       </section>
     </main>
+    <ConfirmDialog
+      :open="batchConfirmOpen"
+      title="确认批量发布"
+      :message="`确认发布选中的 ${selectedDocumentIds.length} 篇草稿？发布后需重新索引才会参与检索和问答。`"
+      confirm-label="确认发布"
+      :busy="batchPublishing"
+      @confirm="publishSelectedDocuments"
+      @cancel="batchConfirmOpen = false"
+    />
   </div>
 </template>
 
@@ -140,6 +170,7 @@ import { useKnowledgeApi, useProjectApi, useSession } from '../appContext'
 import AppButton from '../components/AppButton.vue'
 import AppSidebar from '../components/AppSidebar.vue'
 import AppTopBar from '../components/AppTopBar.vue'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
 import DocumentDirectoryTree from '../components/DocumentDirectoryTree.vue'
 import DocumentList from '../components/DocumentList.vue'
 import DocumentStatusBadge from '../components/DocumentStatusBadge.vue'
@@ -171,6 +202,11 @@ const detailLoading = ref(false)
 const detailError = ref(false)
 const indexJob = ref<KnowledgeIndexJob | null>(null)
 const reindexBusy = ref(false)
+const selectedDocumentIds = ref<number[]>([])
+const batchConfirmOpen = ref(false)
+const batchPublishing = ref(false)
+const batchMessage = ref('')
+const batchError = ref(false)
 let indexPollController: AbortController | null = null
 const selectedDocumentId = computed(() => typeof route.params.documentId === 'string' ? Number(route.params.documentId) : null)
 const newTarget = computed(() => project.value ? `/projects/${project.value.identifier}/knowledge/new` : '/knowledge/new')
@@ -181,6 +217,9 @@ const indexJobLabel = computed(() => ({
   SUCCEEDED: '重新索引完成',
   FAILED: '重新索引失败，浏览继续使用上一个成功索引',
 } as Record<string, string>)[indexJob.value?.status ?? ''] ?? '重新索引任务')
+const draftsOnPage = computed(() => documents.value.filter(document => document.status === 'DRAFT'))
+const allDraftsSelected = computed(() => draftsOnPage.value.length > 0
+  && draftsOnPage.value.every(document => selectedDocumentIds.value.includes(document.id)))
 
 async function initialize(): Promise<void> {
   if (isProjectContext.value) {
@@ -209,6 +248,7 @@ async function loadDocuments(): Promise<void> {
         context: project.value ? 'PROJECT' : 'GLOBAL',
         project: project.value?.identifier,
         directory: currentDirectory.value || undefined,
+        includeDescendants: true,
         page: page.value,
         size: 20,
       })
@@ -228,39 +268,17 @@ async function loadDocuments(): Promise<void> {
 }
 
 async function loadAdminDocuments(): Promise<void> {
-  const common = { directory: currentDirectory.value || undefined, size: 100 }
-  const filters = project.value
-    ? [
-        { ...common, scopeType: 'GLOBAL' as const },
-        { ...common, scopeType: 'PROJECT' as const, projectId: project.value.id },
-        {
-          ...common,
-          scopeType: 'BRANCH' as const,
-          projectId: project.value.id,
-          branchId: project.value.branches.find(branch => branch.name === project.value?.defaultBranch)?.id,
-        },
-      ]
-    : [{ ...common, scopeType: 'GLOBAL' as const }]
-  const pages = await Promise.all(filters.map(filter => api.listAdmin(filter)))
-  const unique = new Map<number, KnowledgeDocumentSummary>()
-  pages.flatMap(result => result.items).forEach(item => unique.set(item.id, item))
-  const allItems = [...unique.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.id - right.id)
-  totalElements.value = allItems.length
-  totalPages.value = Math.ceil(allItems.length / 20)
-  documents.value = allItems.slice(page.value * 20, (page.value + 1) * 20)
-  directories.value = buildDirectories(allItems)
-}
-
-function buildDirectories(items: KnowledgeDocumentSummary[]): KnowledgeDirectoryNode[] {
-  const counts = new Map<string, number>()
-  for (const item of items) {
-    const parts = item.directory.split('/').filter(Boolean)
-    for (let index = 0; index < parts.length; index += 1) {
-      const path = parts.slice(0, index + 1).join('/')
-      counts.set(path, (counts.get(path) ?? 0) + 1)
-    }
-  }
-  return [...counts].map(([path, documentCount]) => ({ path, name: path.split('/').at(-1) ?? path, documentCount }))
+  const result = await api.browseAdmin({
+    context: project.value ? 'PROJECT' : 'GLOBAL',
+    project: project.value?.identifier,
+    directory: currentDirectory.value || undefined,
+    page: page.value,
+    size: 20,
+  })
+  documents.value = result.documents.items
+  directories.value = result.directories
+  totalElements.value = result.documents.totalElements
+  totalPages.value = result.documents.totalPages
 }
 
 async function loadDetail(documentId: number): Promise<void> {
@@ -282,14 +300,54 @@ async function loadDetail(documentId: number): Promise<void> {
 }
 
 async function selectDirectory(path: string): Promise<void> {
+  await clearSelectedDetailRoute()
   currentDirectory.value = path
   page.value = 0
+  selectedDocumentIds.value = []
+  batchMessage.value = ''
   await loadDocuments()
 }
 
 async function changePage(target: number): Promise<void> {
+  await clearSelectedDetailRoute()
   page.value = target
+  selectedDocumentIds.value = []
   await loadDocuments()
+}
+
+async function clearSelectedDetailRoute(): Promise<void> {
+  if (!selectedDocumentId.value) return
+  const target = project.value ? `/projects/${project.value.identifier}` : '/knowledge'
+  await router.replace({ path: target, query: route.query })
+}
+
+function toggleDocumentSelection(documentId: number): void {
+  selectedDocumentIds.value = selectedDocumentIds.value.includes(documentId)
+    ? selectedDocumentIds.value.filter(id => id !== documentId)
+    : [...selectedDocumentIds.value, documentId]
+}
+
+function toggleAllDrafts(): void {
+  selectedDocumentIds.value = allDraftsSelected.value ? [] : draftsOnPage.value.map(document => document.id)
+}
+
+async function publishSelectedDocuments(): Promise<void> {
+  if (!isAdministrator.value || selectedDocumentIds.value.length === 0 || batchPublishing.value) return
+  batchPublishing.value = true
+  batchError.value = false
+  batchMessage.value = ''
+  try {
+    const result = await api.batchPublishDocuments(selectedDocumentIds.value)
+    selectedDocumentIds.value = []
+    batchConfirmOpen.value = false
+    batchMessage.value = `已发布 ${result.publishedCount} 篇，重新索引后可参与检索。`
+    await loadDocuments()
+  } catch {
+    batchError.value = true
+    batchMessage.value = '批量发布失败，全部文档保持原状态，请刷新后重试。'
+  } finally {
+    batchPublishing.value = false
+  }
 }
 
 async function openDocument(documentId: number): Promise<void> {

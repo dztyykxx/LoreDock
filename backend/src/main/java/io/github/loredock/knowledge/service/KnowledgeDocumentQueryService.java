@@ -3,6 +3,7 @@ package io.github.loredock.knowledge.service;
 import io.github.loredock.knowledge.converter.KnowledgeDocumentViewFactory;
 import io.github.loredock.knowledge.exception.KnowledgeDocumentNotFoundException;
 import io.github.loredock.knowledge.model.KnowledgeDocument;
+import io.github.loredock.knowledge.model.request.AdminBrowseKnowledgeDocumentsQuery;
 import io.github.loredock.knowledge.model.request.AdminKnowledgeDocumentQuery;
 import io.github.loredock.knowledge.model.request.BrowseKnowledgeDocumentsQuery;
 import io.github.loredock.knowledge.model.request.ReadKnowledgeDocumentQuery;
@@ -42,9 +43,10 @@ public class KnowledgeDocumentQueryService
     @Transactional(readOnly = true)
     public KnowledgeBrowseResult browse(BrowseKnowledgeDocumentsQuery query) {
         PageResult<KnowledgeDocument> page = documents.findPublished(query);
-        List<KnowledgeDirectoryNode> directories = directoryNodes(
-                documents.findPublishedDirectoryPaths(query.context()),
-                query.directory() == null ? "" : query.directory().value());
+        List<String> paths = documents.findPublishedDirectoryPaths(query.context());
+        List<KnowledgeDirectoryNode> directories = query.includeDescendants()
+                ? directoryTree(paths)
+                : directoryNodes(paths, query.directory() == null ? "" : query.directory().value());
         return new KnowledgeBrowseResult(directories, mapPage(page));
     }
 
@@ -58,6 +60,19 @@ public class KnowledgeDocumentQueryService
     @Transactional(readOnly = true)
     public PageResult<KnowledgeDocumentSummary> list(AdminKnowledgeDocumentQuery query) {
         return mapPage(documents.findAdmin(query));
+    }
+
+    /**
+     * 管理员按当前上下文读取全部生命周期目录和子树分页。
+     *
+     * @param query 已解析上下文和目录
+     * @return 管理目录及摘要页
+     */
+    @Transactional(readOnly = true)
+    public KnowledgeBrowseResult browseAdmin(AdminBrowseKnowledgeDocumentsQuery query) {
+        return new KnowledgeBrowseResult(
+                directoryTree(documents.findAdminDirectoryPaths(query.context())),
+                mapPage(documents.findAdmin(query)));
     }
 
     @Transactional(readOnly = true)
@@ -91,6 +106,26 @@ public class KnowledgeDocumentQueryService
         return counts.entrySet().stream()
                 .map(entry -> new KnowledgeDirectoryNode(
                         entry.getKey(), entry.getKey().substring(entry.getKey().lastIndexOf('/') + 1), entry.getValue()))
+                .toList();
+    }
+
+    private List<KnowledgeDirectoryNode> directoryTree(List<String> paths) {
+        Map<String, Long> counts = new LinkedHashMap<>();
+        paths.stream().sorted().forEach(path -> {
+            String[] parts = path.split("/");
+            String current = "";
+            for (String part : parts) {
+                if (part.isEmpty()) {
+                    continue;
+                }
+                current = current.isEmpty() ? part : current + "/" + part;
+                counts.merge(current, 1L, Long::sum);
+            }
+        });
+        return counts.entrySet().stream()
+                .map(entry -> new KnowledgeDirectoryNode(
+                        entry.getKey(), entry.getKey().substring(entry.getKey().lastIndexOf('/') + 1),
+                        entry.getValue()))
                 .toList();
     }
 }

@@ -126,12 +126,19 @@ async function initialize(): Promise<void> {
     return
   }
   await reloadHistory()
+  if (route.query.new === '1') {
+    const query = { ...route.query }
+    delete query.new
+    await router.replace({ query })
+    await nextTick()
+    composer.value?.focus()
+  }
 }
 
 async function reloadHistory(): Promise<void> {
   try {
     await qa.loadHistory()
-    if (!current.value && history.value[0]) await qa.selectQuestion(history.value[0].questionId)
+    if (route.query.new !== '1' && !current.value && history.value[0]) await qa.selectQuestion(history.value[0].questionId)
   } catch {
     // composable 已保存可展示的稳定错误，不覆盖已成功加载的项目范围。
   }

@@ -3,6 +3,7 @@
     <label for="qa-question-input">向当前项目提问</label>
     <div class="qa-composer__control">
       <textarea
+        ref="input"
         id="qa-question-input"
         v-model="question"
         rows="2"
@@ -29,6 +30,7 @@ import IconGlyph from './IconGlyph.vue'
 defineProps<{ busy: boolean; error?: string | null }>()
 const emit = defineEmits<{ submit: [question: string] }>()
 const question = ref('')
+const input = ref<HTMLTextAreaElement | null>(null)
 
 function submit(): void {
   const value = question.value.trim()
@@ -40,5 +42,9 @@ function clear(): void {
   question.value = ''
 }
 
-defineExpose({ clear })
+function focus(): void {
+  input.value?.focus()
+}
+
+defineExpose({ clear, focus })
 </script>

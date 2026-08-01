@@ -483,6 +483,15 @@ a {
   font-size: 13px;
 }
 
+.app-topbar__breadcrumb a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.app-topbar__breadcrumb a:hover {
+  color: var(--ink);
+}
+
 .app-topbar__breadcrumb strong {
   color: var(--ink);
   font-weight: 600;
@@ -1692,11 +1701,11 @@ a {
   background: var(--surface);
 }
 
-.document-list > button {
+.document-list__item {
   width: 100%;
   min-height: 88px;
   display: grid;
-  grid-template-columns: 38px minmax(0, 1fr) auto 17px;
+  grid-template-columns: 38px minmax(0, 1fr) auto 28px;
   gap: 14px;
   align-items: center;
   border: 0;
@@ -1704,12 +1713,41 @@ a {
   padding: 15px 16px;
   color: var(--ink);
   background: var(--surface);
+}
+
+.document-list__item--selectable {
+  grid-template-columns: 18px 38px minmax(0, 1fr) auto 28px;
+}
+
+.document-list__item:last-child {
+  border-bottom: 0;
+}
+
+.document-list__check {
+  display: inline-flex;
+  align-items: center;
+}
+
+.document-list__open,
+.document-list__chevron {
+  border: 0;
+  padding: 0;
+  color: inherit;
+  background: transparent;
   text-align: left;
   cursor: pointer;
 }
 
-.document-list > button:last-child {
-  border-bottom: 0;
+.document-list__open {
+  min-width: 0;
+}
+
+.document-list__chevron {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .document-list__item--selected {
@@ -2080,6 +2118,33 @@ a {
 .knowledge-list-toolbar > span {
   color: var(--quiet);
   font-size: 10px;
+}
+
+.knowledge-list-toolbar__actions,
+.knowledge-select-all {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.knowledge-list-toolbar__actions > span,
+.knowledge-select-all {
+  color: var(--quiet);
+  font-size: 10px;
+}
+
+.knowledge-batch-message {
+  margin: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 9px 16px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-size: 11px;
+}
+
+.knowledge-batch-message--error {
+  color: var(--danger);
+  background: var(--danger-soft);
 }
 
 .knowledge-list-panel > .document-list {

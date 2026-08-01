@@ -39,6 +39,23 @@ describe('knowledgeApi', () => {
   })
 
   /**
+   * 业务目的：知识工作区必须显式请求后代目录模式，管理员浏览和批量发布使用独立契约以保留旧精确筛选兼容性。
+   */
+  it('uses dedicated subtree browse and batch publish contracts', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ directories: [], documents: { items: [], page: 0, size: 20, totalElements: 0, totalPages: 0 } }))
+      .mockResolvedValueOnce(jsonResponse({ requestedCount: 2, publishedCount: 2, alreadyPublishedCount: 0 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await knowledgeApi.browseAdmin({ context: 'PROJECT', project: 'atlas', directory: '测试资料', page: 0, size: 20 })
+    await knowledgeApi.batchPublishDocuments([16, 17])
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/admin/knowledge-documents/browse?context=PROJECT&project=atlas&directory=%E6%B5%8B%E8%AF%95%E8%B5%84%E6%96%99&page=0&size=20')
+    expect(fetchMock.mock.calls[1]?.[0]).toBe('/api/admin/knowledge-documents/batch-publish')
+    expect(JSON.parse(String((fetchMock.mock.calls[1]?.[1] as RequestInit).body))).toEqual({ documentIds: [16, 17] })
+  })
+
+  /**
    * 业务目的：导入范围和来源默认值必须作为独立 JSON part 发送，且浏览器负责 multipart 边界，防止代理收到不可解析的伪 multipart 请求。
    */
   it('sends a file and JSON options as multipart form data', async () => {

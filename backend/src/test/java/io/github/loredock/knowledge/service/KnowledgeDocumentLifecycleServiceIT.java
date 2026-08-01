@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.loredock.knowledge.exception.DocumentReplacementConflictException;
+import io.github.loredock.knowledge.exception.DocumentStateConflictException;
 import io.github.loredock.knowledge.exception.KnowledgeDocumentNotFoundException;
 import io.github.loredock.knowledge.model.DocumentBody;
 import io.github.loredock.knowledge.model.DocumentDirectory;
@@ -12,6 +13,7 @@ import io.github.loredock.knowledge.model.DocumentTags;
 import io.github.loredock.knowledge.model.DocumentTitle;
 import io.github.loredock.knowledge.model.KnowledgeScope;
 import io.github.loredock.knowledge.model.command.ArchiveKnowledgeDocumentCommand;
+import io.github.loredock.knowledge.model.command.BatchPublishKnowledgeDocumentsCommand;
 import io.github.loredock.knowledge.model.command.CreateKnowledgeDocumentCommand;
 import io.github.loredock.knowledge.model.command.PublishKnowledgeDocumentCommand;
 import io.github.loredock.knowledge.model.enums.DocumentFormat;
@@ -20,6 +22,7 @@ import io.github.loredock.knowledge.model.enums.DocumentStatus;
 import io.github.loredock.knowledge.model.enums.KnowledgeBrowseContextType;
 import io.github.loredock.knowledge.model.request.ReadKnowledgeDocumentQuery;
 import io.github.loredock.knowledge.model.result.KnowledgeDocumentView;
+import io.github.loredock.knowledge.model.result.BatchPublishKnowledgeDocumentsResult;
 import io.github.loredock.knowledge.model.snapshot.KnowledgeBrowseContext;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -102,6 +105,44 @@ class KnowledgeDocumentLifecycleServiceIT {
         assertThat(publishedAgain.publishedAt()).isEqualTo(published.publishedAt());
         assertThat(archivedAgain.revision()).isEqualTo(archived.revision());
         assertThat(archivedAgain.archivedAt()).isEqualTo(archived.archivedAt());
+    }
+
+    /**
+     * 业务目的：批量发布必须一次提交全部草稿，并允许网络不确定后的相同请求幂等重试而不增加修订。
+     */
+    @Test
+    void batchPublishIsAtomicAndRetryIsIdempotent() {
+        KnowledgeDocumentView first = create("First batch draft", KnowledgeScope.global());
+        KnowledgeDocumentView second = create("Second batch draft", KnowledgeScope.global());
+        var command = new BatchPublishKnowledgeDocumentsCommand(List.of(first.id(), second.id()));
+
+        BatchPublishKnowledgeDocumentsResult published = lifecycle.publishBatch(command);
+        long firstRevision = repository.findById(first.id()).orElseThrow().revision().value();
+        BatchPublishKnowledgeDocumentsResult retried = lifecycle.publishBatch(command);
+
+        assertThat(published).isEqualTo(new BatchPublishKnowledgeDocumentsResult(2, 2, 0));
+        assertThat(retried).isEqualTo(new BatchPublishKnowledgeDocumentsResult(2, 0, 2));
+        assertThat(repository.findById(first.id()).orElseThrow().revision().value()).isEqualTo(firstRevision);
+        assertThat(repository.findById(second.id()).orElseThrow().status()).isEqualTo(DocumentStatus.PUBLISHED);
+        System.out.printf("测试证据：场景=批量发布幂等重试，请求=%d，首次发布=%d，重试已发布=%d%n",
+                published.requestedCount(), published.publishedCount(), retried.alreadyPublishedCount());
+    }
+
+    /**
+     * 业务目的：批次中任一文档已归档时必须整批回滚，防止用户得到半发布知识集合。
+     */
+    @Test
+    void archivedDocumentRollsBackEntireBatch() {
+        KnowledgeDocumentView draft = create("Keep draft", KnowledgeScope.global());
+        KnowledgeDocumentView archivedCandidate = create("Archived", KnowledgeScope.global());
+        lifecycle.archive(new ArchiveKnowledgeDocumentCommand(archivedCandidate.id()));
+
+        assertThatThrownBy(() -> lifecycle.publishBatch(new BatchPublishKnowledgeDocumentsCommand(
+                List.of(draft.id(), archivedCandidate.id()))))
+                .isInstanceOf(DocumentStateConflictException.class);
+        assertThat(repository.findById(draft.id()).orElseThrow().status()).isEqualTo(DocumentStatus.DRAFT);
+        assertThat(repository.findById(archivedCandidate.id()).orElseThrow().status()).isEqualTo(DocumentStatus.ARCHIVED);
+        System.out.println("测试证据：场景=批次含归档文档，结果=DOCUMENT_STATE_CONFLICT，草稿保持=DRAFT");
     }
 
     /**

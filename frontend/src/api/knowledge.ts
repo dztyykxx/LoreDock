@@ -88,8 +88,17 @@ export interface BrowseKnowledgeInput {
   context: 'GLOBAL' | 'PROJECT'
   project?: string
   directory?: string
+  includeDescendants?: boolean
   page?: number
   size?: number
+}
+
+export type AdminBrowseKnowledgeInput = Omit<BrowseKnowledgeInput, 'includeDescendants'>
+
+export interface BatchPublishKnowledgeResult {
+  requestedCount: number
+  publishedCount: number
+  alreadyPublishedCount: number
 }
 
 export interface AdminKnowledgeFilter {
@@ -160,12 +169,14 @@ export interface KnowledgeIndexPollOptions {
 
 export interface KnowledgeApi {
   browse(input: BrowseKnowledgeInput): Promise<KnowledgeBrowseResult>
+  browseAdmin(input: AdminBrowseKnowledgeInput): Promise<KnowledgeBrowseResult>
   getDocument(documentId: number, input: Pick<BrowseKnowledgeInput, 'context' | 'project'>): Promise<KnowledgeDocumentView>
   listAdmin(input?: AdminKnowledgeFilter): Promise<PageResult<KnowledgeDocumentSummary>>
   getAdminDocument(documentId: number): Promise<AdminKnowledgeDocumentView>
   createDocument(input: KnowledgeDocumentWriteInput): Promise<AdminKnowledgeDocumentView>
   updateDocument(documentId: number, input: KnowledgeDocumentWriteInput): Promise<AdminKnowledgeDocumentView>
   publishDocument(documentId: number, replacesDocumentId?: number): Promise<AdminKnowledgeDocumentView>
+  batchPublishDocuments(documentIds: number[]): Promise<BatchPublishKnowledgeResult>
   archiveDocument(documentId: number): Promise<AdminKnowledgeDocumentView>
   importDocuments(file: File, options: KnowledgeImportOptions): Promise<KnowledgeImportBatch>
   getImportBatch(batchId: number): Promise<KnowledgeImportBatch>
@@ -186,9 +197,19 @@ export const knowledgeApi: KnowledgeApi = {
     appendQuery(query, 'context', input.context)
     appendQuery(query, 'project', input.project)
     appendQuery(query, 'directory', input.directory)
+    appendQuery(query, 'includeDescendants', input.includeDescendants === undefined ? undefined : String(input.includeDescendants))
     appendQuery(query, 'page', input.page)
     appendQuery(query, 'size', input.size)
     return requestJson<KnowledgeBrowseResult>(`/api/knowledge-documents?${query}`)
+  },
+  browseAdmin(input) {
+    const query = new URLSearchParams()
+    appendQuery(query, 'context', input.context)
+    appendQuery(query, 'project', input.project)
+    appendQuery(query, 'directory', input.directory)
+    appendQuery(query, 'page', input.page)
+    appendQuery(query, 'size', input.size)
+    return requestJson<KnowledgeBrowseResult>(`/api/admin/knowledge-documents/browse?${query}`)
   },
   getDocument(documentId, input) {
     const query = new URLSearchParams()
@@ -228,6 +249,10 @@ export const knowledgeApi: KnowledgeApi = {
       method: 'POST',
       body: JSON.stringify({ replacesDocumentId: replacesDocumentId ?? null }),
     },
+  ),
+  batchPublishDocuments: documentIds => requestJson<BatchPublishKnowledgeResult>(
+    '/api/admin/knowledge-documents/batch-publish',
+    { method: 'POST', body: JSON.stringify({ documentIds }) },
   ),
   archiveDocument: documentId => requestJson<AdminKnowledgeDocumentView>(
     `/api/admin/knowledge-documents/${encodeURIComponent(documentId)}/archive`,

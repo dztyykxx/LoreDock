@@ -58,12 +58,14 @@ function summary(id: number, title: string): KnowledgeDocumentSummary {
 function createKnowledgeApi(overrides: Partial<KnowledgeApi> = {}): KnowledgeApi {
   return {
     browse: vi.fn(),
+    browseAdmin: vi.fn(),
     getDocument: vi.fn(),
     listAdmin: vi.fn().mockResolvedValue({ items: [], page: 0, size: 100, totalElements: 0, totalPages: 0 }),
     getAdminDocument: vi.fn().mockResolvedValue(adminDocument()),
     createDocument: vi.fn().mockResolvedValue(adminDocument()),
     updateDocument: vi.fn().mockResolvedValue(adminDocument()),
     publishDocument: vi.fn().mockResolvedValue(adminDocument({ status: 'PUBLISHED', syncStatus: 'PENDING' })),
+    batchPublishDocuments: vi.fn(),
     archiveDocument: vi.fn().mockResolvedValue(adminDocument({ status: 'ARCHIVED' })),
     importDocuments: vi.fn(),
     getImportBatch: vi.fn(),

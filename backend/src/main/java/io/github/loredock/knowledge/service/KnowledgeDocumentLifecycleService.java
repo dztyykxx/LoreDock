@@ -10,7 +10,10 @@ import io.github.loredock.knowledge.model.ReplacementChain;
 import io.github.loredock.knowledge.model.ReplacementPublicationPlan;
 import io.github.loredock.knowledge.model.ReplacementPublicationPlanner;
 import io.github.loredock.knowledge.model.command.ArchiveKnowledgeDocumentCommand;
+import io.github.loredock.knowledge.model.command.BatchPublishKnowledgeDocumentsCommand;
 import io.github.loredock.knowledge.model.command.PublishKnowledgeDocumentCommand;
+import io.github.loredock.knowledge.model.enums.DocumentStatus;
+import io.github.loredock.knowledge.model.result.BatchPublishKnowledgeDocumentsResult;
 import io.github.loredock.knowledge.model.result.KnowledgeDocumentView;
 import io.github.loredock.platform.persistence.AuditMetadata;
 import io.github.loredock.platform.persistence.AuditMetadataFactory;
@@ -18,6 +21,8 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,6 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
 public class KnowledgeDocumentLifecycleService {
 
     private static final String REPLACEMENT_UNIQUE_CONSTRAINT = "uq_knowledge_document_replaces_document";
+    private static final Logger LOG = LoggerFactory.getLogger(KnowledgeDocumentLifecycleService.class);
 
     private final KnowledgeDocumentDataService documents;
     private final AuditMetadataFactory auditFactory;
@@ -56,6 +62,47 @@ public class KnowledgeDocumentLifecycleService {
             return publishSingle(command.documentId());
         }
         return publishReplacement(command.documentId(), command.replacesDocumentId());
+    }
+
+    /**
+     * 原子发布一组人工勾选文档；不支持替代关系或自动索引。
+     *
+     * @param command 唯一文档标识集合
+     * @return 新发布和幂等已发布数量
+     */
+    @Transactional
+    public BatchPublishKnowledgeDocumentsResult publishBatch(BatchPublishKnowledgeDocumentsCommand command) {
+        List<Long> requestedIds = command.documentIds();
+        LOG.info("knowledge_document_batch_publish started requestedCount={}", requestedIds.size());
+        List<KnowledgeDocument> locked = documents.findAllByIdsForUpdate(requestedIds);
+        if (locked.size() != requestedIds.size()) {
+            LOG.warn("knowledge_document_batch_publish rejected requestedCount={} lockedCount={} reason=not_found",
+                    requestedIds.size(), locked.size());
+            throw new KnowledgeDocumentNotFoundException();
+        }
+        if (locked.stream().anyMatch(document -> document.status() == DocumentStatus.ARCHIVED)) {
+            LOG.warn("knowledge_document_batch_publish rejected requestedCount={} reason=archived_document",
+                    requestedIds.size());
+            throw new DocumentStateConflictException();
+        }
+        DocumentAudit audit = audit();
+        int publishedCount = 0;
+        int alreadyPublishedCount = 0;
+        for (KnowledgeDocument current : locked) {
+            if (current.status() == DocumentStatus.PUBLISHED) {
+                alreadyPublishedCount++;
+                continue;
+            }
+            KnowledgeDocument published = current.publish(audit);
+            if (!documents.update(published, current.revision())) {
+                throw new DocumentStateConflictException();
+            }
+            publishedCount++;
+        }
+        LOG.info("knowledge_document_batch_publish completed requestedCount={} publishedCount={} alreadyPublishedCount={}",
+                requestedIds.size(), publishedCount, alreadyPublishedCount);
+        return new BatchPublishKnowledgeDocumentsResult(
+                requestedIds.size(), publishedCount, alreadyPublishedCount);
     }
 
     @Transactional
