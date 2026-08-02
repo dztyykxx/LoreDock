@@ -6,7 +6,7 @@
       :class="{ 'project-tabs__item--active': active === 'knowledge' }"
       :aria-current="active === 'knowledge' ? 'page' : undefined"
     >
-      知识文档 <span>{{ knowledgeCount }}</span>
+      知识文档 <span v-if="knowledgeCount !== null">{{ knowledgeCount }}</span>
     </RouterLink>
     <RouterLink
       v-if="projectIdentifier"
@@ -15,16 +15,13 @@
       :class="{ 'project-tabs__item--active': active === 'qa' }"
       :aria-current="active === 'qa' ? 'page' : undefined"
     >项目问答</RouterLink>
-    <button
-      v-for="tab in futureTabs"
-      :key="tab.id"
-      type="button"
-      :data-tab="tab.id"
-      disabled
-    >
-      {{ tab.label }}
-      <span v-if="'count' in tab" :class="{ 'tab-count--warning': 'tone' in tab && tab.tone === 'warning' }">{{ tab.count }}</span>
-    </button>
+    <RouterLink
+      v-if="role === 'ADMIN' && projectIdentifier"
+      data-tab="drafts"
+      :to="`/projects/${projectIdentifier}/drafts`"
+      :class="{ 'project-tabs__item--active': active === 'drafts' }"
+      :aria-current="active === 'drafts' ? 'page' : undefined"
+    >草稿 <span v-if="draftCount !== null" class="tab-count--warning">{{ draftCount }}</span></RouterLink>
     <RouterLink
       v-if="role === 'ADMIN' && projectId"
       data-tab="settings"
@@ -38,22 +35,22 @@
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
 import type { WebRole } from '../api/types'
-import { DESIGN_SAMPLES } from '../designSamples'
 
 const props = withDefaults(defineProps<{
   active: string
   role?: WebRole
   projectIdentifier?: string
   projectId?: number
-  knowledgeCount?: number
+  knowledgeCount?: number | null
+  draftCount?: number | null
 }>(), {
   role: 'MEMBER',
   projectIdentifier: '',
   projectId: 0,
-  knowledgeCount: 0,
+  knowledgeCount: null,
+  draftCount: null,
 })
 
 const knowledgeTarget = props.projectIdentifier ? `/projects/${props.projectIdentifier}` : '/knowledge'
 const qaTarget = `/projects/${props.projectIdentifier}/qa`
-const futureTabs = DESIGN_SAMPLES.tabs.filter(tab => tab.id !== 'knowledge' && tab.id !== 'settings')
 </script>

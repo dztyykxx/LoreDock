@@ -1,7 +1,7 @@
 <template>
   <main class="knowledge-task-page">
     <header class="task-page-header">
-      <RouterLink :to="`/projects/${identifier}`">← 返回项目知识</RouterLink>
+      <RouterLink :to="`/projects/${identifier}/drafts`">← 返回草稿</RouterLink>
       <div><small>{{ identifier }}</small><h1>知识整理任务</h1></div>
     </header>
     <p v-if="loading" class="page-state">正在读取知识任务…</p>
@@ -22,7 +22,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { ApiError } from '../api/http'
 import { knowledgeTaskApi, type DraftDiff, type DraftRevision, type KnowledgeTask } from '../api/knowledgeTasks'
@@ -38,6 +38,25 @@ const diff = ref<DraftDiff | null>(null)
 const loading = ref(true)
 const error = ref('')
 const publicationConflict = ref(false)
+let pollTimer: number | undefined
+let polling = false
+
+function runIsActive(): boolean {
+  const status = task.value?.runs.at(-1)?.status
+  return status !== undefined && ['ACCEPTED', 'RUNNING', 'PAUSE_REQUESTED'].includes(status)
+}
+
+function schedulePoll(): void {
+  if (!runIsActive() || pollTimer !== undefined) return
+  pollTimer = window.setTimeout(async () => {
+    pollTimer = undefined
+    if (polling) return schedulePoll()
+    polling = true
+    await refresh()
+    polling = false
+    schedulePoll()
+  }, 1200)
+}
 
 async function load(): Promise<void> {
   task.value = await knowledgeTaskApi.detail(identifier, conversationId)
@@ -62,11 +81,13 @@ async function pause(runId: number): Promise<void> {
 async function resume(value: { runId: number; guidance: string }): Promise<void> {
   await knowledgeTaskApi.resume(identifier, conversationId, value.runId, value.guidance)
   await refresh()
+  schedulePoll()
 }
 
 async function continueTask(guidance: string): Promise<void> {
   await knowledgeTaskApi.continueTask(identifier, conversationId, guidance)
   await refresh()
+  schedulePoll()
 }
 
 async function publish(reviewedRevision?: number): Promise<void> {
@@ -85,7 +106,11 @@ async function publish(reviewedRevision?: number): Promise<void> {
 }
 
 onMounted(async () => {
-  try { await load() } catch { error.value = '无法打开知识任务。' } finally { loading.value = false }
+  try { await load(); schedulePoll() } catch { error.value = '无法打开知识任务。' } finally { loading.value = false }
+})
+
+onBeforeUnmount(() => {
+  if (pollTimer !== undefined) window.clearTimeout(pollTimer)
 })
 </script>
 

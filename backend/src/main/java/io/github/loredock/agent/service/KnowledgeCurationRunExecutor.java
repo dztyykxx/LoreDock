@@ -43,7 +43,7 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
 /**
- * 知识整理运行的薄执行接线：直接构建框架 ReactAgent、Task Tool、Hook 与 PostgresSaver，
+ * 知识整理运行的薄执行接线：直接构建框架 ReactAgent、Skill Hook 与 PostgresSaver，
  * 只负责既有 run 的状态和公开消息投影，不实现模型/Tool 循环、子 Agent 调度或 Checkpoint。
  */
 @Service
@@ -190,7 +190,7 @@ public class KnowledgeCurationRunExecutor {
             String goal,
             KnowledgeAgentDefinitionService.LoadedDefinition definition
     ) {
-        RunMetrics metrics = new RunMetrics();
+        RunMetrics metrics = new RunMetrics(run.getId());
         ModelCallLimitHook modelLimit = ModelCallLimitHook.builder()
                 .runLimit(properties.runtimeLimits().maxModelCalls())
                 .exitBehavior(ModelCallLimitHook.ExitBehavior.ERROR)
@@ -205,7 +205,7 @@ public class KnowledgeCurationRunExecutor {
                 .instruction("目标：" + goal + "。先用 read_skill 激活 " + definition.runtime().skillName()
                         + " Skill；修改草稿必须先读后改，正式发布由管理员完成。")
                 .model(Objects.requireNonNull(models.getIfAvailable(), "知识整理模型不可用"))
-                .tools(definition.taskTools())
+                .tools(List.of())
                 .toolContext(Map.of(
                         "operatorId", run.getOperatorId(),
                         "projectIdentifier", run.getProjectIdentifier(),
@@ -240,9 +240,15 @@ public class KnowledgeCurationRunExecutor {
     }
 
     /** 框架 Interceptor 记录真实经过模型与 Tool 节点的次数，不推测调用数量。 */
-    private static final class RunMetrics extends ModelInterceptor {
+    private final class RunMetrics extends ModelInterceptor {
+        private static final int MAX_TOOL_PREVIEW_CODE_POINTS = 500;
+        private final Long runId;
         private final AtomicInteger modelCalls = new AtomicInteger();
         private final AtomicInteger toolCalls = new AtomicInteger();
+
+        private RunMetrics(Long runId) {
+            this.runId = runId;
+        }
 
         @Override
         public ModelResponse interceptModel(ModelRequest request, ModelCallHandler handler) {
@@ -260,7 +266,28 @@ public class KnowledgeCurationRunExecutor {
                 @Override
                 public ToolCallResponse interceptToolCall(ToolCallRequest request, ToolCallHandler handler) {
                     toolCalls.incrementAndGet();
-                    return handler.call(request);
+                    String toolName = request.getToolName();
+                    String purpose = toolPurpose(toolName);
+                    Instant started = clock.instant();
+                    events.append(runId, AgentEventType.TOOL_STARTED, AgentEvent.SubjectType.TOOL,
+                            toolPayload(toolName, purpose, null, null, "STARTED", false), started);
+                    try {
+                        ToolCallResponse response = handler.call(request);
+                        long durationMillis = Duration.between(started, clock.instant()).toMillis();
+                        String preview = preview(response.getResult());
+                        events.append(runId, AgentEventType.TOOL_COMPLETED, AgentEvent.SubjectType.TOOL,
+                                toolPayload(toolName, purpose, safeResultSummary(toolName, response.isError()),
+                                        durationMillis, response.isError() ? "FAILED" : "COMPLETED", false),
+                                clock.instant());
+                        System.out.println("知识整理工具调用：tool=" + toolName + "，结果预览=" + preview);
+                        return response;
+                    } catch (RuntimeException exception) {
+                        long durationMillis = Duration.between(started, clock.instant()).toMillis();
+                        events.append(runId, AgentEventType.TOOL_COMPLETED, AgentEvent.SubjectType.TOOL,
+                                toolPayload(toolName, purpose, "工具执行失败", durationMillis, "FAILED", false),
+                                clock.instant());
+                        throw exception;
+                    }
                 }
 
                 @Override
@@ -280,6 +307,61 @@ public class KnowledgeCurationRunExecutor {
 
         private int steps() {
             return modelCalls() + toolCalls();
+        }
+
+        private AgentEvent.Payload toolPayload(
+                String name,
+                String purpose,
+                String resultSummary,
+                Long durationMillis,
+                String status,
+                boolean truncated
+        ) {
+            return new AgentEvent.Payload("EXECUTING", name, purpose, null, resultSummary, null,
+                    durationMillis, status, List.of(), null, null, null, null, false, truncated);
+        }
+
+        private String preview(String value) {
+            String text = value == null || value.isBlank() ? "无返回内容" : value.strip();
+            int count = text.codePointCount(0, text.length());
+            return count <= MAX_TOOL_PREVIEW_CODE_POINTS ? text
+                    : text.substring(0, text.offsetByCodePoints(0, MAX_TOOL_PREVIEW_CODE_POINTS)) + "…";
+        }
+
+        private String safeResultSummary(String toolName, boolean failed) {
+            if (failed) {
+                return "工具返回失败状态";
+            }
+            return switch (toolName) {
+                case "read_skill" -> "已加载知识整理工作流";
+                case "selected_draft_list" -> "已读取本次固定输入清单";
+                case "selected_draft_read" -> "已读取一份固定输入草稿";
+                case "knowledge_directory_list" -> "已读取知识库目录";
+                case "knowledge_document_list" -> "已读取目录下文档清单";
+                case "knowledge_document_read" -> "已读取相关文档全文";
+                case "knowledge_grep" -> "已完成关键词匹配";
+                case "knowledge_search" -> "已完成近似文档检索";
+                case "finding_record" -> "已记录一项整理发现";
+                case "draft_create" -> "已创建合并草稿";
+                case "draft_read" -> "已读取当前合并草稿";
+                case "draft_update" -> "已生成合并草稿新修订";
+                case "draft_diff" -> "已生成待审核 Diff";
+                default -> "工具执行完成";
+            };
+        }
+
+        private String toolPurpose(String toolName) {
+            return switch (toolName) {
+                case "read_skill" -> "加载整理规则";
+                case "selected_draft_list", "selected_draft_read" -> "读取选中的待处理草稿";
+                case "knowledge_directory_list", "knowledge_document_list" -> "浏览现有知识库";
+                case "knowledge_document_read" -> "核对现有文档全文";
+                case "knowledge_grep", "knowledge_search" -> "检索相关业务知识";
+                case "finding_record" -> "记录重复、冲突、过期或缺口";
+                case "draft_create", "draft_read", "draft_update" -> "生成或修改合并草稿";
+                case "draft_diff" -> "生成审核差异";
+                default -> "执行知识整理步骤";
+            };
         }
     }
 

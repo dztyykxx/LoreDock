@@ -53,18 +53,24 @@ flowchart LR
 
 ### 需求到实现的知识沉淀
 
-- 导入需求材料、PR 信息、Diff、变更文件和测试说明；
-- 生成需求条目与实现文件之间的映射；
-- 整理业务规则、调用链、数据变化、兼容约束和测试证据；
-- 人工审核通过后才进入正式知识索引。
+- 本地 Workflow Skill 在隔离 worktree 中对照需求、基线实现与人工提交；
+- 本地只提炼稳定的业务规则、设计原因、兼容约束和业务经验，不上传易过期的纯代码说明；
+- Web 可一次上传多份 Markdown，每份先作为独立待处理草稿；
+- 管理员勾选一份或多份草稿后才启动单 Agent 合并整理，查看冲突、修订和 Diff；
+- 人工审核通过后才发布并进入正式知识索引。
 
 ### MCP
 
-MVP 计划通过 Streamable HTTP 暴露只读工具：
+后端通过 `/mcp` 的 Streamable HTTP 暴露受 Token 保护的工具：
 
 - `knowledge_search`：检索业务知识；
-- `document_read`：读取指定知识文档；
-- `code_search`：搜索指定项目和分支的代码快照。
+- `knowledge_directory_list`：浏览项目及通用知识目录；
+- `knowledge_document_list`：列出目录下文档；
+- `knowledge_document_read`：读取指定知识文档全文；
+- `knowledge_grep`：在已发布 Markdown 中匹配关键词；
+- `knowledge_draft_submit`：使用写 Token 向项目待处理草稿池追加 Markdown。
+
+MCP 查询不调用模型；草稿提交不创建 conversation/run、不启动 AI，也不提供发布工具。后续仍由管理员在 Web 勾选草稿并启动合并整理。
 
 ## 技术方向
 
@@ -126,7 +132,7 @@ cp .env.example .env
 ./scripts/dev.sh
 ```
 
-脚本只用 Docker 启动 PostgreSQL/pgvector；Spring Boot 和 Vite 直接在宿主机运行，代码修改可使用各自的本地开发能力。首次启动会执行 `npm ci`，Flyway 会在后端启动时用单一 V1 基线初始化空库。
+脚本只用 Docker 启动 PostgreSQL/pgvector；Spring Boot 和 Vite 直接在宿主机运行，代码修改可使用各自的本地开发能力。首次启动会执行 `npm ci`，Flyway 会在后端启动时按版本顺序初始化数据库结构。
 
 - 前端：<http://localhost:5173>
 - 后端状态：<http://localhost:8080/api/v1/system/status>
@@ -249,7 +255,8 @@ PATH=/opt/homebrew/opt/node@24/bin:$PATH npm audit --audit-level=high
 - Web 认证：`POST /api/auth/login`、`GET /api/auth/session`、`POST /api/auth/logout`；
 - 已登录只读查询：`GET /api/projects`、`GET /api/projects/{identifier}?branch=...`；
 - 管理员项目管理：`/api/admin/projects/**`；
-- MCP 入口预留：`/mcp/**`。当前快速迭代阶段不校验 MCP 身份，尚未提供 MCP 工具；对外部署前再按实际接入方式补充认证边界。
+- MCP 入口：`/mcp`，使用 Streamable HTTP 与 `Authorization: Bearer <token>`；`LOREDOCK_MCP_READ_TOKEN` 仅允许查询，`LOREDOCK_MCP_WRITE_TOKEN` 额外允许提交待处理草稿。
+- Spring AI MCP Server 只扫描 `@McpTool` 标注的 6 个入口，关闭通用 `ToolCallback` 自动转换，避免把内部 Agent Tool 暴露给 MCP。
 
 前端是电脑浏览器页面，通过 Vite 同站代理访问 `/api`。项目、分支、知识文档、生命周期状态和身份始终使用真实 API；T4 已提供后端代码快照接口，完整管理页面仍属于 T12。
 
@@ -295,12 +302,12 @@ Lucene 目录先写入 `<generation>.building`，关闭并重开验证后才原�
 
 ## 数据迁移、备份与故障排查
 
-- Flyway 是表结构变更的唯一入口。当前快速迭代阶段只维护 `V1__create_loredock_baseline.sql`，不兼容此前的 UUID/多版本开发库，也不提供双写、兼容视图或在线转换。
-- 单一 V1 创建 17 张业务表和 2 张 Spring AI Alibaba Graph 表；所有数据库主键统一为 identity `BIGINT`，UUID 只保留为幂等键、对象键或 Graph 协议键，不作为数据库主键。
+- Flyway 是表结构变更的唯一入口。当前迁移从 `V1__create_loredock_baseline.sql` 顺序执行到 V4；MyBatis-Plus 只负责数据映射，不创建或变更表结构。
+- 数据库主键统一使用 identity `BIGINT`；UUID 只保留为幂等键、对象键或 Graph 协议键，不作为数据库主键。
 - 切换到本基线前，如需保留本地材料，先执行 `docker compose exec -T database pg_dump -U loredock -d loredock -Fc > loredock-before-baseline.dump`。确认备份后执行 `docker compose down --volumes` 删除旧开发库，再运行 `./scripts/dev.sh` 重建；旧备份不能整体恢复到新结构。
 - `readiness` 失败而 `liveness` 成功，通常表示 PostgreSQL 不可用。先检查 `docker compose ps` 和 `docker compose logs database`，再核对 `.env` 的端口、库名和账号。
 - 端口冲突时调整 `.env`；若修改后端端口，还需同步 Vite 代理目标。构建工具链错误时确认 `java -version` 为 21、`node --version` 为 24。
-- 后端以 `Identity configuration is invalid` 拒绝启动时，检查是否恰好配置两个不同用户名、一个 ADMIN/一个 MEMBER、有效 BCrypt 哈希和 64 位小写十六进制 MCP Token 摘要。错误日志不会回显具体凭据。
+- 后端以 `Identity configuration is invalid` 拒绝启动时，检查是否恰好配置两个不同用户名、一个 ADMIN/一个 MEMBER 和有效 BCrypt 哈希。MCP Token 为空时应用仍可启动，但所有 `/mcp` 请求都会被拒绝；错误日志不会回显具体凭据。
 - 页面登录成功但刷新后失效时，先确认前后端使用同站代理，生产 HTTPS 环境已开启 Secure Cookie，且期间后端进程没有重启。
 - 上传被 413 拒绝时，同时核对反向代理、Spring multipart 和 `LOREDOCK_KNOWLEDGE_IMPORT_*` 业务配额；以最小的一层为实际上限。
 - 重新索引失败时，依据任务 ID 查看脱敏摘要；不要手工修改 generation 状态，普通浏览会继续使用上一个成功索引。

@@ -227,6 +227,6 @@ public interface KnowledgeDraftService {
     /** 允许 Agent 使用的结构化 Markdown 区块操作。 */
     enum OperationType { INSERT_AFTER, REPLACE_BLOCK, DELETE_BLOCK }
 
-    /** 草稿来源只允许当前 run 证据或当前会话用户消息。 */
-    enum SourceType { EVIDENCE, USER_MESSAGE }
+    /** 草稿来源只允许当前 run 证据、当前会话用户消息或固定输入草稿。 */
+    enum SourceType { EVIDENCE, USER_MESSAGE, SELECTED_DRAFT }
 }

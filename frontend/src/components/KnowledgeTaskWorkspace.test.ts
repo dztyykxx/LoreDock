@@ -6,11 +6,16 @@ const task = {
   conversationId: 41,
   projectIdentifier: 'atlas',
   goal: '整理项目约束',
+  selectedDrafts: [
+    { documentId: 71, title: '需求约束', directory: '待整理', originalFilename: 'requirement.md' },
+    { documentId: 72, title: '实现经验', directory: '待整理', originalFilename: 'experience.md' },
+  ],
   currentDraftId: 51,
   currentDraftRevision: 3,
   messages: [
     { messageId: 1, runId: null, role: 'SYSTEM_TRIGGER', subjectName: null, content: '每周整理触发', createdAt: '2026-08-02T00:00:00Z' },
     { messageId: 2, runId: 61, role: 'TOOL', subjectName: 'draft_update', content: '生成修订 3', createdAt: '2026-08-02T00:01:00Z' },
+    { messageId: 3, runId: 61, role: 'TOOL', subjectName: 'finding_record:conflict-1', content: JSON.stringify({ type: 'CONFLICT', topic: '发布权限', summary: '两份草稿对自动发布的描述相反', recommendation: '保留人工审核', humanQuestion: '是否删除自动发布描述？' }), createdAt: '2026-08-02T00:01:10Z' },
   ],
   runs: [{
     runId: 61, conversationId: 41, threadId: 'knowledge-task-41-run-61', status: 'RUNNING',
@@ -62,6 +67,10 @@ describe('KnowledgeTaskWorkspace', () => {
     expect(wrapper.get('[data-testid="knowledge-task-conversation"]').text()).toContain('每周整理触发')
     expect(wrapper.get('[data-testid="knowledge-task-artifact"]').text()).toContain('当前修订 3')
     expect(wrapper.get('[data-testid="knowledge-task-process"]').attributes('open')).toBeUndefined()
+    expect(wrapper.get('[data-testid="selected-draft-inputs"]').text()).toContain('需求约束')
+    expect(wrapper.get('[data-testid="selected-draft-inputs"]').text()).toContain('实现经验')
+    expect(wrapper.get('[data-testid="knowledge-task-findings"]').text()).toContain('规则冲突')
+    expect(wrapper.get('[data-testid="knowledge-task-findings"]').text()).toContain('保留人工审核')
     expect(wrapper.text()).toContain('对话消息不等于草稿产物')
   })
 

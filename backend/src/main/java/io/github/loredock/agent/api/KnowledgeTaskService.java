@@ -62,6 +62,7 @@ public interface KnowledgeTaskService {
      * @param idempotencyKey 当前触发范围内的稳定幂等键
      * @param operatorId 已认证操作者；系统触发使用服务端固定的系统主体
      * @param projectIdentifier 已启用项目标识
+     * @param selectedDraftIds 管理员勾选且需在会话中固定的待处理草稿
      * @param triggerType 人工或系统触发
      * @param triggerReason 作为首条系统消息保存的有限触发原因
      * @param targetSkill 目标本地 Skill，当前知识整理固定为 knowledge-curator
@@ -71,11 +72,15 @@ public interface KnowledgeTaskService {
             String idempotencyKey,
             String operatorId,
             String projectIdentifier,
+            List<Long> selectedDraftIds,
             TriggerType triggerType,
             String triggerReason,
             String targetSkill,
             String goal
     ) {
+        public StartRequest {
+            selectedDraftIds = selectedDraftIds == null ? List.of() : List.copyOf(selectedDraftIds);
+        }
     }
 
     /**
@@ -108,7 +113,8 @@ public interface KnowledgeTaskService {
      * @param triggerType 首次触发类型
      * @param targetSkill 目标 Skill
      * @param goal 任务目标
-     * @param currentDraftId 当前草稿标识；Agent 尚未创建草稿时为空
+     * @param selectedDrafts 启动时固定的不可变输入草稿
+     * @param currentDraftId 当前合并输出草稿标识；Agent 尚未创建时为空
      * @param currentDraftRevision 当前草稿修订；尚无草稿时为空
      * @param messages 已提交的可见消息；不包含隐藏提示、思维链或 Tool 原文
      * @param runs 会话内相互独立的运行
@@ -122,6 +128,7 @@ public interface KnowledgeTaskService {
             TriggerType triggerType,
             String targetSkill,
             String goal,
+            List<SelectedDraft> selectedDrafts,
             Long currentDraftId,
             Long currentDraftRevision,
             List<KnowledgeTaskMessage> messages,
@@ -131,11 +138,20 @@ public interface KnowledgeTaskService {
             Instant updatedAt
     ) {
         public KnowledgeTask {
+            selectedDrafts = selectedDrafts == null ? List.of() : List.copyOf(selectedDrafts);
             messages = messages == null ? List.of() : List.copyOf(messages);
             runs = runs == null ? List.of() : List.copyOf(runs);
             events = events == null ? List.of() : List.copyOf(events);
         }
     }
+
+    /**
+     * @param documentId 勾选草稿文档标识
+     * @param title 启动时可见标题
+     * @param directory 逻辑目录
+     * @param originalFilename 原始文件名；非上传草稿可为空
+     */
+    record SelectedDraft(Long documentId, String title, String directory, String originalFilename) { }
 
     /**
      * @param messageId 消息标识
@@ -190,7 +206,7 @@ public interface KnowledgeTaskService {
     /**
      * @param skillName 本运行 Skill 名称
      * @param skillDigest 本运行读取内容的 SHA-256 摘要
-     * @param agentSpecDigest 本运行全部预定义子 Agent Spec 的稳定摘要
+     * @param agentSpecDigest 兼容旧运行字段；单 Agent 流程固定为空定义摘要
      * @param modelName 服务端固定模型名
      * @param toolNames 排序后的显式允许 Tool 名称
      */

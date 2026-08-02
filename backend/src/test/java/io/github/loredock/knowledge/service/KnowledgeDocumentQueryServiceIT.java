@@ -129,9 +129,9 @@ class KnowledgeDocumentQueryServiceIT {
         create("Would match wildcard", "测试甲资料/错误", KnowledgeScope.global());
 
         KnowledgeBrowseResult parent = adminQueries.browseAdmin(new AdminBrowseKnowledgeDocumentsQuery(
-                globalContext(), new DocumentDirectory("测试资料"), 0, 2));
+                globalContext(), new DocumentDirectory("测试资料"), null, 0, 2));
         KnowledgeBrowseResult literalWildcard = adminQueries.browseAdmin(new AdminBrowseKnowledgeDocumentsQuery(
-                globalContext(), new DocumentDirectory("测试%_资料"), 0, 20));
+                globalContext(), new DocumentDirectory("测试%_资料"), null, 0, 20));
 
         assertThat(parent.documents().totalElements()).isEqualTo(3);
         assertThat(parent.documents().items()).hasSize(2);
@@ -145,6 +145,27 @@ class KnowledgeDocumentQueryServiceIT {
         System.out.printf("测试证据：场景=管理员父目录子树浏览，目录=测试资料，命中=%d，目录节点=%d，通配符字面命中=%d%n",
                 parent.documents().totalElements(), parent.directories().size(),
                 literalWildcard.documents().totalElements());
+    }
+
+    /**
+     * 业务目的：统一草稿工作区必须在 SQL 查询阶段同时过滤目录计数和文档分页，
+     * 防止已发布或归档知识混入待合并选择范围。
+     */
+    @Test
+    void adminDraftBrowseFiltersDocumentsAndDirectoryCounts() {
+        create("Draft", "待处理/规则", KnowledgeScope.global());
+        publish(create("Published", "正式/规则", KnowledgeScope.global()));
+
+        KnowledgeBrowseResult drafts = adminQueries.browseAdmin(new AdminBrowseKnowledgeDocumentsQuery(
+                globalContext(), null, DocumentStatus.DRAFT, 0, 20));
+
+        assertThat(drafts.documents().items()).extracting(KnowledgeDocumentSummary::title)
+                .containsExactly("Draft");
+        assertThat(drafts.directories()).containsExactly(
+                new KnowledgeDirectoryNode("待处理", "待处理", 1),
+                new KnowledgeDirectoryNode("待处理/规则", "规则", 1));
+        System.out.printf("测试证据：场景=统一草稿工作区，状态=DRAFT，文档数=%d，目录数=%d%n",
+                drafts.documents().totalElements(), drafts.directories().size());
     }
 
     /**

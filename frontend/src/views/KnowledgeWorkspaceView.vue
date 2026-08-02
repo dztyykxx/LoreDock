@@ -30,17 +30,20 @@
 
         <ProjectTabs
           v-if="project"
-          active="knowledge"
+          :active="isDraftWorkspace ? 'drafts' : 'knowledge'"
           :role="identity.role"
           :project-identifier="project.identifier"
           :project-id="project.id"
-          :knowledge-count="totalElements"
+          :knowledge-count="isDraftWorkspace ? null : totalElements"
+          :draft-count="isDraftWorkspace ? totalElements : null"
         />
 
         <PageHeader
-          :breadcrumb="project ? '项目 / 知识文档' : '工作空间 / 通用业务知识'"
-          :title="project ? '知识文档' : '通用业务知识'"
-          :description="project ? '当前项目决定浏览边界，所有 Web 操作使用后端默认范围。' : '这里只展示明确属于全局范围的业务术语、流程和规范。'"
+          :breadcrumb="isDraftWorkspace ? '项目 / 草稿' : project ? '项目 / 知识文档' : '工作空间 / 通用业务知识'"
+          :title="isDraftWorkspace ? '草稿' : project ? '知识文档' : '通用业务知识'"
+          :description="isDraftWorkspace
+            ? '上传的变更材料、待审核内容和 AI 整理产物统一从草稿流程处理。勾选草稿后启动合并整理。'
+            : project ? '当前项目决定浏览边界，所有 Web 操作使用后端默认范围。' : '这里只展示明确属于全局范围的业务术语、流程和规范。'"
         >
           <template v-if="isAdministrator && !project" #actions>
             <RouterLink to="/knowledge/import"><AppButton data-testid="import-knowledge" variant="secondary" icon="file">导入资料</AppButton></RouterLink>
@@ -49,8 +52,10 @@
         </PageHeader>
 
         <div v-if="isAdministrator" class="knowledge-admin-tools">
-          <NoticeBanner>草稿和归档状态只在管理员视图展示；普通成员始终由只读接口获取已发布文档。</NoticeBanner>
+          <NoticeBanner v-if="isDraftWorkspace">上传只会进入草稿池；勾选一份或多份草稿后，由 AI 合并整理并在任务页人工审核发布。</NoticeBanner>
+          <NoticeBanner v-else>草稿和归档状态只在管理员视图展示；普通成员始终由只读接口获取已发布文档。</NoticeBanner>
           <AppButton
+            v-if="!isDraftWorkspace"
             data-testid="reindex-knowledge"
             variant="secondary"
             icon="settings"
@@ -76,38 +81,44 @@
         </div>
         <div v-else class="knowledge-workspace">
           <aside class="knowledge-directory-panel">
-            <div class="knowledge-panel-heading"><h2>文档目录</h2><span>{{ totalElements }}</span></div>
+            <div class="knowledge-panel-heading"><h2>{{ isDraftWorkspace ? '草稿目录' : '文档目录' }}</h2><span>{{ totalElements }}</span></div>
             <DocumentDirectoryTree :nodes="directories" :current-path="currentDirectory" @select="selectDirectory" />
           </aside>
 
           <section class="knowledge-list-panel">
             <div class="knowledge-list-toolbar">
-              <div><h2>{{ currentDirectory || '全部文档' }}</h2><p>{{ isAdministrator ? '全部生命周期状态' : '仅已发布文档' }}</p></div>
+              <div><h2>{{ currentDirectory || (isDraftWorkspace ? '全部草稿' : '全部文档') }}</h2><p>{{ isDraftWorkspace ? '仅待处理草稿' : isAdministrator ? '全部生命周期状态' : '仅已发布文档' }}</p></div>
               <div class="knowledge-list-toolbar__actions">
-                <label v-if="isAdministrator && draftsOnPage.length" class="knowledge-select-all">
+                <label v-if="isDraftWorkspace && draftsOnPage.length" class="knowledge-select-all">
                   <input data-testid="select-all-drafts" type="checkbox" :checked="allDraftsSelected" @change="toggleAllDrafts">
                   <span>选择本页草稿</span>
                 </label>
                 <AppButton
-                  v-if="isAdministrator && selectedDocumentIds.length"
-                  data-testid="batch-publish"
-                  :disabled="batchPublishing"
-                  @click="batchConfirmOpen = true"
-                >批量发布 {{ selectedDocumentIds.length }}</AppButton>
+                  v-if="isDraftWorkspace && selectedDocumentIds.length"
+                  data-testid="merge-selected-drafts"
+                  :busy="mergeStarting"
+                  :disabled="!mergeGoal.trim()"
+                  busy-label="正在启动…"
+                  @click="startMerge"
+                >AI 合并整理 {{ selectedDocumentIds.length }}</AppButton>
                 <span>第 {{ page + 1 }} 页</span>
               </div>
             </div>
-            <p v-if="batchMessage" data-testid="batch-publish-message" class="knowledge-batch-message" :class="{ 'knowledge-batch-message--error': batchError }" role="status">{{ batchMessage }}</p>
+            <label v-if="isAdministrator && selectedDocumentIds.length" class="knowledge-merge-goal">
+              <span>合并目标</span>
+              <input v-model="mergeGoal" data-testid="merge-goal" maxlength="2000" placeholder="例如：整合为一份可发布的业务规则，保留无法确定的冲突">
+            </label>
+            <p v-if="mergeMessage" data-testid="merge-message" class="knowledge-batch-message" :class="{ 'knowledge-batch-message--error': mergeError }" role="status">{{ mergeMessage }}</p>
             <div v-if="documents.length === 0" data-testid="knowledge-empty" class="knowledge-empty">
               <IconGlyph name="book" />
-              <strong>{{ isAdministrator ? '当前范围暂无知识文档' : '暂无已发布知识' }}</strong>
-              <p>{{ isAdministrator ? '可以新建或导入资料后再发布。' : '请联系管理员补充并发布知识。' }}</p>
+              <strong>{{ isDraftWorkspace ? '当前项目暂无草稿' : isAdministrator ? '当前范围暂无知识文档' : '暂无已发布知识' }}</strong>
+              <p>{{ isDraftWorkspace ? '上传 Markdown 后会先进入这里，再由管理员勾选并启动 AI 合并。' : isAdministrator ? '可以新建或导入资料后再发布。' : '请联系管理员补充并发布知识。' }}</p>
             </div>
             <DocumentList
               v-else
               :documents="documents"
               :selected-id="selectedDocumentId"
-              :selectable="isAdministrator"
+              :selectable="isDraftWorkspace"
               :selected-ids="selectedDocumentIds"
               @select="openDocument"
               @toggle="toggleDocumentSelection"
@@ -149,28 +160,20 @@
         </div>
       </section>
     </main>
-    <ConfirmDialog
-      :open="batchConfirmOpen"
-      title="确认批量发布"
-      :message="`确认发布选中的 ${selectedDocumentIds.length} 篇草稿？发布后需重新索引才会参与检索和问答。`"
-      confirm-label="确认发布"
-      :busy="batchPublishing"
-      @confirm="publishSelectedDocuments"
-      @cancel="batchConfirmOpen = false"
-    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import type { AdminKnowledgeDocumentView, KnowledgeDirectoryNode, KnowledgeDocumentSummary, KnowledgeDocumentView, KnowledgeIndexJob } from '../api/knowledge'
 import type { ProjectDetail } from '../api/types'
+import { ApiError } from '../api/http'
 import { useKnowledgeApi, useProjectApi, useSession } from '../appContext'
+import { knowledgeTaskApi } from '../api/knowledgeTasks'
 import AppButton from '../components/AppButton.vue'
 import AppSidebar from '../components/AppSidebar.vue'
 import AppTopBar from '../components/AppTopBar.vue'
-import ConfirmDialog from '../components/ConfirmDialog.vue'
 import DocumentDirectoryTree from '../components/DocumentDirectoryTree.vue'
 import DocumentList from '../components/DocumentList.vue'
 import DocumentStatusBadge from '../components/DocumentStatusBadge.vue'
@@ -188,6 +191,7 @@ const router = useRouter()
 const identity = computed(() => session.identity.value)
 const isAdministrator = computed(() => identity.value?.role === 'ADMIN')
 const isProjectContext = computed(() => typeof route.params.identifier === 'string')
+const isDraftWorkspace = computed(() => route.name === 'project-drafts' || route.name === 'project-draft-detail')
 const project = ref<ProjectDetail | null>(null)
 const currentDirectory = ref('')
 const page = ref(0)
@@ -203,10 +207,10 @@ const detailError = ref(false)
 const indexJob = ref<KnowledgeIndexJob | null>(null)
 const reindexBusy = ref(false)
 const selectedDocumentIds = ref<number[]>([])
-const batchConfirmOpen = ref(false)
-const batchPublishing = ref(false)
-const batchMessage = ref('')
-const batchError = ref(false)
+const mergeMessage = ref('')
+const mergeError = ref(false)
+const mergeStarting = ref(false)
+const mergeGoal = ref('将勾选草稿合并为一份稳定的业务知识，检查已发布知识中的重复、冲突、过期和缺口，并保留待人工判断项。')
 let indexPollController: AbortController | null = null
 const selectedDocumentId = computed(() => typeof route.params.documentId === 'string' ? Number(route.params.documentId) : null)
 const newTarget = computed(() => project.value ? `/projects/${project.value.identifier}/knowledge/new` : '/knowledge/new')
@@ -272,6 +276,7 @@ async function loadAdminDocuments(): Promise<void> {
     context: project.value ? 'PROJECT' : 'GLOBAL',
     project: project.value?.identifier,
     directory: currentDirectory.value || undefined,
+    status: isDraftWorkspace.value ? 'DRAFT' : undefined,
     page: page.value,
     size: 20,
   })
@@ -304,7 +309,7 @@ async function selectDirectory(path: string): Promise<void> {
   currentDirectory.value = path
   page.value = 0
   selectedDocumentIds.value = []
-  batchMessage.value = ''
+  mergeMessage.value = ''
   await loadDocuments()
 }
 
@@ -317,7 +322,9 @@ async function changePage(target: number): Promise<void> {
 
 async function clearSelectedDetailRoute(): Promise<void> {
   if (!selectedDocumentId.value) return
-  const target = project.value ? `/projects/${project.value.identifier}` : '/knowledge'
+  const target = isDraftWorkspace.value && project.value
+    ? `/projects/${project.value.identifier}/drafts`
+    : project.value ? `/projects/${project.value.identifier}` : '/knowledge'
   await router.replace({ path: target, query: route.query })
 }
 
@@ -331,28 +338,29 @@ function toggleAllDrafts(): void {
   selectedDocumentIds.value = allDraftsSelected.value ? [] : draftsOnPage.value.map(document => document.id)
 }
 
-async function publishSelectedDocuments(): Promise<void> {
-  if (!isAdministrator.value || selectedDocumentIds.value.length === 0 || batchPublishing.value) return
-  batchPublishing.value = true
-  batchError.value = false
-  batchMessage.value = ''
+async function startMerge(): Promise<void> {
+  if (!project.value || selectedDocumentIds.value.length === 0 || mergeStarting.value) return
+  mergeStarting.value = true
+  mergeError.value = false
+  mergeMessage.value = ''
   try {
-    const result = await api.batchPublishDocuments(selectedDocumentIds.value)
-    selectedDocumentIds.value = []
-    batchConfirmOpen.value = false
-    batchMessage.value = `已发布 ${result.publishedCount} 篇，重新索引后可参与检索。`
-    await loadDocuments()
-  } catch {
-    batchError.value = true
-    batchMessage.value = '批量发布失败，全部文档保持原状态，请刷新后重试。'
+    const task = await knowledgeTaskApi.start(project.value.identifier, selectedDocumentIds.value, mergeGoal.value.trim())
+    await router.push(`/projects/${project.value.identifier}/knowledge-tasks/${task.conversationId}`)
+  } catch (failure) {
+    mergeError.value = true
+    mergeMessage.value = failure instanceof ApiError
+      ? failure.message
+      : '合并整理启动失败，请稍后重试。'
   } finally {
-    batchPublishing.value = false
+    mergeStarting.value = false
   }
 }
 
 async function openDocument(documentId: number): Promise<void> {
-  const target = project.value
-    ? `/projects/${project.value.identifier}/knowledge/${documentId}`
+  const target = isDraftWorkspace.value && project.value
+    ? `/projects/${project.value.identifier}/drafts/${documentId}`
+    : project.value
+      ? `/projects/${project.value.identifier}/knowledge/${documentId}`
     : `/knowledge/${documentId}`
   await router.push({ path: target, query: route.query })
   await loadDetail(documentId)
@@ -412,5 +420,18 @@ async function logout(): Promise<void> {
 }
 
 onMounted(initialize)
+
+watch(() => route.name, async (current, previous) => {
+  const workspaceRoutes = new Set(['project-knowledge', 'project-knowledge-detail', 'project-drafts', 'project-draft-detail'])
+  if (current === previous || !workspaceRoutes.has(String(current)) || !workspaceRoutes.has(String(previous))) return
+  const currentIsDraft = current === 'project-drafts' || current === 'project-draft-detail'
+  const previousIsDraft = previous === 'project-drafts' || previous === 'project-draft-detail'
+  if (currentIsDraft === previousIsDraft) return
+  currentDirectory.value = ''
+  page.value = 0
+  selectedDocumentIds.value = []
+  mergeMessage.value = ''
+  await loadDocuments()
+})
 onBeforeUnmount(() => indexPollController?.abort())
 </script>

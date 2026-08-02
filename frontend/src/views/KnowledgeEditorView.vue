@@ -52,8 +52,8 @@
             <NoticeBanner>支持 Markdown、纯文本或 ZIP，单批上传上限 20 MiB。ZIP 中不支持、危险或无效条目会分别记录，不会掩盖其他结果。</NoticeBanner>
             <label class="editor-field">
               <span>选择文件</span>
-              <input data-testid="import-file" type="file" accept=".md,.markdown,.txt,.zip,text/markdown,text/plain,application/zip" :disabled="importing" @change="selectFile">
-              <small>文件名和压缩包条目均视为不可信文本。</small>
+              <input data-testid="import-file" type="file" multiple accept=".md,.markdown,.txt,.zip,text/markdown,text/plain,application/zip" :disabled="importing" @change="selectFile">
+              <small>可一次选择多个 Markdown；每个文件分别导入为待处理草稿。文件名和压缩包条目均视为不可信文本。</small>
             </label>
             <ScopeFields v-model="scope" :projects="scopeProjects" :disabled="importing" />
             <label class="editor-field">
@@ -66,10 +66,12 @@
               <textarea v-model="source.curationNote" :disabled="importing" />
             </label>
             <p v-if="importError" data-testid="import-error" class="inline-error" role="alert">{{ importError }}</p>
-            <AppButton data-testid="import-submit" icon="file" :busy="importing" busy-label="正在导入…" :disabled="!selectedFile" @click="submitImport">开始导入</AppButton>
+            <AppButton data-testid="import-submit" icon="file" :busy="importing" busy-label="正在导入…" :disabled="selectedFiles.length === 0" @click="submitImport">上传到待处理草稿</AppButton>
           </form>
           <aside class="knowledge-import-results">
-            <ImportResultPanel v-if="importBatch" :batch="importBatch" @open-document="openImportedDocument" />
+            <template v-if="importBatches.length">
+              <ImportResultPanel v-for="batch in importBatches" :key="batch.id" :batch="batch" @open-document="openImportedDocument" />
+            </template>
             <div v-else class="knowledge-detail-state"><IconGlyph name="file" /><span>完成上传后在这里查看成功、失败和忽略结果</span></div>
           </aside>
         </div>
@@ -214,10 +216,10 @@ const lifecycleBusy = ref(false)
 const confirmAction = ref<'publish' | 'archive' | null>(null)
 const saveError = ref('')
 const fieldErrors = reactive<Record<string, string>>({})
-const selectedFile = ref<File | null>(null)
+const selectedFiles = ref<File[]>([])
 const importing = ref(false)
 const importError = ref('')
-const importBatch = ref<KnowledgeImportBatch | null>(null)
+const importBatches = ref<KnowledgeImportBatch[]>([])
 
 const form = reactive({ format: 'MARKDOWN' as 'MARKDOWN' | 'PLAIN_TEXT', title: '', body: '' })
 const scope = ref<KnowledgeScopeInput>({ type: 'GLOBAL', project: null, branch: null })
@@ -360,29 +362,31 @@ async function confirmLifecycle(): Promise<void> {
 }
 
 function selectFile(event: Event): void {
-  selectedFile.value = (event.target as HTMLInputElement).files?.[0] ?? null
-  importBatch.value = null
+  selectedFiles.value = Array.from((event.target as HTMLInputElement).files ?? [])
+  importBatches.value = []
   importError.value = ''
 }
 
 async function submitImport(): Promise<void> {
-  if (!selectedFile.value || importing.value) {
+  if (selectedFiles.value.length === 0 || importing.value) {
     return
   }
   importing.value = true
   importError.value = ''
-  importBatch.value = null
+  importBatches.value = []
   try {
-    importBatch.value = await api.importDocuments(selectedFile.value, {
-      scope: { ...scope.value },
-      directoryPrefix: directory.value,
-      tags: [...tags.value],
-      sourceDefaults: {
-        type: 'UPLOAD',
-        originalFilename: selectedFile.value.name,
-        curationNote: source.curationNote ?? null,
-      },
-    })
+    for (const file of selectedFiles.value) {
+      importBatches.value.push(await api.importDocuments(file, {
+        scope: { ...scope.value },
+        directoryPrefix: directory.value,
+        tags: [...tags.value],
+        sourceDefaults: {
+          type: 'UPLOAD',
+          originalFilename: file.name,
+          curationNote: source.curationNote ?? null,
+        },
+      }))
+    }
   } catch (error) {
     if (error instanceof ApiError) {
       importError.value = ({
@@ -391,7 +395,9 @@ async function submitImport(): Promise<void> {
         DOCUMENT_IMPORT_ARCHIVE_INVALID: 'ZIP 无法安全读取，请检查加密、分卷或压缩结构。',
       } as Record<string, string>)[error.code] ?? error.message
     } else {
-      importError.value = '导入请求失败，未生成任何批次结果。'
+      importError.value = importBatches.value.length
+        ? '后续文件导入失败，已成功导入的草稿保持不变。'
+        : '导入请求失败，未生成任何批次结果。'
     }
   } finally {
     importing.value = false

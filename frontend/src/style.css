@@ -3426,3 +3426,4 @@ a {
   color: var(--muted);
   font-size: 11px;
 }
+.knowledge-merge-goal{display:grid;grid-template-columns:auto minmax(260px,1fr);gap:12px;align-items:center;margin:12px 0;padding:12px 14px;border:1px solid #dfe5ee;border-radius:10px;background:#f8f9fc;color:#344054;font-weight:600}.knowledge-merge-goal input{min-width:0;border:1px solid #ccd4e0;border-radius:8px;padding:9px 11px;background:#fff;color:#243247}

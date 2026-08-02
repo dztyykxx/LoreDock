@@ -93,7 +93,9 @@ export interface BrowseKnowledgeInput {
   size?: number
 }
 
-export type AdminBrowseKnowledgeInput = Omit<BrowseKnowledgeInput, 'includeDescendants'>
+export type AdminBrowseKnowledgeInput = Omit<BrowseKnowledgeInput, 'includeDescendants'> & {
+  status?: DocumentStatus
+}
 
 export interface BatchPublishKnowledgeResult {
   requestedCount: number
@@ -207,6 +209,7 @@ export const knowledgeApi: KnowledgeApi = {
     appendQuery(query, 'context', input.context)
     appendQuery(query, 'project', input.project)
     appendQuery(query, 'directory', input.directory)
+    appendQuery(query, 'status', input.status)
     appendQuery(query, 'page', input.page)
     appendQuery(query, 'size', input.size)
     return requestJson<KnowledgeBrowseResult>(`/api/admin/knowledge-documents/browse?${query}`)

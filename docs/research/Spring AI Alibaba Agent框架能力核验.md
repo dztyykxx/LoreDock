@@ -26,8 +26,7 @@ LoreDock 当前锁定 Spring AI `1.1.2`、Spring AI Alibaba `1.1.2.3`。本次�
 | 能力 | 锁定版本原生组件 | LoreDock 处理 |
 |---|---|---|
 | ReAct 模型/Tool 循环 | `ReactAgent`、`streamMessages` | 直接使用；不包装第二层 Runtime |
-| classpath Skill | `ClasspathSkillRegistry`、`SkillsAgentHook` | `project-qa` 直接加载 |
-| 文件系统 Skill | `FileSystemSkillRegistry`、`SkillsAgentHook` | 每个知识整理 run 创建独立 Registry/Hook |
+| classpath Skill | `ClasspathSkillRegistry`、`SkillsAgentHook` | `project-qa` 与 `knowledge-curator` 随应用加载，每个运行创建独立 Hook |
 | Skill 渐进披露 | `read_skill`、`SkillsInterceptor`、`groupedTools` | 业务 Tool 按服务端 Skill 分组，激活前不暴露 |
 | Tool 注册与解析 | `ToolCallback`、`ToolCallbackProvider`、`ToolCallbackResolver` | 只提供安全业务 Callback，不建注册框架 |
 | 子 Agent | `AgentSpecLoader`、`AgentSpecReactAgentFactory`、`TaskToolsBuilder`、`TaskTool`、`AgentTool` | 文件化 Spec 直接装配，只补安全预检 |

@@ -12,7 +12,7 @@
 
 | T6B 能力 | 锁定版本原生组件 | 源码确认的行为 | LoreDock 只需补充 |
 |---|---|---|---|
-| 本地 Skill | `FileSystemSkillRegistry`、`SkillsAgentHook`、`SkillsInterceptor` | Registry 构建时加载目录；Hook 可在每次 Agent 调用前 `reload()`；Interceptor 注入轻量 Skill 列表，并在模型真实调用 `read_skill` 后按需加入该 Skill 的 Tool | 配置受控目录、为每个新 run 固定摘要与允许 Tool；不暴露 Skill 示例中的 Shell/Python 能力 |
+| 内置 Skill | `ClasspathSkillRegistry`、`SkillsAgentHook`、`SkillsInterceptor` | Registry 从应用 classpath 加载 Skill；Interceptor 注入轻量 Skill 列表，并在模型真实调用 `read_skill` 后按需加入该 Skill 的 Tool | 随应用发布允许的 Skill、记录摘要与允许 Tool；不暴露 Skill 示例中的 Shell/Python 能力 |
 | Agent Spec | `AgentSpecLoader`、`AgentSpecReactAgentFactory` | Loader 解析带 YAML front matter 的 Markdown；Factory 用 Spec 创建 `ReactAgent` 并按名称过滤默认 Tool | 新 run 前校验文件、必填字段、重复名称、显式 Tool 和允许集；每个新 run 重新构建，运行中不替换定义 |
 | 子 Agent 委派 | `TaskToolsBuilder`、`TaskTool`、`TaskOutputTool`、`AgentTool` | `TaskToolsBuilder` 可从目录/Resource 加载 Spec 并创建 Task Tool；`AgentTool` 把 `ReactAgent` 直接包装为 Tool，并从父配置派生子 Agent threadId | 选择符合当前长任务恢复边界的框架 Tool，注入受限业务 Tool 和公开事件；不自建调度器或模型/Tool 循环 |
 | Tool 注册与解析 | Spring AI `ToolCallback`、`ToolCallbackProvider`、`ToolCallbackResolver` | `ReactAgent.Builder` 可直接接收 callback、provider、名称和 resolver；`toolContext(Map)` 最终形成不可变 `ToolContext` | 提供固定操作者、项目、会话、run 和截止时间；在业务 Service 再做权限、范围、来源、上限与幂等校验 |

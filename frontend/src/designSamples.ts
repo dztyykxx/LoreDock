@@ -7,9 +7,8 @@ export const DESIGN_SAMPLES = {
   projectKnowledgeCounts: [26, 8],
   tabs: [
     { id: 'knowledge', label: '知识文档', count: 26 },
-    { id: 'changes', label: '变更知识', count: 4 },
-    { id: 'drafts', label: '待审核草稿', count: 3, tone: 'warning' },
-    { id: 'reports', label: '整理报告', count: 2 },
+    { id: 'qa', label: '项目问答' },
+    { id: 'drafts', label: '草稿', count: 3, tone: 'warning' },
     { id: 'settings', label: '项目设置' },
   ],
 } as const

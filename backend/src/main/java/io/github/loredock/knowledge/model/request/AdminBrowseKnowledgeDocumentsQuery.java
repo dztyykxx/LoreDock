@@ -1,6 +1,7 @@
 package io.github.loredock.knowledge.model.request;
 
 import io.github.loredock.knowledge.model.DocumentDirectory;
+import io.github.loredock.knowledge.model.enums.DocumentStatus;
 import io.github.loredock.knowledge.model.snapshot.KnowledgeBrowseContext;
 
 /**
@@ -8,12 +9,14 @@ import io.github.loredock.knowledge.model.snapshot.KnowledgeBrowseContext;
  *
  * @param context 当前通用或项目上下文
  * @param directory 可选目录；空值表示全部文档
+ * @param status 可选生命周期状态；草稿工作区固定传入 DRAFT
  * @param page 零基页码
  * @param size 页容量
  */
 public record AdminBrowseKnowledgeDocumentsQuery(
         KnowledgeBrowseContext context,
         DocumentDirectory directory,
+        DocumentStatus status,
         int page,
         int size
 ) {

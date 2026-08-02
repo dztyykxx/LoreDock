@@ -97,7 +97,7 @@ class KnowledgeCurationPersistenceIT {
         }
         for (String table : List.of(
                 "knowledge_draft_revision_source", "knowledge_draft_revision", "knowledge_draft",
-                "knowledge_task_message", "agent_evidence", "agent_run_event", "agent_run",
+                "knowledge_task_message", "knowledge_task_selected_draft", "agent_evidence", "agent_run_event", "agent_run",
                 "knowledge_task_conversation", "knowledge_document", "project_branch", "project_space")) {
             if (tableExists(table)) {
                 jdbc.update("delete from " + table);
@@ -105,6 +105,8 @@ class KnowledgeCurationPersistenceIT {
         }
         seedProject(PROJECT_A_ID, "atlas");
         seedProject(PROJECT_B_ID, "borealis");
+        seedInputDraft(PROJECT_A_ID, "atlas");
+        seedInputDraft(PROJECT_B_ID, "borealis");
     }
 
     /**
@@ -117,7 +119,7 @@ class KnowledgeCurationPersistenceIT {
                 select table_name from information_schema.tables
                 where table_schema = current_schema()
                   and table_name in (
-                    'knowledge_task_conversation', 'knowledge_task_message', 'knowledge_draft',
+                    'knowledge_task_conversation', 'knowledge_task_message', 'knowledge_task_selected_draft', 'knowledge_draft',
                     'knowledge_draft_revision', 'knowledge_draft_revision_source')
                 order by table_name
                 """, String.class);
@@ -128,7 +130,7 @@ class KnowledgeCurationPersistenceIT {
                 order by column_name
                 """, String.class);
 
-        assertThat(tables).hasSize(5);
+        assertThat(tables).hasSize(6);
         assertThat(runColumns).containsExactly(
                 "checkpoint_saved_at", "knowledge_task_conversation_id", "thread_id");
         System.out.printf("测试证据：场景=T6B Flyway，业务表=%d，agent_run扩展列=%s，数据库=PostgreSQL%n",
@@ -156,6 +158,53 @@ class KnowledgeCurationPersistenceIT {
         assertThat(count("agent_run")).isEqualTo(1);
         System.out.printf("测试证据：场景=系统触发幂等，会话=%s，run=%s，会话/运行=1/1%n",
                 first.conversationId(), first.runs().getFirst().runId());
+    }
+
+    /**
+     * 业务目的：点击合并时必须冻结所选草稿的正文和修订，原文之后被编辑也不能改变运行输入；
+     * 防止管理员审核的 Diff 基于一组悄然变化、无法复现的材料。
+     */
+    @Test
+    void selectedDraftContentIsFrozenWhenTheConversationStarts() {
+        Long documentId = inputDraftId("atlas");
+        KnowledgeTaskService.KnowledgeTask task = tasks.start(start(
+                "frozen-input", "admin", "atlas", KnowledgeTaskService.TriggerType.MANUAL));
+
+        jdbc.update("update knowledge_document set body = '# 后续编辑', revision = 2 where id = ?", documentId);
+        String frozen = jdbc.queryForObject("""
+                select markdown from knowledge_task_selected_draft
+                where conversation_id = ? and document_id = ?
+                """, String.class, task.conversationId(), documentId);
+        Long frozenRevision = jdbc.queryForObject("""
+                select document_revision from knowledge_task_selected_draft
+                where conversation_id = ? and document_id = ?
+                """, Long.class, task.conversationId(), documentId);
+
+        assertThat(frozen).isEqualTo("# 候选业务知识");
+        assertThat(frozenRevision).isEqualTo(1L);
+        assertThat(tasks.get(task.conversationId(), "admin").selectedDrafts())
+                .extracting(KnowledgeTaskService.SelectedDraft::documentId).containsExactly(documentId);
+        System.out.printf("测试证据：场景=固定勾选输入，会话=%s，文档=%s，固定修订=%d，原文当前修订=2%n",
+                task.conversationId(), documentId, frozenRevision);
+    }
+
+    /**
+     * 业务目的：一次整理只能选择同一项目的 Markdown DRAFT，非法选择必须在创建会话前整体拒绝；
+     * 防止跨项目知识泄露或留下没有有效输入的空运行。
+     */
+    @Test
+    void rejectsCrossProjectDraftSelectionBeforeCreatingConversation() {
+        KnowledgeTaskService.StartRequest request = new KnowledgeTaskService.StartRequest(
+                "cross-project", "admin", "atlas", List.of(inputDraftId("borealis")),
+                KnowledgeTaskService.TriggerType.MANUAL, "测试触发", "knowledge-curator", "整理项目知识");
+
+        assertThatThrownBy(() -> tasks.start(request))
+                .isInstanceOfSatisfying(KnowledgeTaskRequestException.class, failure ->
+                        assertThat(failure.code()).isEqualTo(
+                                KnowledgeTaskRequestException.Code.KNOWLEDGE_TASK_DRAFT_SELECTION_INVALID));
+        assertThat(count("knowledge_task_conversation")).isZero();
+        assertThat(count("agent_run")).isZero();
+        System.out.println("测试证据：场景=跨项目草稿选择，创建会话=0，创建run=0，结果=已拒绝");
     }
 
     /**
@@ -441,7 +490,8 @@ class KnowledgeCurationPersistenceIT {
             KnowledgeTaskService.TriggerType trigger
     ) {
         return new KnowledgeTaskService.StartRequest(
-                key, operator, project, trigger, "测试触发", "knowledge-curator", "整理项目知识");
+                key, operator, project, List.of(inputDraftId(project)), trigger,
+                "测试触发", "knowledge-curator", "整理项目知识");
     }
 
     private KnowledgeDraftService.AccessContext context(
@@ -494,5 +544,25 @@ class KnowledgeCurationPersistenceIT {
                     project_id, name, created_at, updated_at, created_by, updated_by)
                 values (?, 'main', now(), now(), 'test', 'test')
                 """, id);
+    }
+
+    private void seedInputDraft(Long projectId, String identifier) {
+        jdbc.update("""
+                insert into knowledge_document(
+                    format, title, body, directory_path, tags, scope_type, project_id, branch_id,
+                    source_type, wiki_url, original_filename, curation_note, status, revision,
+                    created_at, updated_at, created_by, updated_by)
+                values ('MARKDOWN', ?, '# 候选业务知识', '待处理', '[]', 'PROJECT', ?, null,
+                        'UPLOAD', null, ?, null, 'DRAFT', 1, now(), now(), 'test', 'test')
+                """, identifier + " 候选知识", projectId, identifier + ".md");
+    }
+
+    private Long inputDraftId(String projectIdentifier) {
+        return jdbc.queryForObject("""
+                select d.id from knowledge_document d
+                join project_space p on p.id = d.project_id
+                where p.identifier = ? and d.status = 'DRAFT'
+                order by d.id limit 1
+                """, Long.class, projectIdentifier);
     }
 }

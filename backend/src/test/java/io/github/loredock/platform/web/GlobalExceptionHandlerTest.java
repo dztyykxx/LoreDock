@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import io.github.loredock.agent.api.KnowledgeTaskRequestException;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -67,6 +68,18 @@ class GlobalExceptionHandlerTest {
     }
 
     /**
+     * 业务目的：内置知识整理 Skill 缺失属于服务能力不可用，而不是用户操作造成的任务状态冲突；
+     * 防止页面误导管理员反复调整正确的草稿勾选项。
+     */
+    @Test
+    void missingKnowledgeAgentDefinitionReturnsServiceUnavailable() throws Exception {
+        mockMvc.perform(get("/test/errors/knowledge-definition"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.code").value("KNOWLEDGE_TASK_DEFINITION_UNAVAILABLE"))
+                .andExpect(jsonPath("$.message").value("知识整理能力暂时不可用"));
+    }
+
+    /**
      * 业务目的：一次返回全部安全字段错误可减少反复提交，同时禁止回显敏感字段原值。
      */
     @Test
@@ -95,6 +108,11 @@ class GlobalExceptionHandlerTest {
         void unexpected() {
             throw new IllegalStateException(
                     "password=secret-value jdbc:postgresql://internal/db /Users/demo/private/file");
+        }
+
+        @GetMapping("/knowledge-definition")
+        void missingKnowledgeDefinition() {
+            throw new KnowledgeTaskRequestException(KnowledgeTaskRequestException.Code.AGENT_DEFINITION_INVALID);
         }
 
         @PostMapping("/validation")

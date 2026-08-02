@@ -15,6 +15,7 @@ export interface KnowledgeTask {
   conversationId: number
   projectIdentifier: string
   goal: string
+  selectedDrafts: Array<{ documentId: number; title: string; directory: string; originalFilename: string | null }>
   currentDraftId: number | null
   currentDraftRevision: number | null
   messages: Array<{ messageId: number; runId: number | null; role: string; subjectName: string | null; content: string; createdAt: string }>
@@ -46,6 +47,16 @@ function base(identifier: string, conversationId: number): string {
 }
 
 export const knowledgeTaskApi = {
+  start: (identifier: string, selectedDraftIds: number[], goal: string) => requestJson<KnowledgeTask>(
+    `/api/admin/projects/${encodeURIComponent(identifier)}/knowledge-tasks`, {
+      method: 'POST',
+      body: JSON.stringify({
+        idempotencyKey: crypto.randomUUID(),
+        selectedDraftIds,
+        triggerReason: '管理员在待处理草稿列表勾选并启动合并整理',
+        goal,
+      }),
+    }),
   detail: (identifier: string, conversationId: number) => requestJson<KnowledgeTask>(base(identifier, conversationId)),
   pause: (identifier: string, conversationId: number, runId: number) =>
     requestJson<KnowledgeTaskRun>(`${base(identifier, conversationId)}/runs/${runId}/pause`, { method: 'POST' }),

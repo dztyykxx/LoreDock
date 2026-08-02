@@ -63,7 +63,7 @@ public class KnowledgeDocumentQueryService
     }
 
     /**
-     * 管理员按当前上下文读取全部生命周期目录和子树分页。
+     * 管理员按当前上下文和可选生命周期状态读取目录与子树分页。
      *
      * @param query 已解析上下文和目录
      * @return 管理目录及摘要页
@@ -71,7 +71,7 @@ public class KnowledgeDocumentQueryService
     @Transactional(readOnly = true)
     public KnowledgeBrowseResult browseAdmin(AdminBrowseKnowledgeDocumentsQuery query) {
         return new KnowledgeBrowseResult(
-                directoryTree(documents.findAdminDirectoryPaths(query.context())),
+                directoryTree(documents.findAdminDirectoryPaths(query.context(), query.status())),
                 mapPage(documents.findAdmin(query)));
     }
 

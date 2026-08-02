@@ -47,10 +47,10 @@ describe('knowledgeApi', () => {
       .mockResolvedValueOnce(jsonResponse({ requestedCount: 2, publishedCount: 2, alreadyPublishedCount: 0 }))
     vi.stubGlobal('fetch', fetchMock)
 
-    await knowledgeApi.browseAdmin({ context: 'PROJECT', project: 'atlas', directory: '测试资料', page: 0, size: 20 })
+    await knowledgeApi.browseAdmin({ context: 'PROJECT', project: 'atlas', directory: '测试资料', status: 'DRAFT', page: 0, size: 20 })
     await knowledgeApi.batchPublishDocuments([16, 17])
 
-    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/admin/knowledge-documents/browse?context=PROJECT&project=atlas&directory=%E6%B5%8B%E8%AF%95%E8%B5%84%E6%96%99&page=0&size=20')
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/admin/knowledge-documents/browse?context=PROJECT&project=atlas&directory=%E6%B5%8B%E8%AF%95%E8%B5%84%E6%96%99&status=DRAFT&page=0&size=20')
     expect(fetchMock.mock.calls[1]?.[0]).toBe('/api/admin/knowledge-documents/batch-publish')
     expect(JSON.parse(String((fetchMock.mock.calls[1]?.[1] as RequestInit).body))).toEqual({ documentIds: [16, 17] })
   })

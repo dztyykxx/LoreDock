@@ -252,7 +252,7 @@ describe('KnowledgeEditorView', () => {
   /**
    * 业务目的：导入页必须明确格式和上限、把文件与 options 一起提交，并在部分成功时保留成功、失败和忽略入口。
    */
-  it('uploads one batch and preserves every partial outcome', async () => {
+  it('uploads multiple files as separate pending draft batches', async () => {
     const batch: KnowledgeImportBatch = {
       id: 41,
       originalFilename: '<script>bad()</script>.zip',
@@ -270,7 +270,9 @@ describe('KnowledgeEditorView', () => {
       createdAt: '2026-07-30T00:00:00Z',
       createdBy: 'admin',
     }
-    const importDocuments = vi.fn().mockResolvedValue(batch)
+    const secondBatch = { ...batch, id: 42, originalFilename: 'second.md', status: 'SUCCEEDED' as const,
+      succeededCount: 1, failedCount: 0, ignoredCount: 0, items: [{ ...batch.items[0], entryName: 'second.md', documentId: 53 }] }
+    const importDocuments = vi.fn().mockResolvedValueOnce(batch).mockResolvedValueOnce(secondBatch)
     const wrapper = await mountView('/projects/network-designer/knowledge/import', {
       username: 'admin', displayName: '管理员', role: 'ADMIN',
     }, createKnowledgeApi({ importDocuments }))
@@ -278,16 +280,20 @@ describe('KnowledgeEditorView', () => {
     expect(wrapper.text()).toContain('Markdown、纯文本或 ZIP')
     expect(wrapper.text()).toContain('20 MiB')
     const file = new File(['zip'], '<script>bad()</script>.zip', { type: 'application/zip' })
+    const secondFile = new File(['# second'], 'second.md', { type: 'text/markdown' })
     const input = wrapper.get('[data-testid="import-file"]')
-    Object.defineProperty(input.element, 'files', { value: [file], configurable: true })
+    Object.defineProperty(input.element, 'files', { value: [file, secondFile], configurable: true })
     await input.trigger('change')
     await wrapper.get('[data-testid="import-submit"]').trigger('click')
     await flushPromises()
 
-    expect(importDocuments).toHaveBeenCalledOnce()
+    expect(importDocuments).toHaveBeenCalledTimes(2)
     expect(importDocuments).toHaveBeenCalledWith(file, expect.objectContaining({
       scope: { type: 'PROJECT', project: 'network-designer', branch: null },
       sourceDefaults: expect.objectContaining({ type: 'UPLOAD', originalFilename: '<script>bad()</script>.zip' }),
+    }))
+    expect(importDocuments).toHaveBeenCalledWith(secondFile, expect.objectContaining({
+      sourceDefaults: expect.objectContaining({ originalFilename: 'second.md' }),
     }))
     expect(wrapper.text()).toContain('成功 1')
     expect(wrapper.text()).toContain('失败 1')

@@ -1,143 +1,74 @@
 package io.github.loredock.agent.service;
 
-import com.alibaba.cloud.ai.graph.agent.tools.task.AgentSpec;
-import com.alibaba.cloud.ai.graph.agent.tools.task.AgentSpecLoader;
-import com.alibaba.cloud.ai.graph.agent.tools.task.AgentSpecReactAgentFactory;
-import com.alibaba.cloud.ai.graph.agent.tools.task.TaskToolsBuilder;
 import com.alibaba.cloud.ai.graph.agent.hook.skills.SkillsAgentHook;
-import com.alibaba.cloud.ai.graph.skills.registry.filesystem.FileSystemSkillRegistry;
+import com.alibaba.cloud.ai.graph.skills.registry.SkillRegistry;
+import com.alibaba.cloud.ai.graph.skills.registry.classpath.ClasspathSkillRegistry;
 import io.github.loredock.agent.api.KnowledgeTaskRequestException;
 import io.github.loredock.agent.api.KnowledgeTaskService.RuntimeDefinition;
 import io.github.loredock.agent.config.AgentProperties;
-import io.github.loredock.agent.config.KnowledgeAgentProperties;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HexFormat;
-import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Set;
-import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.tool.resolution.ToolCallbackResolver;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 /**
- * 每个新 run 使用框架 Registry 与 AgentSpecLoader 重新取得本地定义，并在模型调用前执行 LoreDock
- * 的确定性 Tool 允许集预检。该类不缓存、不解析替代格式，也不实现自研 Loader 或 Tool Registry。
+ * 直接使用框架 ClasspathSkillRegistry 取得随应用发布的 Workflow Skill，
+ * 并将服务端显式注册的业务 Tool 交给 SkillsAgentHook 渐进披露。不加载 Agent Spec，
+ * 不组装子 Agent，不实现自研 Loader 或 Tool Registry。
  */
 @Service
 public class KnowledgeAgentDefinitionService {
 
-    private final KnowledgeAgentProperties properties;
+    private final ClasspathSkillRegistry skills;
     private final ToolCallbackProvider toolProvider;
-    private final ObjectProvider<ChatModel> chatModel;
     private final AgentProperties agentProperties;
 
     /**
-     * @param properties 固定定义目录
+     * @param skills 随应用发布的框架 Skill Registry
      * @param toolProvider 标准 ToolCallbackProvider 候选集
-     * @param chatModel 可选生产或测试模型
      * @param agentProperties 固定模型描述
      */
     public KnowledgeAgentDefinitionService(
-            KnowledgeAgentProperties properties,
+            ClasspathSkillRegistry skills,
             ToolCallbackProvider toolProvider,
-            ObjectProvider<ChatModel> chatModel,
             AgentProperties agentProperties
     ) {
-        this.properties = properties;
+        this.skills = skills;
         this.toolProvider = toolProvider;
-        this.chatModel = chatModel;
         this.agentProperties = agentProperties;
     }
 
     /**
-     * 加载并冻结本轮定义摘要；Agent Spec 未显式声明 Tool、引用未知 Tool 或文件无效时明确拒绝。
+     * 加载并冻结本轮 Skill 和 Tool 摘要。
      *
      * @param skillName 本轮目标 Skill
-     * @return 固定摘要与框架 Task/TaskOutput Tool
-     * @throws KnowledgeTaskRequestException Skill/Spec 无效或 Tool 越权
+     * @return 固定摘要、随应用发布的 Registry 和业务 Tool
+     * @throws KnowledgeTaskRequestException Skill 无效
      */
     public LoadedDefinition load(String skillName) {
         try {
-            // 每个新 run 创建一次 Registry 快照，摘要和执行共享这一实例，避免加载后再次 reload 造成定义漂移。
-            FileSystemSkillRegistry skills = FileSystemSkillRegistry.builder()
-                    .userSkillsDirectory(Path.of(properties.skillsDirectory(), ".empty-user").toString())
-                    .projectSkillsDirectory(properties.skillsDirectory())
-                    .build();
             if (!skills.contains(skillName)) {
                 throw invalidDefinition();
             }
             String skillContent = skills.readSkillContent(skillName);
-            Path specDirectory = Path.of(properties.agentSpecsDirectory());
-            List<AgentSpec> specs = AgentSpecLoader.loadFromDirectory(specDirectory);
-            if (specs.isEmpty()) {
-                throw invalidDefinition();
-            }
             List<ToolCallback> callbacks = List.of(toolProvider.getToolCallbacks());
             List<String> allowed = callbacks.stream()
                     .map(value -> value.getToolDefinition().name()).sorted().toList();
-            validateSpecs(specs, allowed);
-            List<ToolCallback> taskTools = assembleTaskTools(specs, callbacks);
             RuntimeDefinition runtime = new RuntimeDefinition(
-                    skillName, hash(skillContent), digestAgentSpecs(specDirectory),
+                    skillName, hash(skillContent), hash(""),
                     agentProperties.modelName(), allowed);
-            return new LoadedDefinition(runtime, taskTools, skills, callbacks);
+            return new LoadedDefinition(runtime, skills, callbacks);
         } catch (KnowledgeTaskRequestException exception) {
             throw exception;
         } catch (IOException | RuntimeException exception) {
             throw invalidDefinition();
         }
-    }
-
-    private void validateSpecs(List<AgentSpec> specs, List<String> allowedTools) {
-        Set<String> names = new LinkedHashSet<>();
-        for (AgentSpec spec : specs) {
-            if (spec.name() == null || spec.name().isBlank() || !names.add(spec.name())
-                    || spec.toolNames() == null || spec.toolNames().isEmpty()) {
-                throw invalidDefinition();
-            }
-            if (spec.toolNames().stream().anyMatch(tool -> !allowedTools.contains(tool))) {
-                throw new KnowledgeTaskRequestException(
-                        KnowledgeTaskRequestException.Code.AGENT_TOOL_NOT_ALLOWED);
-            }
-        }
-    }
-
-    private List<ToolCallback> assembleTaskTools(List<AgentSpec> specs, List<ToolCallback> callbacks) {
-        ChatModel model = chatModel.getIfAvailable();
-        if (model == null) {
-            // 未启用模型的管理/迁移进程仍执行定义与 Tool 预检；实际运行入口会明确检查模型可用性。
-            return List.of();
-        }
-        AgentSpecReactAgentFactory factory = AgentSpecReactAgentFactory.builder()
-                .chatModel(model).defaultTools(callbacks).build();
-        var builder = TaskToolsBuilder.builder().agentSpecFactory(factory);
-        specs.forEach(spec -> builder.subAgent(spec.name(), factory.create(spec)));
-        return List.copyOf(builder.build());
-    }
-
-    private String digestAgentSpecs(Path root) throws IOException {
-        List<Path> files;
-        try (var values = Files.walk(root)) {
-            files = values.filter(Files::isRegularFile)
-                    .filter(path -> path.getFileName().toString().endsWith(".md"))
-                    .sorted(Comparator.comparing(path -> root.relativize(path).toString()))
-                    .toList();
-        }
-        List<String> values = new ArrayList<>(files.size());
-        for (Path file : files) {
-            values.add(root.relativize(file) + "\n" + Files.readString(file, StandardCharsets.UTF_8));
-        }
-        return hash(String.join("\n---\n", values));
     }
 
     private KnowledgeTaskRequestException invalidDefinition() {
@@ -155,22 +86,19 @@ public class KnowledgeAgentDefinitionService {
 
     /**
      * @param runtime 本轮不可变定义摘要
-     * @param taskTools 框架原生 Task 与 TaskOutput Tool
-     * @param skills 与摘要来自同一时点、供本轮 Hook 使用的 Registry
+     * @param skills 随应用发布、供本轮 Hook 使用的 Registry
      * @param businessTools 仅在 Skill 激活后动态披露的服务端业务 Tool
      */
     public record LoadedDefinition(
             RuntimeDefinition runtime,
-            List<ToolCallback> taskTools,
-            FileSystemSkillRegistry skills,
+            SkillRegistry skills,
             List<ToolCallback> businessTools
     ) {
         public LoadedDefinition {
-            taskTools = List.copyOf(taskTools);
             businessTools = List.copyOf(businessTools);
         }
 
-        /** @return 绑定本轮 Registry 快照并按 Skill 渐进披露业务 Tool 的独立框架 Hook */
+        /** @return 绑定内置 Registry 并按 Skill 渐进披露业务 Tool 的独立框架 Hook */
         public SkillsAgentHook createSkillHook(ToolCallbackResolver resolver) {
             return SkillsAgentHook.builder()
                     .skillRegistry(skills)

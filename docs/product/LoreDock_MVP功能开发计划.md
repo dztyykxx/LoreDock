@@ -4,7 +4,7 @@
 |---|---|
 | 计划目标 | 在不裁剪需求基线 P0/P1 功能的前提下，按功能任务逐项完成 LoreDock MVP |
 | 计划方式 | 按功能和依赖关系拆分，不按日期拆分 |
-| 当前进度 | T1～T5、T6A、T6B、T7、T7A 已完成，首个可用闭环、第一阶段后端模块化重构、单 Agent 公开过程展示、多轮会话与安全知识整理平台已验收；下一阶段进入 T8 知识挖掘与冲突整理 |
+| 当前进度 | T1～T7A、T9 已完成；T8 的代码与自动化测试已完成，待真实模型演示验收；剩余主线为 T8 演示验收与 T10 集成验收 |
 | 需求依据 | `项目业务上下文知识库_MVP需求文档_v1.0.md` |
 | 执行方法 | 每个功能任务分别遵循 OpenSpec、接口优先和 TDD |
 
@@ -24,7 +24,7 @@
 
 为尽早验证 LoreDock 的核心用户价值，当前首个可用闭环收口为：管理员上传并发布知识，用户随后可以在指定项目内进行混合检索与带引用问答。代码快照和前端分支操作均已退出当前 MVP；后端保留既有分支能力，所有 Web 流程省略分支并使用默认 `main`。
 
-首个可用闭环不等同于需求基线定义的完整 MVP。近期先用 T7A 补齐单 Agent 的安全过程展示、流式事件和多轮会话；随后由 T6B 直接接入 Spring AI Alibaba 已提供的本地 Skill、Agent Spec、Task/Agent Tool、Hook、Human-in-the-Loop 和持久化 Graph Checkpoint，把平台检索、读文档、写草稿、校验证据等 LoreDock 业务能力实现为安全 Tool。T8 起使用这些框架能力和业务 Tool 编排知识挖掘与冲突整理 Agent。短时 QA 续跑、单个模型/Tool 调用内部精确续传、项目长期记忆、Web Skill 市场和运行时任意创建 Agent 不进入当前 MVP。
+首个可用闭环不等同于需求基线定义的完整 MVP。T6B 已接入 Spring AI Alibaba 的本地 Skill、Hook、Human-in-the-Loop 和持久化 Graph Checkpoint，并提供受控 Tool 基础。后续不再建设多 Agent、需求/PR/代码服务端生成、定期整理或额外运营任务；只完成 Web Markdown 提交、平台文档检索与读取 Tool、单一 `knowledge-curator` Workflow、草稿 Diff 和人工发布，再增加复用同一 Service 的 MCP 入口。
 
 ## 2. 功能依赖关系
 
@@ -38,20 +38,10 @@ flowchart TD
     T5 --> T6A["T6A Spring AI Alibaba 迁移与单 Agent 问答运行时"]
     T6A --> T7["T7 Web 项目问答 / 首个可用闭环"]
     T7 --> T7A["T7A 单 Agent 过程展示与多轮会话"]
-    T7A --> T6B["T6B 本地 Skill、Agent Spec 与安全 Tool 平台"]
-    T6B --> T8["T8 知识挖掘与冲突整理多 Agent"]
-    T8 --> T9["T9 需求到实现知识沉淀"]
-    T7A --> T10["T10 知识体检与定期整理"]
-    T8 --> T10
-    T9 --> T10
-    T5 --> T11["T11 MCP 只读服务"]
-    T7A --> T12["T12 完整 Web 前端"]
-    T8 --> T12
-    T9 --> T12
-    T10 --> T12
-    T6B --> T12
-    T11 --> T13["T13 部署、验收与演示"]
-    T12 --> T13
+    T7A --> T6B["T6B 本地 Skill 与安全 Tool 平台"]
+    T6B --> T8["T8 Web Markdown 提交与单 Agent 冲突整理"]
+    T8 --> T9["T9 MCP 提交与查询入口"]
+    T9 --> T10["T10 集成、部署与验收"]
 ```
 
 ## 3. 功能任务
@@ -171,18 +161,18 @@ flowchart TD
 
 重点验收：依赖树中不存在 Spring Boot 4 或 Spring AI 2.0 残留；T1～T5 相关测试在新版本基线上通过；`project-qa` 能在指定项目内调用知识检索工具并返回引用；越权工具调用、跨范围读取和无依据回答被拒绝；达到步骤或时间限制后安全停止。
 
-### [x] T6B：Spring AI Alibaba Skill/Agent Spec 接入与平台 Tool
+### [x] T6B：Spring AI Alibaba Skill 与平台 Tool 基础
 
-目标：在 T6A 的统一运行时上直接复用 Spring AI Alibaba Agent Framework 与 Graph 的 Skill、Agent Spec、子 Agent、Hook、Human-in-the-Loop 和 Checkpoint 能力，只把 LoreDock 平台业务能力实现为受服务端约束的安全 Tool，为 T8～T10 提供可迭代的编排基础。
+目标：直接复用 Spring AI Alibaba Agent Framework 与 Graph 的 Skill、Hook、Human-in-the-Loop 和 Checkpoint 能力，只把 LoreDock 平台业务能力实现为受服务端约束的安全 Tool，为 T8～T10 提供可迭代的单 Agent 基础。
 
-覆盖需求：FR-AGENT-01～20 中的框架接入、平台 Tool、运行固定、对话式长任务、版本化草稿、暂停恢复与安全边界；FR-AGENT-08 由 T8 完成业务接入，FR-AGENT-09 由 T10 完成定时触发。
+覆盖需求：FR-AGENT-01～20 中仍属于当前产品边界的框架接入、平台 Tool、运行固定、对话式任务、版本化草稿、暂停恢复与安全边界；实际业务接入由 T8 完成。
 
 功能范围：
 
-- 需求和设计阶段先对照项目锁定的 Spring AI Alibaba 版本核对本地源码/API 与官方资料；框架已提供的 Runtime、Skill Registry/Loader、Agent Spec Loader、子 Agent 调度、Tool 解析、Hook、Checkpoint 和 Human-in-the-Loop 不得由 LoreDock 重复实现；
-- 每个 run 使用独立 `FileSystemSkillRegistry` 和 `SkillsAgentHook` 从仓库或部署挂载目录加载 Skill，通过 `groupedTools` 渐进披露业务 Tool；接受和执行复用同一 Registry 快照并关闭运行内 autoReload，新定义只影响后续 run；LoreDock 只记录本次运行实际定义和 Tool 集合摘要；
-- 使用 `AgentSpecLoader`、`AgentSpecReactAgentFactory`、`TaskToolsBuilder`、`TaskTool`/`TaskOutputTool` 或 `AgentTool` 加载预定义子 Agent，让协调 Agent 自主决定是否以及何时调用；不自建 Agent Spec Loader 或子 Agent 调度器；
-- 使用 Spring AI `ToolCallback`、`ToolCallbackProvider` 和 `ToolCallbackResolver` 注册 LoreDock Tool，不自建通用 Tool Registry；Agent Spec 必须显式声明 Tool，运行前校验未知名称，候选 Tool 集合不包含 Shell、任意 HTTP、数据库管理、任意文件系统或正式知识发布能力；
+- 对照项目锁定的 Spring AI Alibaba 版本核对本地源码/API 与官方资料；框架已提供的 Agent 循环、Skill Registry、Tool 解析、Hook、Checkpoint 和 Human-in-the-Loop 不得由 LoreDock 重复实现；
+- 使用共享 `ClasspathSkillRegistry` 从应用资源加载问答与知识整理 Skill，每个 run 创建独立 `SkillsAgentHook` 并通过 `groupedTools` 渐进披露业务 Tool；LoreDock 记录本次运行实际定义和 Tool 集合摘要；
+- 知识整理不使用 Agent Spec、Task/Agent Tool 或子 Agent；一个 `ReactAgent` 激活一个 `knowledge-curator` Workflow Skill 并完成检索、核对、发现记录和草稿生成；
+- 使用 Spring AI `@Tool`、`@ToolParam`、`MethodToolCallbackProvider` 和 `ToolCallbackResolver` 注册 LoreDock Tool，不自建通用 Tool Registry；候选 Tool 集合不包含 Shell、任意 HTTP、数据库管理、任意文件系统或正式知识发布能力；
 - 首批 LoreDock Tool 提供项目知识检索、指定文档读取、证据来源读取、草稿创建/读取/增量更新、修订 Diff、整理报告、冲突候选和知识缺口保存；引用与来源完整性、运行事件记录和正式发布门禁由服务端强制执行，不依赖模型主动调用；
 - Tool 使用框架 `ToolContext`/运行配置取得操作者、项目、run、会话和截止时间，模型请求不得携带或扩大这些范围；Tool 内强制校验知识状态、参数、结果数量、超时、来源、幂等键和写入目标；
 - 使用框架 `ModelCallLimitHook`、`ToolCallLimitHook` 及既有服务端上限限制调用；如需运行级聚合统计，只通过 Hook/事件做薄扩展，不另建运行时；
@@ -191,13 +181,13 @@ flowchart TD
 - `PAUSE_REQUESTED`、`WAITING_FOR_USER` 等页面状态只投影框架 interrupt、Checkpoint 和 human feedback 的真实状态，不在业务代码复制一套 Agent 状态机；
 - 草稿先创建空基线或绑定待修订文档，再通过 `draft_read` 和 `draft_update(baseRevision, idempotencyKey, operations, sourceRefs)` 进行区块级插入、替换和删除；事实修改引用 evidenceId，用户要求的措辞/结构修改可引用用户消息；禁止模型最终消息直接覆盖全文；
 - 每次成功更新生成不可变草稿修订和 Markdown Diff；基础修订冲突必须拒绝并重新读取，不自动覆盖；
-- 为草稿修订、报告、冲突候选和人工决定等写 Tool 定义稳定幂等键与重复提交语义，防止暂停、恢复或节点重放造成重复副作用；
+- 为草稿修订、结构化发现和人工决定等写 Tool 定义稳定幂等键与重复提交语义，防止暂停、恢复或节点重放造成重复副作用；
 - 从 ReactAgent/Graph 的模型、Tool、Hook 输出投影并保存开始、结束、失败、输入输出摘要、来源引用和最终结果等安全事件，不提供让模型自行声明事件的 Tool；
-- 本地下载的 Skill/Agent 文件按不可信配置处理，只能引用服务端显式提供的 ToolCallback，不允许执行任意脚本、命令或网络请求；
+- 本地 Skill 文件按不可信配置处理，只能引用服务端显式提供的 ToolCallback，不允许执行任意脚本、命令或网络请求；
 - 写入能力仅允许生成草稿、报告、冲突候选和知识缺口，禁止 Agent 自动发布或覆盖正式知识；
 - Graph 只作为 Agent Framework 的状态与恢复底座，不用于硬编码知识挖掘的固定业务节点顺序；Checkpoint 不承诺恢复正在传输的模型 Token 或单个 Tool 调用内部状态；当前阶段不为短时 QA 建设续跑，也不建设项目长期记忆、数据库/Web Skill 市场、可视化编排器、运行时任意创建 Agent 或多实例自动抢占。
 
-重点验收：实现中没有自建 Skill/Agent Spec Loader、通用 Tool Registry、子 Agent 调度器、Graph Checkpoint 或 Human-in-the-Loop；修改本地 Skill 或 Agent Spec 后，新运行通过框架加载并体现变化；协调 Agent 通过框架 Task/Agent Tool 动态调用零个或多个预定义子 Agent；所有 LoreDock Tool 调用均经过服务端授权和范围校验；重启后通过 PostgreSQL Checkpoint 恢复且不重复已提交业务写入；草稿更新产生可追溯修订和 Diff；运行记录来自框架真实事件且不泄露原始思维链。
+重点验收：实现中没有自建 Skill Loader、通用 Tool Registry、模型/Tool 循环、Graph Checkpoint 或 Human-in-the-Loop；修改本地 Skill 后新运行通过框架加载并体现变化；一个 ReactAgent 只能取得批准的 LoreDock Tool；重启后通过 PostgreSQL Checkpoint 恢复且不重复已提交业务写入；草稿更新产生可追溯修订和 Diff；运行记录来自框架真实事件且不泄露原始思维链。
 
 ### [x] T7：Web 项目问答与知识缺口
 
@@ -239,110 +229,43 @@ flowchart TD
 
 重点验收：处理过程随 Agent 执行实时出现，最终事件顺序与详情一致；用户能看到 RAG 命中文档和 Tool 结果摘要但无法读取敏感内部上下文；第二轮问题能基于同一会话已完成问答正确理解指代；不同项目、用户和会话的历史不会串入模型上下文；重启后已完成历史仍可查看，未完成轮次明确失败且可重新提问。
 
-### [ ] T8：知识挖掘与冲突整理多 Agent
+### [~] T8：Web 待处理草稿与单 Agent 合并整理
 
-目标：基于 T6B 的本地 Skill、预定义子 Agent 和平台 Tool，让协调 Agent 以可暂停、可继续的任务对话自主完成知识发现、证据复核、冲突整理和草稿增量修订，并由管理员通过 Diff 审核发布。
+目标：让管理员先将多份 Markdown 放入待处理草稿池，再勾选 `1～N` 份草稿手动启动单 Agent 合并整理，通过多轮对话、结构化发现项和 Diff 完成人工审核发布。
 
-覆盖需求：FR-KG-01～06、FR-KG-08～15、FR-AGENT-08、FR-AGENT-17～20。
-
-功能范围：
-
-- 管理员选择项目和已有文档；
-- 手动触发时创建知识任务会话；系统将项目范围、触发原因和整理目标写为首条系统消息，再运行本地 `knowledge-curator` Skill；
-- 由协调 Agent 自主决定调用知识检索、文档读取、冲突候选、草稿读取/更新和 Diff Tool；
-- 将每次知识挖掘/冲突整理标记为可恢复长任务，在完成关键节点和进入人工等待前提交 PostgreSQL Checkpoint；
-- 协调 Agent 可按需调用 `knowledge_researcher`、`evidence_reviewer`、`conflict_reviewer`、`document_writer` 等预定义子 Agent，调用数量和顺序不由 Java 固定；
-- 从已发布知识中挖掘主题、重复内容、相互矛盾的结论、过期线索和缺失信息，并保留原始来源；
-- 对冲突候选分别陈列各方证据、适用范围、更新时间、置信情况和待人工判断项，不自动选择或覆盖正式结论；
-- 创建空草稿或绑定待修订正式文档作为基线，Agent 通过结构化 `draft_update` 分区块生成合并、补充、拆分、归档或更新建议，不把一次全量模型输出直接保存为草稿；
-- 每次更新生成不可变修订、来源关系和基线到当前修订的 Markdown Diff；Agent 最终消息只总结修改和引用修订；
-- 保存源文档、可选 commit、生成时间和模型信息；
-- 展示实际发生的子 Agent 和 Tool 事件、来源、不确定项、冲突、审查问题和需要人工补充的事项；
-- 管理员可以请求暂停；运行在当前步骤安全结束后进入等待，管理员追加指导消息再恢复；
-- 一轮完成后任务会话保持可继续，管理员追加意见时创建新的 Agent run，并基于当前草稿修订继续修改；
-- 管理员查看修订历史和 Diff，可直接编辑形成新修订，确认明确修订后发布；
-- 发布后触发知识索引更新；
-- 所有模型生成内容禁止自动发布。
-
-重点验收：协调 Agent 能根据材料自主决定是否追加检索、复核或冲突分析；修改本地 Skill 可改变编排行为而无需修改 Java 流程；任务以对话持续展示系统触发、用户指导、Agent/Tool 过程和草稿修订；暂停只在安全边界生效，完成后仍可继续调整；每个结论和冲突候选可追溯到已授权来源；服务重启后从最近节点继续且不重复修订、报告或冲突候选；审批展示真实 Diff，管理员发布前不可进入正式检索。
-
-### [ ] T9：需求到代码实现的知识沉淀
-
-目标：把需求、PR、代码改动和测试证据整理为可审核、可双向追溯的知识单元。
-
-覆盖需求：FR-CHANGE-01～10。
+覆盖需求：FR-KG-01～16、FR-AGENT-08～09、FR-AGENT-17～20。
 
 功能范围：
 
-- 创建关联项目的变更知识单元；
-- 导入需求、PR 元数据、base/head commit、diff/patch、变更文件列表和测试说明；
-- 运行本地 `change_documenter` Skill，由协调 Agent 按材料自主调用需求、代码、测试证据和审查子 Agent，再通过同一版本化草稿 Tool 增量生成需求条目到模块、文件和变更摘要的映射；
-- 只读取本次上传的需求、PR、diff/patch、文件列表和测试说明；
-- 输出调用链、业务规则、接口、数据结构、配置、兼容性和测试证据；
-- 单独列出未实现需求、实现偏差和无法确认的关系；
-- 使用上下文隔离的独立审查子 Agent 检查无引用事实、版本混淆、遗漏证据和虚假映射；是否补充检索或返工由 Skill 和协调 Agent 在统一运行上限内决定，仍有阻断问题时等待人工指导；
-- 展示各 Agent 阶段、中间产物、引用、审查返工历史和人工决定；
-- 草稿经管理员审核后发布；
-- 实现需求、PR、commit、文件路径和知识文档双向追溯；
-- 支持连续导入多个历史变更；
-- PR 的 base/head commit、diff 和文件列表彼此不一致时提示材料版本差异，不依赖活动代码快照。
+- 复用现有 Markdown 导入和 `DRAFT` 生命周期形成待处理草稿池，上传本身不创建会话、不调用模型；
+- 管理员只能勾选同一项目的 `1～N` 份待处理草稿；点击“合并整理”后才原子创建长期任务会话和首轮 run；
+- 在会话中固定勾选草稿 ID，原草稿作为不可变输入；每个合并任务只生成一份新的合并草稿；
+- 直接使用框架 `ReactAgent`、`ClasspathSkillRegistry`/`SkillsAgentHook`、ToolCallback、Checkpoint 和 Human-in-the-Loop，不使用 Agent Spec、子 Agent 或项目自建运行时；
+- 完善 `knowledge-curator` Workflow Skill，让模型自主读取勾选草稿、查看目录、语义检索、关键词匹配、读取已发布文档全文、记录发现项并修订合并草稿；
+- 补齐 `selected_draft_list/read`、`knowledge_directory_list`、`knowledge_document_list/read`、`knowledge_search`、`knowledge_grep`、`finding_record`、`draft_create/read/update/diff` 等受控 Tool；
+- Tool 内强制项目、文档状态、会话固定输入、参数上限、来源完整性、幂等和发布边界；
+- 合并草稿使用带基础修订号和幂等键的结构化更新，每次更新保存不可变修订并由服务端生成 Markdown Diff；
+- 将重复、冲突、过期和缺口保存为可查看、可追溯的结构化发现项；不能确定的问题保留给人工；
+- 任务页展示固定输入、安全 Tool 事件、发现项、合并草稿修订和 Diff；管理员可继续对话要求 AI 修改；
+- Agent 永远不获得发布 Tool；只有管理员明确确认某个修订后才发布，并触发知识索引更新。
 
-重点验收：需求、代码和测试证据角色可以并行工作；主要实现结论可以追溯到原始材料；独立审查不读取编写角色的隐藏推理；无法确认的映射不会被模型猜测补全；人工可以在证据不足时指导后续整理；发布文档和变更知识单元可以互相访问。
+重点验收：上传后仅出现在待处理列表；勾选后点击合并才启动 Agent；Agent 只能读取本次固定草稿和授权的已发布知识；一个任务只有一份合并输出；多轮指导会生成新修订和新 Diff；人工发布前不进入正式检索。
 
-### [ ] T10：知识整理运营与定期任务
+### [x] T9：MCP 草稿提交与知识查询
 
-目标：把 T8 的知识挖掘与冲突整理能力接入知识缺口反馈和每周调度，形成可重复运行、可失败降级的知识运营闭环。
-
-覆盖需求：FR-KG-07、FR-AGENT-09，以及 FR-KG-06、FR-KG-08 的运营入口。
+目标：让本地 Agent 复用平台的知识查询和待处理草稿上传能力，不在 MCP 复制整理或发布流程。
 
 功能范围：
 
-- 管理员从知识体检入口手动重用 T8 的 `knowledge-curator` 运行能力；
-- 把文档来源更新、同主题新文档、重复/冲突候选和问答知识缺口整理为 Tool 可查询的运营输入；
-- 手动和每周任务均创建同一种知识任务会话并触发同一个本地 `knowledge-curator` Skill；定时任务只负责写入系统触发消息，不在调度器中复制编排流程；
-- 复用 T8 已建设的 Tool、预定义子 Agent、报告、待审核草稿和人工处理边界；
-- 实现每周知识整理任务；
-- 任务失败只保存失败信息，不影响已发布知识和检索；
-- 定期任务不得自动修改或发布正式知识。
+- 提供 `knowledge_search`、`knowledge_directory_list`、`knowledge_document_list`、`knowledge_document_read` 和 `knowledge_grep`，复用 Web 与内部 Agent 的同一查询 Service；
+- 提供 `knowledge_draft_submit`，复用 Web Markdown 上传 Service 创建待处理 `DRAFT` 文档；
+- 提交 Tool 只返回新建草稿 ID，不创建会话、不触发 Agent、不发布知识；
+- 查询和提交使用分离权限，错误 Token、跨项目请求和非法参数被明确拒绝；
+- 验证 Codex/Claude Code 等客户端的连接、中文参数、工具调用和错误响应兼容性。
 
-### [ ] T11：Streamable HTTP MCP 只读服务
+重点验收：真实 Streamable HTTP 协议测试已验证工具发现、读写 Token 隔离和草稿落库；提交后仍须由管理员在 Web 勾选并启动合并。
 
-目标：让 Claude Code 等本地 Agent 使用与 Web 同源、同范围规则的原始业务上下文。
-
-覆盖需求：FR-MCP，以及需求文档第 7.8 节。
-
-功能范围：
-
-- 实现 `knowledge_search`；
-- 实现 `document_read`；
-- 两个工具复用 Web 和内部 Agent 的知识查询服务；
-- 返回项目、来源、文件路径、commit、更新时间、相关性和截断状态；
-- 使用共享 Token，保持只读，不调用 DeepSeek 生成最终答案；
-- 验证 Claude Code 的连接、中文参数、工具调用和错误响应兼容性。
-
-重点验收：Claude Code 能获取与 Web 同源的知识；错误 Token 被拒绝；MCP 不能执行写入、命令或任意网络访问。
-
-### [ ] T12：完整 MVP Web 前端
-
-目标：提供需求基线定义的全部最小 Web 页面和管理入口。
-
-功能范围：
-
-- 登录页；
-- 项目列表页及通用业务知识入口；
-- 项目详情页中的项目、文档目录和维护功能；
-- 变更知识单元、需求和 PR 材料导入；
-- 普通知识草稿和变更知识草稿的修订历史、Markdown Diff、编辑、审核和发布；
-- 项目知识任务会话和运行详情，以对话方式展示系统触发、用户指导、协调 Agent、已调用子 Agent、Tool、来源、草稿修订、公开决策摘要、错误和配置摘要；
-- 运行中提供请求暂停；等待人工时提供补充方向、允许保留待核实项、要求重写、恢复、重试和取消；完成后仍可追加消息要求 AI 调整当前草稿；
-- 知识体检和整理报告；
-- 问答页中的多轮会话、流式回答、可折叠安全处理过程、引用、冲突和缺口反馈；
-- 只读展示当前运行加载的 Skill/Agent Spec 名称和内容摘要；本地文件由部署和运维管理，不建设 Web 编辑、发布或版本市场；
-- 管理员和只读用户权限在界面与接口两层生效。
-
-完成条件：管理员可以通过 Web 完成全部数据准备、Agent 运行观察与必要干预、冲突整理和审核操作；只读用户只能浏览、搜索、问答、查看授权运行和反馈。
-
-### [ ] T13：集成、部署、验收与演示
+### [ ] T10：集成、部署、验收与演示
 
 目标：将所有功能组合为可重复部署和现场演示的完整 MVP。
 
@@ -354,7 +277,7 @@ flowchart TD
 - 导入两个项目、Wiki Markdown、场景包文档和真实变更样例；
 - 执行 15～20 个检索问题集；
 - 完成 Web、Agent、MCP、权限、安全和故障降级验收；
-- 验证多轮 QA 隔离、对话式知识任务、过程事件、增量草稿 Tool、修订 Diff、模型自主调用预定义子 Agent、独立审查、安全暂停和完成后继续调整；后端重启后 QA 活动轮次明确失败，知识长任务从最近 Checkpoint 恢复且不重复业务写入；
+- 验证多轮 QA 隔离、草稿池上传、勾选合并、对话式知识任务、安全 Tool 事件、结构化发现项、唯一合并草稿、修订 Diff、人工发布和 MCP 草稿提交；
 - 编写 README、架构、数据模型、Skill、MCP 配置和已知限制；
 - 固化现场演示脚本和验收结果。
 
@@ -365,10 +288,9 @@ flowchart TD
 本计划保留需求基线中的全部 P0 和 P1 功能，包括但不限于：
 
 - 项目停用、批量导入结果和知识替代关系；
-- Spring AI Alibaba 原生加载的本地场景 Skill、协调 Agent 与预定义子 Agent，以及通过框架 `ToolCallback` 机制提供的受服务端约束的 LoreDock 业务 Tool；当前阶段不建设项目长期记忆、数据库/Web 版本目录或任意 Agent 市场；
-- 历史变更的连续沉淀；
+- Spring AI Alibaba 原生加载的本地 Workflow Skill、单一 `ReactAgent` 和通过框架 `ToolCallback` 机制提供的受服务端约束的 LoreDock 业务 Tool；
+- 待处理草稿池、勾选合并、多轮整理、Diff 和人工发布；
 - 快照变化提示和搜索条件过滤；
-- 手动知识体检、整理建议和每周整理任务；
 - Web、内部 Agent 与 MCP 的统一范围和权限规则。
 
 需求基线已经明确排除的后续能力，如自动连接公司 Wiki/Git/Welink、全量代码向量化、完整 AST/调用图、复杂组织权限和自动发布，不属于本计划。

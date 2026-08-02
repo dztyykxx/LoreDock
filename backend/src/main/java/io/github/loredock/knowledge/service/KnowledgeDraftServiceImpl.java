@@ -62,6 +62,7 @@ public class KnowledgeDraftServiceImpl implements KnowledgeDraftService {
     private final KnowledgeDraftMapper drafts;
     private final KnowledgeDraftRevisionMapper revisions;
     private final KnowledgeDraftRevisionSourceMapper sources;
+    private final KnowledgeIndexJobService indexJobs;
     private final ObjectMapper objectMapper;
     private final Clock clock;
 
@@ -72,6 +73,7 @@ public class KnowledgeDraftServiceImpl implements KnowledgeDraftService {
      * @param drafts 草稿 Mapper
      * @param revisions 修订 Mapper
      * @param sources 修订来源 Mapper
+     * @param indexJobs 发布后的知识索引更新任务
      * @param objectMapper 稳定区块 JSON 编解码器
      * @param clock UTC 时间源
      */
@@ -82,6 +84,7 @@ public class KnowledgeDraftServiceImpl implements KnowledgeDraftService {
             KnowledgeDraftMapper drafts,
             KnowledgeDraftRevisionMapper revisions,
             KnowledgeDraftRevisionSourceMapper sources,
+            KnowledgeIndexJobService indexJobs,
             ObjectMapper objectMapper,
             Clock clock
     ) {
@@ -91,6 +94,7 @@ public class KnowledgeDraftServiceImpl implements KnowledgeDraftService {
         this.drafts = drafts;
         this.revisions = revisions;
         this.sources = sources;
+        this.indexJobs = indexJobs;
         this.objectMapper = objectMapper;
         this.clock = clock;
     }
@@ -271,6 +275,9 @@ public class KnowledgeDraftServiceImpl implements KnowledgeDraftService {
         if (drafts.markPublished(draft.getId(), request.reviewedRevision(), published.id(), publishedAt) != 1) {
             throw failure(KnowledgeDraftException.Code.DRAFT_PUBLICATION_CONFLICT);
         }
+        // 合并草稿的人工发布是闭环的最后一步；直接提交 single-flight 索引更新，
+        // 避免演示时还需管理员返回文档页手动触发。
+        indexJobs.submit();
         log.info("knowledge_draft published draftId={} conversationId={} operatorId={} revision={} documentId={} "
                         + "baselineDocumentId={}",
                 draft.getId(), context.conversationId(), context.operatorId(), request.reviewedRevision(),

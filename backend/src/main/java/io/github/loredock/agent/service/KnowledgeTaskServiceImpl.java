@@ -9,13 +9,16 @@ import io.github.loredock.agent.api.AgentService;
 import io.github.loredock.agent.mapper.AgentRunMapper;
 import io.github.loredock.agent.mapper.KnowledgeTaskConversationMapper;
 import io.github.loredock.agent.mapper.KnowledgeTaskMessageMapper;
+import io.github.loredock.agent.mapper.KnowledgeTaskSelectedDraftMapper;
 import io.github.loredock.agent.model.entity.AgentRunEntity;
 import io.github.loredock.agent.model.entity.KnowledgeTaskConversationEntity;
 import io.github.loredock.agent.model.entity.KnowledgeTaskMessageEntity;
+import io.github.loredock.agent.model.entity.KnowledgeTaskSelectedDraftEntity;
 import io.github.loredock.project.api.ProjectScope;
 import io.github.loredock.project.api.ProjectService;
 import io.github.loredock.knowledge.api.KnowledgeSearchService;
 import io.github.loredock.knowledge.api.KnowledgeDraftService;
+import io.github.loredock.knowledge.api.KnowledgeDocumentAccessService;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -43,6 +46,7 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
     private final ProjectService projects;
     private final KnowledgeTaskConversationMapper conversations;
     private final KnowledgeTaskMessageMapper messages;
+    private final KnowledgeTaskSelectedDraftMapper selectedDrafts;
     private final AgentRunMapper runs;
     private final PostgresSaver checkpoints;
     private final KnowledgeAgentDefinitionService definitions;
@@ -50,12 +54,14 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
     private final AgentService agentService;
     private final KnowledgeCurationRunExecutor executor;
     private final KnowledgeDraftService drafts;
+    private final KnowledgeDocumentAccessService documentAccess;
     private final Clock clock;
 
     /**
      * @param projects 项目范围契约
      * @param conversations 会话 Mapper
      * @param messages 公开消息 Mapper
+     * @param selectedDrafts 会话固定输入草稿 Mapper
      * @param runs 复用的 Agent run Mapper
      * @param checkpoints 框架 PostgreSQL Checkpoint Saver
      * @param definitions 每个新 run 的框架定义加载与预检
@@ -63,12 +69,14 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
      * @param agentService 已提交公开运行事件契约
      * @param executor 框架知识整理运行薄接线
      * @param drafts 当前草稿修订读取契约
+     * @param documentAccess 待处理草稿状态与项目范围校验
      * @param clock UTC 时间源
      */
     public KnowledgeTaskServiceImpl(
             ProjectService projects,
             KnowledgeTaskConversationMapper conversations,
             KnowledgeTaskMessageMapper messages,
+            KnowledgeTaskSelectedDraftMapper selectedDrafts,
             AgentRunMapper runs,
             PostgresSaver checkpoints,
             KnowledgeAgentDefinitionService definitions,
@@ -76,11 +84,13 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
             AgentService agentService,
             KnowledgeCurationRunExecutor executor,
             KnowledgeDraftService drafts,
+            KnowledgeDocumentAccessService documentAccess,
             Clock clock
     ) {
         this.projects = projects;
         this.conversations = conversations;
         this.messages = messages;
+        this.selectedDrafts = selectedDrafts;
         this.runs = runs;
         this.checkpoints = checkpoints;
         this.definitions = definitions;
@@ -88,6 +98,7 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
         this.agentService = agentService;
         this.executor = executor;
         this.drafts = drafts;
+        this.documentAccess = documentAccess;
         this.clock = clock;
     }
 
@@ -97,11 +108,19 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
         NormalizedStart command = normalize(request);
         ProjectScope scope = projects.resolveEnabledScope(command.projectIdentifier(), null);
         String requestHash = hash(String.join("\n", scope.projectIdentifier(), command.triggerType().name(),
-                command.triggerReason(), command.targetSkill(), command.goal()));
+                command.triggerReason(), command.targetSkill(), command.goal(),
+                command.selectedDraftIds().stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(","))));
         KnowledgeTaskConversationEntity existing = findByIdempotency(command.operatorId(), command.idempotencyKey());
         if (existing != null) {
             requireSameRequest(existing, requestHash);
             return snapshot(existing);
+        }
+        List<KnowledgeDocumentAccessService.DocumentContent> inputs;
+        try {
+            inputs = documentAccess.readDrafts(scope.projectIdentifier(), command.selectedDraftIds());
+        } catch (IllegalArgumentException exception) {
+            throw new KnowledgeTaskRequestException(
+                    KnowledgeTaskRequestException.Code.KNOWLEDGE_TASK_DRAFT_SELECTION_INVALID);
         }
         KnowledgeAgentDefinitionService.LoadedDefinition loaded = definitions.load(command.targetSkill());
         RuntimeDefinition definition = loaded.runtime();
@@ -121,12 +140,23 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
             return snapshot(winner);
         }
         pending.setId(conversationId);
+        for (int index = 0; index < inputs.size(); index++) {
+            KnowledgeDocumentAccessService.DocumentContent input = inputs.get(index);
+            selectedDrafts.insert(KnowledgeTaskSelectedDraftEntity.builder()
+                    .conversationId(conversationId).documentId(input.documentId())
+                    .documentRevision(input.revision()).title(input.title()).directoryPath(input.directory())
+                    .markdown(input.markdown()).originalFilename(input.originalFilename())
+                    .ordinal(index).createdAt(now).build());
+        }
         insertMessage(conversationId, null, MessageRole.SYSTEM_TRIGGER, null,
-                command.triggerReason() + "\n目标：" + command.goal(), now);
+                command.triggerReason() + "\n目标：" + command.goal()
+                        + "\n已固定待处理草稿：" + inputs.size() + " 份", now);
         AgentRunEntity run = createRun(pending, scope, command.idempotencyKey(), definition, now);
         afterCommit(() -> executor.start(run, command.goal(), loaded));
-        log.info("knowledge_task started conversationId={} runId={} project={} triggerType={} skill={}",
-                conversationId, run.getId(), scope.projectIdentifier(), command.triggerType(), command.targetSkill());
+        log.info("knowledge_task started conversationId={} runId={} project={} selectedDraftCount={} "
+                        + "triggerType={} skill={}",
+                conversationId, run.getId(), scope.projectIdentifier(), inputs.size(),
+                command.triggerType(), command.targetSkill());
         return snapshot(pending);
     }
 
@@ -283,9 +313,14 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
                             visibleRuns.getLast().runId()),
                     conversation.getCurrentDraftId(), null)).revision();
         }
+        List<SelectedDraft> visibleInputs = selectedDraftEntities(conversation.getId()).stream()
+                .map(value -> new SelectedDraft(value.getDocumentId(), value.getTitle(),
+                        value.getDirectoryPath(), value.getOriginalFilename()))
+                .toList();
         return new KnowledgeTask(
                 conversation.getId(), conversation.getProjectIdentifier(), TriggerType.valueOf(conversation.getTriggerType()),
-                conversation.getTargetSkill(), conversation.getGoal(), conversation.getCurrentDraftId(), currentRevision,
+                conversation.getTargetSkill(), conversation.getGoal(), visibleInputs,
+                conversation.getCurrentDraftId(), currentRevision,
                 visibleMessages, visibleRuns, publicEvents, conversation.getCreatedAt(), conversation.getUpdatedAt());
     }
 
@@ -357,6 +392,12 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
                 .orderByAsc(AgentRunEntity::getAcceptedAt).orderByAsc(AgentRunEntity::getId));
     }
 
+    private List<KnowledgeTaskSelectedDraftEntity> selectedDraftEntities(Long conversationId) {
+        return selectedDrafts.selectList(Wrappers.<KnowledgeTaskSelectedDraftEntity>lambdaQuery()
+                .eq(KnowledgeTaskSelectedDraftEntity::getConversationId, conversationId)
+                .orderByAsc(KnowledgeTaskSelectedDraftEntity::getOrdinal));
+    }
+
     private void requireSameRequest(KnowledgeTaskConversationEntity existing, String requestHash) {
         if (!existing.getRequestHash().equals(requestHash)) {
             throw new KnowledgeTaskRequestException(
@@ -368,7 +409,8 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
         Objects.requireNonNull(request, "request");
         return new NormalizedStart(
                 requireText(request.idempotencyKey(), 128), requireText(request.operatorId(), 128),
-                requireText(request.projectIdentifier(), 64), Objects.requireNonNull(request.triggerType(), "triggerType"),
+                requireText(request.projectIdentifier(), 64), requireDraftIds(request.selectedDraftIds()),
+                Objects.requireNonNull(request.triggerType(), "triggerType"),
                 requireText(request.triggerReason(), 1000), requireText(request.targetSkill(), 64),
                 requireText(request.goal(), 2000));
     }
@@ -386,6 +428,15 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
             throw new KnowledgeTaskRequestException(KnowledgeTaskRequestException.Code.KNOWLEDGE_TASK_NOT_FOUND);
         }
         return value;
+    }
+
+    private List<Long> requireDraftIds(List<Long> values) {
+        List<Long> ids = values == null ? List.of() : List.copyOf(values);
+        if (ids.isEmpty() || ids.size() > 20 || ids.stream().anyMatch(id -> id == null || id <= 0)
+                || ids.stream().distinct().count() != ids.size()) {
+            throw new IllegalArgumentException("待处理草稿选择无效");
+        }
+        return ids;
     }
 
     private String runIdempotency(Long conversationId, String key) {
@@ -431,6 +482,7 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
             String idempotencyKey,
             String operatorId,
             String projectIdentifier,
+            List<Long> selectedDraftIds,
             TriggerType triggerType,
             String triggerReason,
             String targetSkill,

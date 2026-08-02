@@ -8,8 +8,12 @@ import static org.mockito.Mockito.when;
 
 import io.github.loredock.agent.mapper.AgentRunMapper;
 import io.github.loredock.agent.mapper.KnowledgeTaskMessageMapper;
+import io.github.loredock.agent.mapper.KnowledgeTaskSelectedDraftMapper;
 import io.github.loredock.agent.model.entity.AgentRunEntity;
+import io.github.loredock.agent.model.entity.KnowledgeTaskSelectedDraftEntity;
 import io.github.loredock.knowledge.api.KnowledgeDraftService;
+import io.github.loredock.knowledge.api.KnowledgeDocumentAccessService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Clock;
 import java.util.List;
 import java.util.Map;
@@ -25,7 +29,40 @@ import org.springframework.beans.factory.ObjectProvider;
 class KnowledgeCurationToolsTest {
 
     /**
-     * 业务目的：候选 Tool 集不得包含正式发布、Shell、任意 HTTP 或文件写能力，防止 Agent Spec 获得越权能力。
+     * 业务目的：Agent 只能读取会话启动时固定的 Markdown 快照；
+     * 防止模型通过猜测文档 ID 读取未勾选草稿。
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void selectedDraftReadReturnsOnlyConversationSnapshot() {
+        AgentRunMapper runs = mock(AgentRunMapper.class);
+        KnowledgeTaskSelectedDraftMapper selected = mock(KnowledgeTaskSelectedDraftMapper.class);
+        when(runs.selectById(61L)).thenReturn(AgentRunEntity.builder()
+                .id(61L).operatorId("admin").projectIdentifier("atlas")
+                .knowledgeTaskConversationId(41L).taskType("knowledge_curation").status("RUNNING").build());
+        when(selected.selectList(org.mockito.ArgumentMatchers.any())).thenReturn(List.of(
+                KnowledgeTaskSelectedDraftEntity.builder().documentId(81L).documentRevision(3L)
+                        .title("退款规则").directoryPath("交易/售后").originalFilename("refund.md")
+                        .markdown("# 退款规则\n\n企业订单需人工审核。").ordinal(0).build()));
+        KnowledgeCurationTools tools = new KnowledgeCurationTools(
+                mock(ProjectQaToolService.class), mock(AgentEvidenceService.class), mock(ObjectProvider.class),
+                runs, mock(KnowledgeTaskMessageMapper.class), selected,
+                mock(KnowledgeDocumentAccessService.class), new ObjectMapper(), Clock.systemUTC());
+        ToolContext context = new ToolContext(Map.of(
+                "operatorId", "admin", "projectIdentifier", "atlas", "conversationId", 41L, "runId", 61L));
+
+        KnowledgeCurationTools.SelectedDraftContent result = tools.selectedDraftRead(81L, context);
+
+        assertThat(result.documentId()).isEqualTo(81L);
+        assertThat(result.revision()).isEqualTo(3L);
+        assertThat(result.markdown()).contains("企业订单需人工审核");
+        assertThatThrownBy(() -> tools.selectedDraftRead(82L, context))
+                .hasMessage("当前任务未勾选该草稿");
+        System.out.println("测试证据：场景=勾选草稿快照，会话=41，可读文档=[81]，越界文档=82");
+    }
+
+    /**
+     * 业务目的：候选 Tool 集不得包含正式发布、Shell、任意 HTTP 或文件写能力，防止单 Agent 获得越权能力。
      */
     @Test
     void exposesOnlyExplicitCurationBusinessTools() {
@@ -34,8 +71,9 @@ class KnowledgeCurationToolsTest {
                 .map(value -> value.getToolDefinition().name()).toList();
 
         assertThat(names).containsExactly(
-                "conflict_record", "draft_create", "draft_diff", "draft_read", "draft_update",
-                "evidence_read", "knowledge_gap_record", "knowledge_read", "knowledge_search");
+                "draft_create", "draft_diff", "draft_read", "draft_update", "finding_record",
+                "knowledge_directory_list", "knowledge_document_list", "knowledge_document_read",
+                "knowledge_grep", "knowledge_search", "selected_draft_list", "selected_draft_read");
         assertThat(callbacks).allSatisfy(callback -> assertThat(callback).isInstanceOf(MethodToolCallback.class));
         assertThat(names).doesNotContain("publish", "shell", "http", "write_file");
         System.out.printf("测试证据：场景=知识Tool允许集，Tool数=%d，发布/Shell/HTTP/文件写=0%n", names.size());
@@ -89,6 +127,7 @@ class KnowledgeCurationToolsTest {
         AgentRunMapper runs = mock(AgentRunMapper.class);
         AgentEvidenceService evidence = mock(AgentEvidenceService.class);
         KnowledgeTaskMessageMapper messages = mock(KnowledgeTaskMessageMapper.class);
+        KnowledgeTaskSelectedDraftMapper selected = mock(KnowledgeTaskSelectedDraftMapper.class);
         ObjectProvider<KnowledgeDraftService> provider = mock(ObjectProvider.class);
         KnowledgeDraftService drafts = mock(KnowledgeDraftService.class);
         when(provider.getIfAvailable(org.mockito.ArgumentMatchers.any())).thenReturn(drafts);
@@ -97,8 +136,10 @@ class KnowledgeCurationToolsTest {
                 .knowledgeTaskConversationId(41L).taskType("knowledge_curation").status("RUNNING").build());
         when(evidence.findByRunId(61L)).thenReturn(List.of());
         when(messages.selectList(org.mockito.ArgumentMatchers.any())).thenReturn(List.of());
+        when(selected.selectList(org.mockito.ArgumentMatchers.any())).thenReturn(List.of());
         KnowledgeCurationTools tools = new KnowledgeCurationTools(
-                mock(ProjectQaToolService.class), evidence, provider, runs, messages, Clock.systemUTC());
+                mock(ProjectQaToolService.class), evidence, provider, runs, messages, selected,
+                mock(KnowledgeDocumentAccessService.class), new ObjectMapper(), Clock.systemUTC());
         ToolCallback update = List.of(MethodToolCallbackProvider.builder().toolObjects(tools).build()
                         .getToolCallbacks()).stream()
                 .filter(value -> value.getToolDefinition().name().equals("draft_update"))
@@ -121,9 +162,12 @@ class KnowledgeCurationToolsTest {
     @SuppressWarnings("unchecked")
     private List<ToolCallback> callbacks(AgentRunMapper runs, ProjectQaToolService knowledge) {
         ObjectProvider<KnowledgeDraftService> drafts = mock(ObjectProvider.class);
+        KnowledgeTaskSelectedDraftMapper selected = mock(KnowledgeTaskSelectedDraftMapper.class);
+        when(selected.selectList(org.mockito.ArgumentMatchers.any())).thenReturn(List.of());
         KnowledgeCurationTools tools = new KnowledgeCurationTools(
                 knowledge, mock(AgentEvidenceService.class), drafts, runs,
-                mock(KnowledgeTaskMessageMapper.class), Clock.systemUTC());
+                mock(KnowledgeTaskMessageMapper.class), selected, mock(KnowledgeDocumentAccessService.class),
+                new ObjectMapper(), Clock.systemUTC());
         return List.of(MethodToolCallbackProvider.builder().toolObjects(tools).build().getToolCallbacks())
                 .stream().sorted(java.util.Comparator.comparing(value -> value.getToolDefinition().name())).toList();
     }

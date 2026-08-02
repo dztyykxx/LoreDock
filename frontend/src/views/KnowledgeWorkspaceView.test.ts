@@ -3,6 +3,8 @@ import { ref } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it, vi } from 'vitest'
 import type { KnowledgeApi, KnowledgeBrowseResult, KnowledgeDocumentSummary } from '../api/knowledge'
+import { knowledgeTaskApi } from '../api/knowledgeTasks'
+import { ApiError } from '../api/http'
 import type { ProjectApi } from '../api/projects'
 import type { ProjectDetail, SessionView } from '../api/types'
 import { knowledgeApiKey, projectApiKey, sessionKey } from '../appContext'
@@ -83,10 +85,13 @@ async function mountView(path: string, identity: SessionView, api: KnowledgeApi,
       { path: '/projects', name: 'projects', component: { template: '<div />' } },
       { path: '/knowledge/:documentId', name: 'knowledge-global-detail', component: KnowledgeWorkspaceView },
       { path: '/projects/:identifier', name: 'project-knowledge', component: KnowledgeWorkspaceView },
+      { path: '/projects/:identifier/drafts', name: 'project-drafts', component: KnowledgeWorkspaceView },
+      { path: '/projects/:identifier/drafts/:documentId', name: 'project-draft-detail', component: KnowledgeWorkspaceView },
       { path: '/projects/:identifier/qa', name: 'project-qa', component: { template: '<div />' } },
       { path: '/projects/:identifier/knowledge/:documentId', name: 'project-knowledge-detail', component: KnowledgeWorkspaceView },
       { path: '/projects/:identifier/knowledge/new', name: 'project-knowledge-new', component: { template: '<div />' } },
       { path: '/projects/:identifier/knowledge/import', name: 'project-knowledge-import', component: { template: '<div />' } },
+      { path: '/projects/:identifier/knowledge-tasks/:conversationId', name: 'project-knowledge-task', component: { template: '<div data-testid="task-target" />' } },
       { path: '/projects/:projectId/settings', name: 'project-settings', component: { template: '<div />' } },
       { path: '/login', component: { template: '<div />' } },
     ],
@@ -216,9 +221,10 @@ describe('KnowledgeWorkspaceView', () => {
   })
 
   /**
-   * 业务目的：管理员必须能在父目录看到后代草稿、选择本页并一次确认发布，成功后立即刷新服务端状态。
+   * 业务目的：管理员必须能在统一草稿入口看到父目录下的后代草稿并选择本页，
+   * 原始输入不得从草稿池绕过 AI 整理任务直接批量发布。
    */
-  it('browses administrator subtrees and batch publishes selected drafts', async () => {
+  it('browses and selects administrator draft subtrees without direct publication', async () => {
     const first = { ...published, id: 56, title: '导入草稿一', directory: '测试资料/Atlas/source', status: 'DRAFT' as const, syncStatus: 'NOT_APPLICABLE' as const }
     const second = { ...first, id: 57, title: '导入草稿二', directory: '测试资料/Atlas/runtime' }
     const directories = [
@@ -228,10 +234,8 @@ describe('KnowledgeWorkspaceView', () => {
     const browseAdmin = vi.fn()
       .mockResolvedValueOnce({ directories, documents: { items: [first, second], page: 0, size: 20, totalElements: 2, totalPages: 1 } })
       .mockResolvedValueOnce({ directories, documents: { items: [first, second], page: 0, size: 20, totalElements: 2, totalPages: 1 } })
-      .mockResolvedValueOnce({ directories, documents: { items: [{ ...first, status: 'PUBLISHED', syncStatus: 'PENDING' }, { ...second, status: 'PUBLISHED', syncStatus: 'PENDING' }], page: 0, size: 20, totalElements: 2, totalPages: 1 } })
-    const batchPublishDocuments = vi.fn().mockResolvedValue({ requestedCount: 2, publishedCount: 2, alreadyPublishedCount: 0 })
-    const api = createKnowledgeApi({ browseAdmin, batchPublishDocuments })
-    const { wrapper } = await mountView('/projects/network-designer', {
+    const api = createKnowledgeApi({ browseAdmin })
+    const { wrapper } = await mountView('/projects/network-designer/drafts', {
       username: 'admin', displayName: '管理员', role: 'ADMIN',
     }, api)
     await flushPromises()
@@ -239,18 +243,83 @@ describe('KnowledgeWorkspaceView', () => {
     expect(wrapper.get('[data-directory="测试资料"]').text()).toContain('2')
     await wrapper.get('[data-directory="测试资料"]').trigger('click')
     await flushPromises()
-    expect(browseAdmin).toHaveBeenLastCalledWith(expect.objectContaining({ directory: '测试资料', page: 0 }))
+    expect(browseAdmin).toHaveBeenLastCalledWith(expect.objectContaining({ directory: '测试资料', status: 'DRAFT', page: 0 }))
 
     await wrapper.get('[data-testid="select-all-drafts"]').setValue(true)
-    expect(wrapper.get('[data-testid="batch-publish"]').text()).toContain('批量发布 2')
-    await wrapper.get('[data-testid="batch-publish"]').trigger('click')
-    expect(wrapper.get('[role="dialog"]').text()).toContain('2 篇草稿')
-    await wrapper.get('[data-testid="confirm-dialog-submit"]').trigger('click')
+    expect(wrapper.get('[data-testid="merge-selected-drafts"]').text()).toContain('AI 合并整理 2')
+    expect(wrapper.find('[data-testid="batch-publish"]').exists()).toBe(false)
+  })
+
+  /**
+   * 业务目的：管理员勾选多个草稿后才启动一次 AI 合并，并把所选 ID 和人工目标作为固定输入；
+   * 防止上传动作直接调用模型，或为每份文件错误创建独立会话。
+   */
+  it('starts one merge task from selected draft documents', async () => {
+    const first = { ...published, id: 56, title: '需求草稿', status: 'DRAFT' as const, syncStatus: 'NOT_APPLICABLE' as const }
+    const second = { ...first, id: 57, title: '实现草稿' }
+    const api = createKnowledgeApi({ browseAdmin: vi.fn().mockResolvedValue(browseResult([first, second])) })
+    const start = vi.spyOn(knowledgeTaskApi, 'start').mockResolvedValue({ conversationId: 88 } as any)
+    const { wrapper, router } = await mountView('/projects/network-designer/drafts', {
+      username: 'admin', displayName: '管理员', role: 'ADMIN',
+    }, api)
     await flushPromises()
 
-    expect(batchPublishDocuments).toHaveBeenCalledWith([56, 57])
-    expect(wrapper.text()).toContain('已发布 2 篇，重新索引后可参与检索。')
-    expect(wrapper.find('[data-testid="select-all-drafts"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="select-all-drafts"]').setValue(true)
+    await wrapper.get('[data-testid="merge-goal"]').setValue('   ')
+    expect(wrapper.get('[data-testid="merge-selected-drafts"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('[data-testid="merge-goal"]').setValue('合并为一份发布规范，冲突留给人工判断')
+    await wrapper.get('[data-testid="merge-selected-drafts"]').trigger('click')
+    await flushPromises()
+
+    expect(start).toHaveBeenCalledOnce()
+    expect(start).toHaveBeenCalledWith('network-designer', [56, 57], '合并为一份发布规范，冲突留给人工判断')
+    expect(router.currentRoute.value.fullPath).toBe('/projects/network-designer/knowledge-tasks/88')
+    start.mockRestore()
+  })
+
+  /**
+   * 业务目的：知识整理服务配置失败时必须展示服务端的稳定错误语义；
+   * 防止把服务端 Skill 缺失误报为草稿勾选错误，误导管理员修改正确输入。
+   */
+  it('shows the stable service error when merge startup fails', async () => {
+    const draft = { ...published, id: 56, title: '需求草稿', status: 'DRAFT' as const, syncStatus: 'NOT_APPLICABLE' as const }
+    const api = createKnowledgeApi({ browseAdmin: vi.fn().mockResolvedValue(browseResult([draft])) })
+    const start = vi.spyOn(knowledgeTaskApi, 'start').mockRejectedValue(
+      new ApiError(503, 'KNOWLEDGE_TASK_DEFINITION_UNAVAILABLE', '知识整理能力暂时不可用'),
+    )
+    const { wrapper } = await mountView('/projects/network-designer/drafts', {
+      username: 'admin', displayName: '管理员', role: 'ADMIN',
+    }, api)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="select-all-drafts"]').setValue(true)
+    await wrapper.get('[data-testid="merge-selected-drafts"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="merge-message"]').text()).toBe('知识整理能力暂时不可用')
+    start.mockRestore()
+  })
+
+  /**
+   * 业务目的：合并后的唯一“草稿”入口必须由服务端只返回项目草稿，并继续提供原有多选合并动作；
+   * 防止变更知识、待审核草稿和整理报告继续成为不可进入的占位页。
+   */
+  it('opens one draft workspace backed by server-side draft filtering', async () => {
+    const draft = { ...published, id: 56, title: '待整理草稿', status: 'DRAFT' as const, syncStatus: 'NOT_APPLICABLE' as const }
+    const browseAdmin = vi.fn().mockResolvedValue(browseResult([draft]))
+    const { wrapper } = await mountView('/projects/network-designer/drafts', {
+      username: 'admin', displayName: '管理员', role: 'ADMIN',
+    }, createKnowledgeApi({ browseAdmin }))
+    await flushPromises()
+
+    expect(browseAdmin).toHaveBeenCalledWith(expect.objectContaining({ status: 'DRAFT' }))
+    expect(wrapper.get('[data-tab="drafts"]').attributes('aria-current')).toBe('page')
+    expect(wrapper.get('[data-tab="drafts"]').text()).toContain('1')
+    expect(wrapper.get('[data-testid="select-all-drafts"]').element).toBeInstanceOf(HTMLInputElement)
+    expect(wrapper.text()).toContain('选择本页草稿')
+    expect(wrapper.text()).toContain('待整理草稿')
+    expect(wrapper.text()).not.toContain('变更知识')
+    expect(wrapper.text()).not.toContain('整理报告')
   })
 
   /**

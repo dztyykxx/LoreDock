@@ -44,6 +44,7 @@ public enum ErrorCode {
     KNOWLEDGE_GAP_STATUS_CONFLICT(HttpStatus.CONFLICT, "知识缺口状态流转冲突"),
     KNOWLEDGE_TASK_NOT_FOUND(HttpStatus.NOT_FOUND, "知识任务不存在"),
     KNOWLEDGE_TASK_STATE_CONFLICT(HttpStatus.CONFLICT, "知识任务当前状态不允许该操作"),
+    KNOWLEDGE_TASK_DEFINITION_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "知识整理能力暂时不可用"),
     KNOWLEDGE_DRAFT_NOT_FOUND(HttpStatus.NOT_FOUND, "知识草稿或修订不存在"),
     KNOWLEDGE_DRAFT_CONFLICT(HttpStatus.CONFLICT, "知识草稿修订已变化，请重新读取"),
     AGENT_RUN_IDEMPOTENCY_CONFLICT(HttpStatus.CONFLICT, "相同幂等键对应的问答输入不一致"),

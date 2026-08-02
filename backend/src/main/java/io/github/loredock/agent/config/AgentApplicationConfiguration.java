@@ -40,9 +40,9 @@ public class AgentApplicationConfiguration {
         return new ProjectQaResultConverter();
     }
 
-    /** @return 直接扫描随应用发布 Skill 的框架 classpath Registry */
+    /** @return 直接扫描问答与知识整理等随应用发布 Skill 的框架 classpath Registry */
     @Bean
-    public ClasspathSkillRegistry projectQaSkillRegistry() {
+    public ClasspathSkillRegistry agentSkillRegistry() {
         return ClasspathSkillRegistry.builder().classpathPath("agent-skills").build();
     }
 
@@ -69,8 +69,8 @@ public class AgentApplicationConfiguration {
             ChatModel chatModel,
             ProjectQaToolService tools,
             ObjectMapper objectMapper,
-            ClasspathSkillRegistry projectQaSkillRegistry
+            ClasspathSkillRegistry agentSkillRegistry
     ) {
-        return new ProjectQaAgentExecutor(() -> chatModel, tools, objectMapper, projectQaSkillRegistry);
+        return new ProjectQaAgentExecutor(() -> chatModel, tools, objectMapper, agentSkillRegistry);
     }
 }

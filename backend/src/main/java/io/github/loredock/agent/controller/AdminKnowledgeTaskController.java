@@ -42,7 +42,8 @@ public class AdminKnowledgeTaskController {
     ) {
         String operator = sessions.currentSession().username();
         return tasks.start(new KnowledgeTaskService.StartRequest(
-                body.idempotencyKey(), operator, identifier, KnowledgeTaskService.TriggerType.MANUAL,
+                body.idempotencyKey(), operator, identifier, body.selectedDraftIds(),
+                KnowledgeTaskService.TriggerType.MANUAL,
                 body.triggerReason(), "knowledge-curator", body.goal()));
     }
 
@@ -139,9 +140,14 @@ public class AdminKnowledgeTaskController {
     /** 人工启动请求。 */
     public record StartBody(
             @NotBlank @Size(max = 128) String idempotencyKey,
+            @Size(min = 1, max = 20) List<Long> selectedDraftIds,
             @NotBlank @Size(max = 1000) String triggerReason,
             @NotBlank @Size(max = 2000) String goal
-    ) { }
+    ) {
+        public StartBody {
+            selectedDraftIds = selectedDraftIds == null ? List.of() : List.copyOf(selectedDraftIds);
+        }
+    }
 
     /** 暂停后的指导。 */
     public record GuidanceBody(@NotBlank @Size(max = 4000) String guidance) { }

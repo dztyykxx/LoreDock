@@ -2,6 +2,7 @@ package io.github.loredock.knowledge.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
@@ -305,11 +306,13 @@ class KnowledgeDocumentWebContractTest {
 
         mockMvc.perform(get("/api/admin/knowledge-documents/browse")
                         .queryParam("context", "PROJECT").queryParam("project", "alpha")
-                        .queryParam("directory", "测试资料").cookie(loginCookie("admin")))
+                        .queryParam("directory", "测试资料").queryParam("status", "DRAFT")
+                        .cookie(loginCookie("admin")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.directories[0].documentCount").value(18))
                 .andExpect(jsonPath("$.documents.totalElements").value(18));
         verify(scopeResolver).resolveBrowse(KnowledgeBrowseContextType.PROJECT, "alpha", null);
+        verify(queries).browseAdmin(argThat(query -> query.status() == DocumentStatus.DRAFT));
     }
 
     /**

@@ -102,6 +102,8 @@ describe('router session guards', () => {
     expect(router.resolve('/knowledge/51').name).toBe('knowledge-global-detail')
     expect(router.resolve('/knowledge/51/edit').name).toBe('knowledge-global-edit')
     expect(router.resolve('/projects/network-designer').name).toBe('project-knowledge')
+    expect(router.resolve('/projects/network-designer/drafts').name).toBe('project-drafts')
+    expect(router.resolve('/projects/network-designer/drafts/51').name).toBe('project-draft-detail')
     expect(router.resolve('/projects/network-designer/knowledge/new').name).toBe('project-knowledge-new')
     expect(router.resolve('/projects/network-designer/knowledge/import').name).toBe('project-knowledge-import')
     expect(router.resolve('/projects/network-designer/knowledge/51').name).toBe('project-knowledge-detail')

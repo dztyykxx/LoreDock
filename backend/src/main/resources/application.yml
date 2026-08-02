@@ -2,6 +2,19 @@ spring:
   application:
     name: loredock
   ai:
+    mcp:
+      server:
+        enabled: ${LOREDOCK_MCP_ENABLED:true}
+        name: loredock
+        version: 0.1.0
+        protocol: STREAMABLE
+        type: SYNC
+        tool-callback-converter: false
+        instructions: 先查询已发布业务知识；候选 Markdown 只能提交到待处理草稿，不能通过 MCP 发布。
+        capabilities:
+          resource: false
+          prompt: false
+          completion: false
     # MVP 默认不创建任何外部模型 Bean；启用 Agent 时仅显式打开 chat=openai。
     model:
       chat: ${LOREDOCK_AGENT_CHAT_PROVIDER:none}
@@ -82,6 +95,9 @@ management:
         include: health
 
 loredock:
+  mcp:
+    read-token: ${LOREDOCK_MCP_READ_TOKEN:}
+    write-token: ${LOREDOCK_MCP_WRITE_TOKEN:}
   agent:
     enabled: ${LOREDOCK_AGENT_ENABLED:false}
     model:
@@ -109,9 +125,6 @@ loredock:
       max-pool-size: ${LOREDOCK_AGENT_EXECUTOR_MAX_POOL_SIZE:4}
       queue-capacity: ${LOREDOCK_AGENT_EXECUTOR_QUEUE_CAPACITY:16}
       shutdown-await: ${LOREDOCK_AGENT_EXECUTOR_SHUTDOWN_AWAIT:30s}
-    curation:
-      skills-directory: ${LOREDOCK_AGENT_SKILLS_DIRECTORY:./agent-skills}
-      agent-specs-directory: ${LOREDOCK_AGENT_SPECS_DIRECTORY:./agent-specs}
   qa:
     sse:
       heartbeat-interval: ${LOREDOCK_QA_SSE_HEARTBEAT_INTERVAL:15s}

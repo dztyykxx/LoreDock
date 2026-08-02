@@ -5,9 +5,14 @@ import io.github.loredock.agent.model.result.AgentToolResult;
 import io.github.loredock.agent.model.tool.KnowledgeSearchToolRequest;
 import io.github.loredock.agent.mapper.AgentRunMapper;
 import io.github.loredock.agent.mapper.KnowledgeTaskMessageMapper;
+import io.github.loredock.agent.mapper.KnowledgeTaskSelectedDraftMapper;
 import io.github.loredock.agent.model.entity.AgentRunEntity;
 import io.github.loredock.agent.model.entity.KnowledgeTaskMessageEntity;
+import io.github.loredock.agent.model.entity.KnowledgeTaskSelectedDraftEntity;
+import io.github.loredock.knowledge.api.KnowledgeDocumentAccessService;
 import io.github.loredock.knowledge.api.KnowledgeDraftService;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Clock;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +34,9 @@ public class KnowledgeCurationTools {
     private final ObjectProvider<KnowledgeDraftService> drafts;
     private final AgentRunMapper runs;
     private final KnowledgeTaskMessageMapper messages;
+    private final KnowledgeTaskSelectedDraftMapper selectedDrafts;
+    private final KnowledgeDocumentAccessService documents;
+    private final ObjectMapper objectMapper;
     private final Clock clock;
 
     /**
@@ -37,6 +45,9 @@ public class KnowledgeCurationTools {
      * @param drafts 草稿业务契约
      * @param runs 运行固定范围事实
      * @param messages 冲突与缺口的公开会话记录
+     * @param selectedDrafts 当前会话固定的草稿快照
+     * @param documents 已发布知识目录、全文与关键词匹配
+     * @param objectMapper 结构化发现项 JSON 编码
      * @param clock UTC 时间源
      */
     public KnowledgeCurationTools(
@@ -45,6 +56,9 @@ public class KnowledgeCurationTools {
             ObjectProvider<KnowledgeDraftService> drafts,
             AgentRunMapper runs,
             KnowledgeTaskMessageMapper messages,
+            KnowledgeTaskSelectedDraftMapper selectedDrafts,
+            KnowledgeDocumentAccessService documents,
+            ObjectMapper objectMapper,
             Clock clock
     ) {
         this.knowledge = knowledge;
@@ -52,7 +66,83 @@ public class KnowledgeCurationTools {
         this.drafts = drafts;
         this.runs = runs;
         this.messages = messages;
+        this.selectedDrafts = selectedDrafts;
+        this.documents = documents;
+        this.objectMapper = objectMapper;
         this.clock = clock;
+    }
+
+    /** @return 当前会话启动时固定的待处理草稿摘要 */
+    @Tool(name = "selected_draft_list", description = "列出启动本次合并任务时固定的待处理草稿")
+    public List<SelectedDraftView> selectedDraftList(ToolContext context) {
+        ToolScope scope = scope(context);
+        return selectedDrafts(scope.conversationId()).stream()
+                .map(value -> new SelectedDraftView(value.getDocumentId(), value.getDocumentRevision(),
+                        value.getTitle(), value.getDirectoryPath(), value.getOriginalFilename(),
+                        value.getMarkdown().codePointCount(0, value.getMarkdown().length())))
+                .toList();
+    }
+
+    /** @return 指定勾选草稿在会话启动时的不可变 Markdown 快照 */
+    @Tool(name = "selected_draft_read", description = "按文档 ID 读取当前任务固定的待处理草稿 Markdown 快照")
+    public SelectedDraftContent selectedDraftRead(
+            @ToolParam(description = "selected_draft_list 返回的待处理草稿文档 ID") Long documentId,
+            ToolContext context
+    ) {
+        ToolScope scope = scope(context);
+        return selectedDrafts(scope.conversationId()).stream()
+                .filter(value -> value.getDocumentId().equals(documentId))
+                .findFirst()
+                .map(value -> new SelectedDraftContent(value.getDocumentId(), value.getDocumentRevision(),
+                        value.getTitle(), value.getDirectoryPath(), value.getOriginalFilename(), value.getMarkdown()))
+                .orElseThrow(() -> new IllegalArgumentException("当前任务未勾选该草稿"));
+    }
+
+    /** @return 当前项目和通用范围内的已发布知识目录 */
+    @Tool(name = "knowledge_directory_list", description = "列出当前项目和通用范围内的已发布知识目录")
+    public List<KnowledgeDocumentAccessService.DirectoryEntry> knowledgeDirectoryList(
+            @ToolParam(description = "可选目录前缀；空字符串表示全部") String prefix,
+            @ToolParam(description = "期望返回数量，最终受服务端上限约束") Integer limit,
+            ToolContext context
+    ) {
+        ToolScope scope = scope(context);
+        return documents.listPublishedDirectories(scope.projectIdentifier(), prefix, defaultLimit(limit));
+    }
+
+    /** @return 指定目录的已发布文档摘要 */
+    @Tool(name = "knowledge_document_list", description = "列出当前项目指定目录中的已发布文档")
+    public List<KnowledgeDocumentAccessService.DocumentSummary> knowledgeDocumentList(
+            @ToolParam(description = "可选目录；空字符串表示全部") String directory,
+            @ToolParam(description = "期望返回数量，最终受服务端上限约束") Integer limit,
+            ToolContext context
+    ) {
+        ToolScope scope = scope(context);
+        return documents.listPublishedDocuments(scope.projectIdentifier(), directory, defaultLimit(limit));
+    }
+
+    /** @return 指定已发布文档的完整 Markdown */
+    @Tool(name = "knowledge_document_read", description = "按文档 ID 读取当前项目授权范围内的已发布 Markdown 全文")
+    public KnowledgeDocumentAccessService.DocumentContent knowledgeDocumentRead(
+            @ToolParam(description = "目录、搜索或匹配结果返回的已发布文档 ID") Long documentId,
+            ToolContext context
+    ) {
+        ToolScope scope = scope(context);
+        return documents.readPublished(scope.projectIdentifier(), documentId);
+    }
+
+    /** @return 已发布 Markdown 中的有界关键词命中 */
+    @Tool(name = "knowledge_grep", description = "在当前项目已发布 Markdown 中按关键词匹配行和有限上下文")
+    public List<KnowledgeDocumentAccessService.KeywordMatch> knowledgeGrep(
+            @ToolParam(description = "要精确核对的关键词或短语") String keyword,
+            @ToolParam(description = "可选目录范围") String directory,
+            @ToolParam(description = "可选文档 ID 范围；空列表表示不限文档") List<Long> documentIds,
+            @ToolParam(description = "期望返回命中数量") Integer limit,
+            @ToolParam(description = "命中行前后的上下文行数，最大 3") Integer contextLines,
+            ToolContext context
+    ) {
+        ToolScope scope = scope(context);
+        return documents.grepPublished(scope.projectIdentifier(), keyword, directory, documentIds,
+                defaultLimit(limit), contextLines == null ? 1 : contextLines);
     }
 
     /**
@@ -70,47 +160,6 @@ public class KnowledgeCurationTools {
             ToolContext context
     ) {
         return knowledge.knowledgeSearch(scope(context).runId(), new KnowledgeSearchToolRequest(query, limit));
-    }
-
-    /**
-     * 读取当前 run 已登记证据的有限来源信息。
-     *
-     * @param evidenceId 证据 ID
-     * @param context 服务端运行范围
-     * @return 有限来源信息
-     */
-    @Tool(name = "evidence_read", description = "读取当前 run 已登记证据的有限来源信息")
-    public EvidenceView evidenceRead(
-            @ToolParam(description = "当前 run 已登记的证据 ID") Long evidenceId,
-            ToolContext context
-    ) {
-        ToolScope scope = scope(context);
-        AgentEvidence value = evidence.findByRunId(scope.runId()).stream()
-                .filter(item -> item.id().equals(evidenceId))
-                .findFirst().orElseThrow(() -> new IllegalArgumentException("当前 run 不存在该证据"));
-        return new EvidenceView(value.id(), value.documentId(), value.title(), value.sourceUpdatedAt(),
-                value.projectIdentifier(), value.branch(), value.retained());
-    }
-
-    /**
-     * 按当前 run 的 evidenceId 读取已授权知识来源摘要。
-     *
-     * @param evidenceId 已保留证据 ID
-     * @param context 服务端运行范围
-     * @return 已授权来源摘要
-     */
-    @Tool(name = "knowledge_read", description = "按当前 run 的 evidenceId 读取已授权知识来源摘要")
-    public EvidenceView knowledgeRead(
-            @ToolParam(description = "当前 run 已保留的证据 ID") Long evidenceId,
-            ToolContext context
-    ) {
-        ToolScope scope = scope(context);
-        return evidence.findByRunId(scope.runId()).stream()
-                .filter(item -> item.id().equals(evidenceId) && item.retained())
-                .findFirst()
-                .map(item -> new EvidenceView(item.id(), item.documentId(), item.title(),
-                        item.sourceUpdatedAt(), item.projectIdentifier(), item.branch(), true))
-                .orElseThrow(() -> new IllegalArgumentException("当前 run 不存在可读取证据"));
     }
 
     /**
@@ -188,12 +237,15 @@ public class KnowledgeCurationTools {
                                 .eq(KnowledgeTaskMessageEntity::getConversationId, scope.conversationId())
                                 .eq(KnowledgeTaskMessageEntity::getRole, "USER"))
                 .stream().map(KnowledgeTaskMessageEntity::getId).toList();
+        List<Long> selectedDocumentIds = selectedDrafts(scope.conversationId()).stream()
+                .map(KnowledgeTaskSelectedDraftEntity::getDocumentId).toList();
         boolean invalid = operations.stream()
                 .flatMap(operation -> operation.sourceRefs().stream())
-                .anyMatch(source -> source.type() == KnowledgeDraftService.SourceType.EVIDENCE
-                        ? !evidenceIds.contains(source.sourceId())
-                        : source.type() != KnowledgeDraftService.SourceType.USER_MESSAGE
-                                || !userMessageIds.contains(source.sourceId()));
+                .anyMatch(source -> switch (source.type()) {
+                    case EVIDENCE -> !evidenceIds.contains(source.sourceId());
+                    case USER_MESSAGE -> !userMessageIds.contains(source.sourceId());
+                    case SELECTED_DRAFT -> !selectedDocumentIds.contains(source.sourceId());
+                });
         if (invalid) {
             throw new IllegalArgumentException("草稿修订引用了当前 run 或会话之外的来源");
         }
@@ -221,61 +273,107 @@ public class KnowledgeCurationTools {
     }
 
     /**
-     * 把有来源的冲突候选记录到当前知识任务会话。
+     * 保存可追溯的重复、冲突、过期或缺口发现项。
      *
-     * @param summary 冲突摘要
-     * @param evidenceIds 当前 run 证据 ID
-     * @param context 服务端运行范围
-     * @return 已记录发现项
+     * @return 幂等写入后的结构化发现项
      */
-    @Tool(name = "conflict_record", description = "把有来源的冲突候选记录到当前知识任务会话，等待管理员处理")
-    public FindingView conflictRecord(
-            @ToolParam(description = "冲突候选摘要") String summary,
-            @ToolParam(description = "当前 run 内支持该结论的证据 ID") List<Long> evidenceIds,
+    @Tool(name = "finding_record", description = "保存带勾选草稿和已发布知识证据的重复、冲突、过期或缺口发现项")
+    public FindingView findingRecord(
+            @ToolParam(description = "发现类型：DUPLICATE、CONFLICT、STALE 或 GAP") String type,
+            @ToolParam(description = "发现项主题") String topic,
+            @ToolParam(description = "各方结论、适用范围与差异摘要") String summary,
+            @ToolParam(description = "knowledge_search 在当前 run 登记的已发布知识证据 ID") List<Long> evidenceIds,
+            @ToolParam(description = "selected_draft_list 返回的相关待处理草稿文档 ID") List<Long> selectedDraftIds,
+            @ToolParam(description = "可选处理建议") String recommendation,
+            @ToolParam(description = "无法确定时留给管理员的问题") String humanQuestion,
+            @ToolParam(description = "当前 run 内的稳定幂等键") String idempotencyKey,
             ToolContext context
     ) {
-        return recordFinding("conflict_record", summary, evidenceIds, scope(context));
-    }
-
-    /**
-     * 把证据不足的知识缺口记录到当前知识任务会话。
-     *
-     * @param summary 缺口摘要
-     * @param evidenceIds 当前 run 相关证据 ID
-     * @param context 服务端运行范围
-     * @return 已记录发现项
-     */
-    @Tool(name = "knowledge_gap_record", description = "把证据不足的知识缺口记录到当前知识任务会话，等待管理员补充")
-    public FindingView knowledgeGapRecord(
-            @ToolParam(description = "知识缺口摘要") String summary,
-            @ToolParam(description = "当前 run 内与该缺口相关的证据 ID") List<Long> evidenceIds,
-            ToolContext context
-    ) {
-        return recordFinding("knowledge_gap_record", summary, evidenceIds, scope(context));
-    }
-
-    private FindingView recordFinding(String name, String value, List<Long> values, ToolScope scope) {
-        String summary = value == null ? "" : value.strip();
-        List<Long> evidenceIds = values == null ? List.of() : List.copyOf(values);
-        if (summary.isEmpty() || summary.codePointCount(0, summary.length()) > 1000
-                || evidenceIds.size() > 20) {
-            throw new IllegalArgumentException("知识整理发现项参数无效");
+        ToolScope scope = scope(context);
+        String safeType = required(type, 20);
+        if (!List.of("DUPLICATE", "CONFLICT", "STALE", "GAP").contains(safeType)) {
+            throw new IllegalArgumentException("知识整理发现类型无效");
         }
-        List<Long> available = evidence.findByRunId(scope.runId()).stream().map(AgentEvidence::id).toList();
-        if (!available.containsAll(evidenceIds)) {
-            throw new IllegalArgumentException("发现项引用了当前 run 之外的证据");
+        String key = required(idempotencyKey, 64);
+        List<Long> safeEvidence = stableIds(evidenceIds, 20);
+        List<Long> safeSelected = stableIds(selectedDraftIds, 20);
+        List<Long> availableEvidence = evidence.findByRunId(scope.runId()).stream().map(AgentEvidence::id).toList();
+        List<Long> availableSelected = selectedDrafts(scope.conversationId()).stream()
+                .map(KnowledgeTaskSelectedDraftEntity::getDocumentId).toList();
+        if (!availableEvidence.containsAll(safeEvidence) || !availableSelected.containsAll(safeSelected)) {
+            throw new IllegalArgumentException("发现项引用了当前任务之外的来源");
+        }
+        FindingPayload payload = new FindingPayload(safeType, required(topic, 255), required(summary, 2000),
+                safeEvidence, safeSelected, optional(recommendation, 1000), optional(humanQuestion, 1000), "OPEN");
+        String subject = "finding_record:" + key;
+        String json = json(payload);
+        KnowledgeTaskMessageEntity replay = messages.selectOne(
+                com.baomidou.mybatisplus.core.toolkit.Wrappers.<KnowledgeTaskMessageEntity>lambdaQuery()
+                        .eq(KnowledgeTaskMessageEntity::getConversationId, scope.conversationId())
+                        .eq(KnowledgeTaskMessageEntity::getRunId, scope.runId())
+                        .eq(KnowledgeTaskMessageEntity::getRole, "TOOL")
+                        .eq(KnowledgeTaskMessageEntity::getSubjectName, subject));
+        if (replay != null) {
+            if (!replay.getContent().equals(json)) {
+                throw new IllegalArgumentException("发现项幂等键与既有请求冲突");
+            }
+            return new FindingView(replay.getId(), payload);
         }
         KnowledgeTaskMessageEntity entity = KnowledgeTaskMessageEntity.builder()
                 .conversationId(scope.conversationId()).runId(scope.runId()).role("TOOL")
-                .subjectName(name).content(summary).createdAt(clock.instant()).build();
+                .subjectName(subject).content(json).createdAt(clock.instant()).build();
         messages.insert(entity);
-        return new FindingView(entity.getId(), name, summary, evidenceIds);
+        return new FindingView(entity.getId(), payload);
     }
 
     private KnowledgeDraftService draftService() {
         return drafts.getIfAvailable(() -> {
             throw new IllegalStateException("知识草稿能力尚未装配");
         });
+    }
+
+    private List<KnowledgeTaskSelectedDraftEntity> selectedDrafts(Long conversationId) {
+        return selectedDrafts.selectList(
+                com.baomidou.mybatisplus.core.toolkit.Wrappers.<KnowledgeTaskSelectedDraftEntity>lambdaQuery()
+                        .eq(KnowledgeTaskSelectedDraftEntity::getConversationId, conversationId)
+                        .orderByAsc(KnowledgeTaskSelectedDraftEntity::getOrdinal));
+    }
+
+    private int defaultLimit(Integer value) {
+        return value == null ? 20 : value;
+    }
+
+    private List<Long> stableIds(List<Long> values, int maximum) {
+        List<Long> ids = values == null ? List.of() : List.copyOf(values);
+        if (ids.size() > maximum || ids.stream().anyMatch(id -> id == null || id <= 0)
+                || ids.stream().distinct().count() != ids.size()) {
+            throw new IllegalArgumentException("发现项来源标识无效");
+        }
+        return ids;
+    }
+
+    private String required(String value, int maximum) {
+        String normalized = optional(value, maximum);
+        if (normalized.isEmpty()) {
+            throw new IllegalArgumentException("发现项文本参数不能为空");
+        }
+        return normalized;
+    }
+
+    private String optional(String value, int maximum) {
+        String normalized = value == null ? "" : value.strip();
+        if (normalized.codePointCount(0, normalized.length()) > maximum) {
+            throw new IllegalArgumentException("发现项文本参数超出上限");
+        }
+        return normalized;
+    }
+
+    private String json(FindingPayload payload) {
+        try {
+            return objectMapper.writeValueAsString(payload);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("发现项无法编码", exception);
+        }
     }
 
     private ToolScope scope(ToolContext context) {
@@ -320,17 +418,35 @@ public class KnowledgeCurationTools {
         }
     }
 
-    /** 证据读取只返回来源摘要，不返回隐藏提示或超限正文。 */
-    public record EvidenceView(
-            Long evidenceId, Long documentId, String title, java.time.Instant sourceUpdatedAt,
-            String projectIdentifier, String branch, boolean retained
-    ) {
-    }
+    /** 固定勾选草稿摘要。 */
+    public record SelectedDraftView(
+            Long documentId, long revision, String title, String directory,
+            String originalFilename, int markdownCodePoints
+    ) { }
 
-    /** 已写入会话的公开发现项，不包含证据正文。 */
-    public record FindingView(Long messageId, String type, String summary, List<Long> evidenceIds) {
-        public FindingView {
+    /** 固定勾选草稿全文快照。 */
+    public record SelectedDraftContent(
+            Long documentId, long revision, String title, String directory,
+            String originalFilename, String markdown
+    ) { }
+
+    /** 已写入会话的结构化发现项。 */
+    public record FindingView(Long messageId, FindingPayload finding) { }
+
+    /** 发现项 JSON 载体，供任务页和后续审核直接读取。 */
+    public record FindingPayload(
+            String type,
+            String topic,
+            String summary,
+            List<Long> evidenceIds,
+            List<Long> selectedDraftIds,
+            String recommendation,
+            String humanQuestion,
+            String status
+    ) {
+        public FindingPayload {
             evidenceIds = List.copyOf(evidenceIds);
+            selectedDraftIds = List.copyOf(selectedDraftIds);
         }
     }
 }

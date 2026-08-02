@@ -186,7 +186,7 @@ public class KnowledgeDocumentDataService {
     }
 
     /**
-     * 管理员按通用或项目联合上下文读取全部生命周期文档，目录使用自身及后代子树语义。
+     * 管理员按通用或项目联合上下文读取文档，可按生命周期过滤，目录使用自身及后代子树语义。
      *
      * @param query 已解析上下文与分页
      * @return 当前目录子树摘要页
@@ -195,17 +195,25 @@ public class KnowledgeDocumentDataService {
     public PageResult<KnowledgeDocument> findAdmin(AdminBrowseKnowledgeDocumentsQuery query) {
         requirePage(query.page(), query.size());
         LambdaQueryWrapper<KnowledgeDocumentEntity> wrapper = contextWrapper(query.context());
+        if (query.status() != null) {
+            wrapper.eq(KnowledgeDocumentEntity::getStatus, query.status().name());
+        }
         applyDirectoryFilter(wrapper, query.directory(), true);
         return selectPage(wrapper, query.page(), query.size());
     }
 
     /**
      * @param context 管理员当前通用或项目上下文
-     * @return 全部生命周期文档目录路径，供完整树递归计数
+     * @param status 可选生命周期状态
+     * @return 同一状态过滤范围内的目录路径，供完整树递归计数
      */
     @Transactional(readOnly = true)
-    public List<String> findAdminDirectoryPaths(KnowledgeBrowseContext context) {
-        return documentMapper.selectList(contextWrapper(context)
+    public List<String> findAdminDirectoryPaths(KnowledgeBrowseContext context, DocumentStatus status) {
+        LambdaQueryWrapper<KnowledgeDocumentEntity> wrapper = contextWrapper(context);
+        if (status != null) {
+            wrapper.eq(KnowledgeDocumentEntity::getStatus, status.name());
+        }
+        return documentMapper.selectList(wrapper
                         .select(KnowledgeDocumentEntity::getDirectoryPath))
                 .stream().map(KnowledgeDocumentEntity::getDirectoryPath).toList();
     }

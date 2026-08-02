@@ -63,6 +63,18 @@ export function createLoreDockRouter(session: SessionController): Router {
         meta: { requiresAuth: true },
       },
       {
+        path: '/projects/:identifier/drafts',
+        name: 'project-drafts',
+        component: KnowledgeWorkspaceView,
+        meta: { requiresAuth: true, adminOnly: true, memberFallback: 'project-knowledge' },
+      },
+      {
+        path: '/projects/:identifier/drafts/:documentId',
+        name: 'project-draft-detail',
+        component: KnowledgeWorkspaceView,
+        meta: { requiresAuth: true, adminOnly: true, memberFallback: 'project-knowledge' },
+      },
+      {
         path: '/projects/:identifier/knowledge-tasks/:conversationId',
         name: 'project-knowledge-task',
         component: KnowledgeTaskView,

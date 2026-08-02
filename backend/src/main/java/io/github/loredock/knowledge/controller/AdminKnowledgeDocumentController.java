@@ -93,11 +93,12 @@ public class AdminKnowledgeDocumentController {
     }
 
     /**
-     * 管理员知识工作区上下文浏览；目录统计包含全部生命周期，文档按选中目录子树服务端分页。
+     * 管理员知识工作区上下文浏览；目录统计与文档分页使用相同生命周期过滤条件。
      *
      * @param context 明确通用或项目上下文
      * @param project 项目标识；通用上下文必须为空
      * @param directory 可选目录子树
+     * @param status 可选生命周期状态
      * @param page 零基页码
      * @param size 页容量
      * @return 完整目录树与当前子树摘要页
@@ -107,13 +108,14 @@ public class AdminKnowledgeDocumentController {
             @RequestParam io.github.loredock.knowledge.model.enums.KnowledgeBrowseContextType context,
             @RequestParam(required = false) String project,
             @RequestParam(required = false) String directory,
+            @RequestParam(required = false) io.github.loredock.knowledge.model.enums.DocumentStatus status,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
         var resolved = scopes.resolveBrowse(context, project, null);
         return KnowledgeDocumentHttpMapper.toBrowseResponse(queries.browseAdmin(
                 new AdminBrowseKnowledgeDocumentsQuery(
-                        resolved, directory == null ? null : new DocumentDirectory(directory), page, size)));
+                        resolved, directory == null ? null : new DocumentDirectory(directory), status, page, size)));
     }
 
     /**

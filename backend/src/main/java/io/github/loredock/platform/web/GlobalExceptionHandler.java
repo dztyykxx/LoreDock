@@ -85,8 +85,11 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleKnowledgeTask(RuntimeException exception) {
         ErrorCode code;
         if (exception instanceof KnowledgeTaskRequestException task) {
-            code = task.code() == KnowledgeTaskRequestException.Code.KNOWLEDGE_TASK_NOT_FOUND
-                    ? ErrorCode.KNOWLEDGE_TASK_NOT_FOUND : ErrorCode.KNOWLEDGE_TASK_STATE_CONFLICT;
+            code = switch (task.code()) {
+                case KNOWLEDGE_TASK_NOT_FOUND -> ErrorCode.KNOWLEDGE_TASK_NOT_FOUND;
+                case AGENT_DEFINITION_INVALID -> ErrorCode.KNOWLEDGE_TASK_DEFINITION_UNAVAILABLE;
+                default -> ErrorCode.KNOWLEDGE_TASK_STATE_CONFLICT;
+            };
         } else {
             KnowledgeDraftException draft = (KnowledgeDraftException) exception;
             code = draft.code() == KnowledgeDraftException.Code.DRAFT_NOT_FOUND

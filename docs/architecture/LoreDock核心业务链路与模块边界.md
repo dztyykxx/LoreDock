@@ -70,24 +70,29 @@ LoreDock 的核心是把分散的业务材料整理成**有项目范围、有来
 → 后续 Web 与 MCP 可以检索
 ```
 
-这是 LoreDock 持续产生价值的核心闭环。多 Agent 只负责证据提取、编写和审查，主流程由应用固定，不建设动态编排平台。Agent 只能生成草稿，不能直接发布正式知识。
+这是 LoreDock 持续产生价值的核心闭环。本地 Skill 负责从需求与代码变更提炼候选业务知识；服务端使用一个 `knowledge-curator` Agent 调用受控 Tool 合并草稿，不能直接发布正式知识。
 
 ### 2.4 链路四：MCP 向本地 Agent 提供上下文
 
-> 后续阶段：当前不实现身份校验、摘要和模型生成；如提供 MCP 工具，只复用现有检索服务。
+> 当前实现使用独立读写 Bearer Token；查询不生成模型摘要，提交只创建待处理草稿。
 
 ```text
-Claude Code 调用 MCP
-→ 搜索知识或读取文档
+Claude Code/Codex 调用 MCP
+→ 搜索知识、浏览目录、读取文档或匹配关键词
 → 复用 Web 同一套范围与检索服务
 → 返回原始证据和引用
 → Claude Code 结合本地最新代码完成分析
+
+可选：使用写 Token 提交业务知识 Markdown
+→ 创建项目 DRAFT
+→ 不创建会话、不启动 Agent
+→ 管理员回到 Web 勾选后启动合并整理
 ```
-MCP 是检索能力的另一个入口，不单独实现业务逻辑。当前阶段不做身份校验、不生成 MCP 摘要，也不调用模型生成最终答案。
+MCP 是查询和草稿提交的薄入口，不复制整理、审核或发布逻辑，不生成 MCP 摘要，也不调用模型生成最终答案。
 
 ## 3. 模块边界
 
-当前已实现模块：`project`、`knowledge`、`code`、`agent`、`qa`、`feedback`、`job`、`auth`、`storage`。`change`（需求沉淀）与 `mcp` 属于后续阶段模块，当前没有代码、表或扩展点。
+当前已实现模块：`project`、`knowledge`、`code`、`agent`、`qa`、`feedback`、`job`、`auth`、`storage`。MCP 作为 `knowledge` 的入口适配，不单独建立业务模块或持久化表；需求/PR 提炼由本地 Workflow Skill 完成。
 
 | 模块 | 对外能力 | 主要输入 | 主要输出 |
 |---|---|---|---|
@@ -97,8 +102,8 @@ MCP 是检索能力的另一个入口，不单独实现业务逻辑。当前阶�
 | `agent` | 运行 Spring AI Alibaba Agent | 问题、工具、范围、限制 | 回答/拒答、引用、运行结果 |
 | `qa` | 编排一次项目问答 | 项目、问题 | 流式状态、最终回答、引用 |
 | `feedback` | 记录和处理知识缺口 | 问题、类型、关联问答 | 缺口记录、处理状态 |
-| `change`（后续阶段） | 需求到实现的知识沉淀 | 需求、PR/Diff、测试材料 | 证据台账、待审核草稿 |
-| `mcp`（后续阶段） | 将查询能力暴露给本地 Agent | MCP 工具参数 | 原始上下文与引用 |
+| 本地 Workflow Skill | 需求到实现的业务知识提炼 | 需求、基线代码、人工提交 | 候选 Markdown |
+| Knowledge MCP 入口 | 将查询和草稿提交暴露给本地 Agent | MCP 工具参数 | 原始知识或待处理草稿 ID |
 
 模块协作遵循：
 
@@ -106,9 +111,7 @@ MCP 是检索能力的另一个入口，不单独实现业务逻辑。当前阶�
 Web Controller ─┬→ QA Service → Agent / Project / Knowledge 的 api
                 └→ 各业务模块 Service
 
-MCP 入口（后续阶段） ──→ Knowledge 的 api
-
-Change Service ──→ Project / Knowledge / Agent Service
+MCP 入口 ──→ Knowledge 查询/创建 Service
 ```
 
 - 每个业务模块内部使用 `Controller → Service → Mapper → PostgreSQL`；
@@ -120,8 +123,8 @@ Change Service ──→ Project / Knowledge / Agent Service
 ## 4. 开发优先级
 
 1. **当前主线：先保证可回答**（链路一 + 链路二）：项目管理、知识导入发布与索引、项目范围检索、带文档引用问答和明确拒答真实可运行；证据不足的拒答和运行故障的失败说明必须可区分；
-2. **后续阶段：第二入口 MCP**：复用现有查询服务返回原始证据，当前不实现身份校验和摘要；
-3. **后续阶段：知识增长闭环**：需求变更材料经多 Agent 整理、人工审核后发布；
+2. **当前主线：知识增长闭环**：Web 上传待处理草稿，管理员勾选后由单 Agent 整理，人工审核后发布；
+3. **第二入口 MCP**：复用现有查询和草稿创建 Service，不复制模型整理与发布；
 4. **后续阶段：治理能力**：知识体检、定期任务、历史版本、复杂恢复和统计均不得阻塞主链路。
 
 每推进一项功能，都应先说明它接入哪条核心链路、调用哪些模块接口、产生什么可观察结果。无法回答这三个问题的功能，当前阶段不应进入开发。
