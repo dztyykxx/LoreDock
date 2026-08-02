@@ -17,24 +17,46 @@ import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.execution.ToolExecutionException;
+import org.springframework.ai.tool.method.MethodToolCallback;
+import org.springframework.ai.tool.method.MethodToolCallbackProvider;
 import org.springframework.beans.factory.ObjectProvider;
 
 /** 验证知识整理只暴露有限标准 ToolCallback，并在业务调用前复核服务端运行范围。 */
-class KnowledgeCurationToolCallbacksTest {
+class KnowledgeCurationToolsTest {
 
     /**
      * 业务目的：候选 Tool 集不得包含正式发布、Shell、任意 HTTP 或文件写能力，防止 Agent Spec 获得越权能力。
      */
     @Test
     void exposesOnlyExplicitCurationBusinessTools() {
-        List<String> names = callbacks(mock(AgentRunMapper.class), mock(ProjectQaToolService.class)).stream()
+        List<ToolCallback> callbacks = callbacks(mock(AgentRunMapper.class), mock(ProjectQaToolService.class));
+        List<String> names = callbacks.stream()
                 .map(value -> value.getToolDefinition().name()).toList();
 
         assertThat(names).containsExactly(
                 "conflict_record", "draft_create", "draft_diff", "draft_read", "draft_update",
                 "evidence_read", "knowledge_gap_record", "knowledge_read", "knowledge_search");
+        assertThat(callbacks).allSatisfy(callback -> assertThat(callback).isInstanceOf(MethodToolCallback.class));
         assertThat(names).doesNotContain("publish", "shell", "http", "write_file");
         System.out.printf("测试证据：场景=知识Tool允许集，Tool数=%d，发布/Shell/HTTP/文件写=0%n", names.size());
+    }
+
+    /**
+     * 业务目的：注解方法必须维持平坦模型参数，并把服务端 ToolContext 排除在 Schema 外；
+     * 防止迁移到 Method Tool 后出现 input 包装层或把 runId 暴露给模型。
+     */
+    @Test
+    void annotatedMethodToolKeepsFlatSchemaAndHidesToolContext() {
+        ToolCallback search = callbacks(mock(AgentRunMapper.class), mock(ProjectQaToolService.class)).stream()
+                .filter(value -> value.getToolDefinition().name().equals("knowledge_search"))
+                .findFirst().orElseThrow();
+
+        String schema = search.getToolDefinition().inputSchema();
+
+        assertThat(schema).contains(
+                        "\"query\"", "\"limit\"", "要检索的项目知识问题", "期望返回数量")
+                .doesNotContain("\"input\"", "ToolContext", "runId", "operatorId");
+        System.out.println("测试证据：场景=注解Tool参数Schema，平坦参数=query+limit，服务端上下文字段=0");
     }
 
     /**
@@ -75,9 +97,11 @@ class KnowledgeCurationToolCallbacksTest {
                 .knowledgeTaskConversationId(41L).taskType("knowledge_curation").status("RUNNING").build());
         when(evidence.findByRunId(61L)).thenReturn(List.of());
         when(messages.selectList(org.mockito.ArgumentMatchers.any())).thenReturn(List.of());
-        ToolCallback update = new KnowledgeCurationToolCallbacks(
-                mock(ProjectQaToolService.class), evidence, provider, runs, messages, Clock.systemUTC())
-                .callbacks().stream().filter(value -> value.getToolDefinition().name().equals("draft_update"))
+        KnowledgeCurationTools tools = new KnowledgeCurationTools(
+                mock(ProjectQaToolService.class), evidence, provider, runs, messages, Clock.systemUTC());
+        ToolCallback update = List.of(MethodToolCallbackProvider.builder().toolObjects(tools).build()
+                        .getToolCallbacks()).stream()
+                .filter(value -> value.getToolDefinition().name().equals("draft_update"))
                 .findFirst().orElseThrow();
         ToolContext context = new ToolContext(Map.of(
                 "operatorId", "admin", "projectIdentifier", "atlas", "conversationId", 41L, "runId", 61L));
@@ -97,8 +121,10 @@ class KnowledgeCurationToolCallbacksTest {
     @SuppressWarnings("unchecked")
     private List<ToolCallback> callbacks(AgentRunMapper runs, ProjectQaToolService knowledge) {
         ObjectProvider<KnowledgeDraftService> drafts = mock(ObjectProvider.class);
-        return new KnowledgeCurationToolCallbacks(
+        KnowledgeCurationTools tools = new KnowledgeCurationTools(
                 knowledge, mock(AgentEvidenceService.class), drafts, runs,
-                mock(KnowledgeTaskMessageMapper.class), Clock.systemUTC()).callbacks();
+                mock(KnowledgeTaskMessageMapper.class), Clock.systemUTC());
+        return List.of(MethodToolCallbackProvider.builder().toolObjects(tools).build().getToolCallbacks())
+                .stream().sorted(java.util.Comparator.comparing(value -> value.getToolDefinition().name())).toList();
     }
 }

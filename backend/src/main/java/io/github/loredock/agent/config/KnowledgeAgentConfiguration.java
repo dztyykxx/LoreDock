@@ -1,10 +1,10 @@
 package io.github.loredock.agent.config;
 
-import io.github.loredock.agent.service.KnowledgeCurationToolCallbacks;
+import io.github.loredock.agent.service.KnowledgeCurationTools;
 import java.util.List;
-import org.springframework.ai.tool.StaticToolCallbackProvider;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
+import org.springframework.ai.tool.method.MethodToolCallbackProvider;
 import org.springframework.ai.tool.resolution.StaticToolCallbackResolver;
 import org.springframework.ai.tool.resolution.ToolCallbackResolver;
 import org.springframework.context.annotation.Bean;
@@ -16,8 +16,8 @@ public class KnowledgeAgentConfiguration {
 
     /** @return 仅包含 LoreDock 知识整理业务能力的标准 ToolCallbackProvider */
     @Bean
-    public ToolCallbackProvider knowledgeToolCallbackProvider(KnowledgeCurationToolCallbacks tools) {
-        return new StaticToolCallbackProvider(tools.callbacks());
+    public ToolCallbackProvider knowledgeToolCallbackProvider(KnowledgeCurationTools tools) {
+        return MethodToolCallbackProvider.builder().toolObjects(tools).build();
     }
 
     /** @return 与 Provider 使用同一显式候选集的标准 ToolCallbackResolver */
