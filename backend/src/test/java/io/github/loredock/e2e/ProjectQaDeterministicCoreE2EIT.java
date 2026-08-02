@@ -10,9 +10,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.loredock.agent.model.enums.AgentRefusalReason;
 import io.github.loredock.agent.model.enums.AgentResultType;
 import io.github.loredock.agent.model.enums.AgentRunStatus;
-import io.github.loredock.agent.service.AgentRuntime;
 import io.github.loredock.agent.service.ProjectQaToolService;
-import io.github.loredock.agent.service.impl.SpringAiAlibabaAgentRuntime;
+import io.github.loredock.agent.service.impl.ProjectQaAgentExecutor;
 import io.github.loredock.knowledge.model.DocumentAudit;
 import io.github.loredock.knowledge.model.DocumentBody;
 import io.github.loredock.knowledge.model.DocumentDirectory;
@@ -119,7 +118,8 @@ class ProjectQaDeterministicCoreE2EIT {
     @BeforeEach
     void resetFacts() {
         for (String table : List.of(
-                "web_qa_message", "web_qa_question", "agent_evidence", "agent_run_event", "agent_run",
+                "web_qa_message", "web_qa_question", "web_qa_conversation",
+                "agent_evidence", "agent_run_event", "agent_run",
                 "knowledge_search_chunk", "knowledge_index_generation", "knowledge_document", "background_job",
                 "project_branch", "project_space", "stored_object")) {
             jdbcTemplate.update("delete from " + table);
@@ -269,16 +269,15 @@ class ProjectQaDeterministicCoreE2EIT {
             return new ScriptedChatModel();
         }
 
-        // 生产装配对 ChatModel 的 @ConditionalOnBean 在测试配置注册前求值，
-        // 这里直接声明真实 AgentRuntime，保证调度线程拿到脚本模型驱动完整工具链路。
+        // 生产装配对 ChatModel 的条件在测试配置注册前求值，直接声明具体执行器以驱动完整框架链路。
         @Bean
         @Primary
-        AgentRuntime projectQaAgentRuntime(
+        ProjectQaAgentExecutor projectQaAgentExecutor(
                 ChatModel chatModel,
                 ProjectQaToolService tools,
                 ObjectMapper objectMapper
         ) {
-            return new SpringAiAlibabaAgentRuntime(() -> chatModel, tools, objectMapper);
+            return new ProjectQaAgentExecutor(() -> chatModel, tools, objectMapper);
         }
     }
 

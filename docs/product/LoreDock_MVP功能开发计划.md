@@ -154,7 +154,7 @@ flowchart TD
 
 目标：先完成 AI 技术栈迁移并建立受控、可追溯的单 Agent 问答运行时，为 T7 尽快形成可试用的检索问答闭环。
 
-覆盖需求：FR-AGENT-01～07，以及 FR-AGENT-03 中的 `project_qa` 场景。
+覆盖需求：FR-AGENT-01～07，以及 FR-AGENT-03 中的 `project-qa` 场景。
 
 功能范围：
 
@@ -162,14 +162,14 @@ flowchart TD
 - 通过隔离 PoC 从 Maven Central 可用正式构件中锁定 Spring Boot 3.5.x 和 Spring AI Alibaba 1.1.2.x 的具体补丁版本，并记录最终依赖树；
 - 替换 MyBatis-Plus、Sa-Token 等 Boot 4 专用 Starter，清理不兼容或重复的 Spring AI 依赖，禁止同时混入 Spring AI 1.1.x 与 2.0.x；
 - 重新运行 T1～T5 的单元测试、PostgreSQL 集成测试和应用启动检查，确认迁移没有破坏认证、项目范围、文档生命周期和检索行为；
-- 基于 Spring AI Alibaba Agent Framework 定义单 Agent 运行适配边界，提供 DeepSeek `deepseek-v4-flash` OpenAI 兼容 `ChatModel` 实现和测试用 Fake Model；
-- 从 classpath 加载固定的 `project_qa` Agent 定义，使用受控 `ReactAgent` 调用 T4 代码检索和 T5 知识混合检索能力；
+- 直接使用 Spring AI Alibaba Agent Framework 的 `ReactAgent`，提供 DeepSeek `deepseek-v4-flash` OpenAI 兼容 `ChatModel` 实现和标准 `ChatModel` 测试替身；
+- 从 classpath 加载固定的 `project-qa` Skill，使用受控 `ReactAgent` 调用 T5 知识混合检索能力；当前不把代码检索 Tool 注册给项目问答；
 - 在服务端强制校验工具白名单、项目、知识范围和工具参数，禁止提示词扩大权限；
 - 限制最大步骤数、超时、检索数量、上下文长度和模型调用次数；
 - 保存 Agent/模型配置摘要、输入来源、引用、Token、耗时和运行状态，并提供 T7 所需的粗粒度流式阶段事件；
 - Agent 只允许读取授权证据并生成回答或知识缺口，不得修改或发布正式知识。
 
-重点验收：依赖树中不存在 Spring Boot 4 或 Spring AI 2.0 残留；T1～T5 相关测试在新版本基线上通过；`project_qa` 能在指定项目内调用知识检索工具并返回引用；越权工具调用、跨范围读取和无依据回答被拒绝；达到步骤或时间限制后安全停止。
+重点验收：依赖树中不存在 Spring Boot 4 或 Spring AI 2.0 残留；T1～T5 相关测试在新版本基线上通过；`project-qa` 能在指定项目内调用知识检索工具并返回引用；越权工具调用、跨范围读取和无依据回答被拒绝；达到步骤或时间限制后安全停止。
 
 ### [x] T6B：Spring AI Alibaba Skill/Agent Spec 接入与平台 Tool
 
@@ -180,7 +180,7 @@ flowchart TD
 功能范围：
 
 - 需求和设计阶段先对照项目锁定的 Spring AI Alibaba 版本核对本地源码/API 与官方资料；框架已提供的 Runtime、Skill Registry/Loader、Agent Spec Loader、子 Agent 调度、Tool 解析、Hook、Checkpoint 和 Human-in-the-Loop 不得由 LoreDock 重复实现；
-- 使用 `FileSystemSkillRegistry`、`SkillsAgentHook.autoReload(true)` 和 `SkillsInterceptor` 从仓库或部署挂载目录加载 Skill，并使用框架渐进披露和运行内稳定语义；LoreDock 只记录本次运行实际定义和 Tool 集合摘要；
+- 每个 run 使用独立 `FileSystemSkillRegistry` 和 `SkillsAgentHook` 从仓库或部署挂载目录加载 Skill，通过 `groupedTools` 渐进披露业务 Tool；接受和执行复用同一 Registry 快照并关闭运行内 autoReload，新定义只影响后续 run；LoreDock 只记录本次运行实际定义和 Tool 集合摘要；
 - 使用 `AgentSpecLoader`、`AgentSpecReactAgentFactory`、`TaskToolsBuilder`、`TaskTool`/`TaskOutputTool` 或 `AgentTool` 加载预定义子 Agent，让协调 Agent 自主决定是否以及何时调用；不自建 Agent Spec Loader 或子 Agent 调度器；
 - 使用 Spring AI `ToolCallback`、`ToolCallbackProvider` 和 `ToolCallbackResolver` 注册 LoreDock Tool，不自建通用 Tool Registry；Agent Spec 必须显式声明 Tool，运行前校验未知名称，候选 Tool 集合不包含 Shell、任意 HTTP、数据库管理、任意文件系统或正式知识发布能力；
 - 首批 LoreDock Tool 提供项目知识检索、指定文档读取、证据来源读取、草稿创建/读取/增量更新、修订 Diff、整理报告、冲突候选和知识缺口保存；引用与来源完整性、运行事件记录和正式发布门禁由服务端强制执行，不依赖模型主动调用；
@@ -208,7 +208,7 @@ flowchart TD
 功能范围：
 
 - 用户选择项目后提出自然语言问题；
-- 自动使用 `project_qa` Skill；
+- 自动使用 `project-qa` Skill；
 - 流式展示回答；
 - 展示知识文档来源和更新时间；
 - 只使用已发布文档作为项目事实来源；
@@ -223,7 +223,7 @@ flowchart TD
 
 目标：在不暴露原始思维链和敏感上下文的前提下，让用户实时看到当前 QA Agent 做了什么，并能在同一项目会话中连续追问和查看历史对话。
 
-覆盖需求：FR-QA-09～12，以及 FR-AGENT-15～16 在 `project_qa` 场景中的落地。
+覆盖需求：FR-QA-09～12，以及 FR-AGENT-15～16 在 `project-qa` 场景中的落地。
 
 功能范围：
 
@@ -235,8 +235,7 @@ flowchart TD
 - 模型先判断本轮是否需要 RAG：项目事实自主调用知识检索并保留引用门禁，闲聊、能力说明和会话历史类问题不检索也不因零引用拒答；
 - 最终结构化结果生成期间实时推送尚未校验的回答正文，页面明确提示待最终校验；引用校验在末尾收敛为回答或拒答，不阻塞用户先看到生成内容；
 - 引入会话标识；同一会话的每次提问仍创建独立 Agent run，并只注入同项目、同用户、同会话内已完成且数量受限的问题与最终回答；
-- 支持会话列表、会话详情、最近对话和继续追问；历史记录以问题、最终回答、状态和时间为主；
-- 当前不做生成中断后的续跑、检查点恢复、详细中间状态恢复、自动摘要或长期记忆；后端重启时进行中的轮次失败，已完成问答仍可继续使用。
+- 知识整理长任务使用框架 Checkpoint 恢复；不可恢复的短时 `project_qa` 在后端重启后以稳定中断错误终结。
 
 重点验收：处理过程随 Agent 执行实时出现，最终事件顺序与详情一致；用户能看到 RAG 命中文档和 Tool 结果摘要但无法读取敏感内部上下文；第二轮问题能基于同一会话已完成问答正确理解指代；不同项目、用户和会话的历史不会串入模型上下文；重启后已完成历史仍可查看，未完成轮次明确失败且可重新提问。
 
@@ -249,7 +248,7 @@ flowchart TD
 功能范围：
 
 - 管理员选择项目和已有文档；
-- 手动触发时创建知识任务会话；系统将项目范围、触发原因和整理目标写为首条系统消息，再运行本地 `knowledge_curator` Skill；
+- 手动触发时创建知识任务会话；系统将项目范围、触发原因和整理目标写为首条系统消息，再运行本地 `knowledge-curator` Skill；
 - 由协调 Agent 自主决定调用知识检索、文档读取、冲突候选、草稿读取/更新和 Diff Tool；
 - 将每次知识挖掘/冲突整理标记为可恢复长任务，在完成关键节点和进入人工等待前提交 PostgreSQL Checkpoint；
 - 协调 Agent 可按需调用 `knowledge_researcher`、`evidence_reviewer`、`conflict_reviewer`、`document_writer` 等预定义子 Agent，调用数量和顺序不由 Java 固定；
@@ -298,9 +297,9 @@ flowchart TD
 
 功能范围：
 
-- 管理员从知识体检入口手动重用 T8 的 `knowledge_curator` 运行能力；
+- 管理员从知识体检入口手动重用 T8 的 `knowledge-curator` 运行能力；
 - 把文档来源更新、同主题新文档、重复/冲突候选和问答知识缺口整理为 Tool 可查询的运营输入；
-- 手动和每周任务均创建同一种知识任务会话并触发同一个本地 `knowledge_curator` Skill；定时任务只负责写入系统触发消息，不在调度器中复制编排流程；
+- 手动和每周任务均创建同一种知识任务会话并触发同一个本地 `knowledge-curator` Skill；定时任务只负责写入系统触发消息，不在调度器中复制编排流程；
 - 复用 T8 已建设的 Tool、预定义子 Agent、报告、待审核草稿和人工处理边界；
 - 实现每周知识整理任务；
 - 任务失败只保存失败信息，不影响已发布知识和检索；

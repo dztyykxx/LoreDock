@@ -10,6 +10,7 @@ import io.github.loredock.agent.model.request.AgentExecutionRequest;
 import io.github.loredock.agent.model.result.AgentExecutionResult;
 import io.github.loredock.agent.model.result.AgentExecutionUsage;
 import io.github.loredock.agent.model.result.TrustedProjectQaResult;
+import io.github.loredock.agent.service.impl.ProjectQaAgentExecutor;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Optional;
@@ -24,7 +25,7 @@ import org.springframework.stereotype.Service;
 @Slf4j
 public class ProjectQaRunTaskExecutor {
 
-    private final Optional<AgentRuntime> execution;
+    private final Optional<ProjectQaAgentExecutor> execution;
     private final AgentRunService runs;
     private final AgentEventService events;
     private final ProjectQaResultConverter validator;
@@ -38,7 +39,7 @@ public class ProjectQaRunTaskExecutor {
      * @param timeProvider UTC 时间源
      */
     public ProjectQaRunTaskExecutor(
-            Optional<AgentRuntime> execution,
+            Optional<ProjectQaAgentExecutor> execution,
             AgentRunService runs,
             AgentEventService events,
             ProjectQaResultConverter validator,

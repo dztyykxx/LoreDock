@@ -1,5 +1,7 @@
 package io.github.loredock.agent.service;
 
+import com.alibaba.cloud.ai.graph.skills.SkillMetadata;
+import com.alibaba.cloud.ai.graph.skills.registry.classpath.ClasspathSkillRegistry;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -18,7 +20,6 @@ import io.github.loredock.agent.model.request.AgentExecutionRequest;
 import io.github.loredock.agent.model.result.AgentRunAcceptanceResult;
 import io.github.loredock.agent.model.snapshot.AgentRunSnapshot;
 import io.github.loredock.agent.scheduler.BoundedAgentRunScheduler;
-import io.github.loredock.agent.skill.AgentDefinition;
 import io.github.loredock.knowledge.api.KnowledgeSearchService;
 import io.github.loredock.project.api.ProjectScope;
 import io.github.loredock.project.api.ProjectService;
@@ -39,11 +40,12 @@ class AgentServiceStartTest {
     private static final Long GENERATION_ID = 1674921486353642292L;
     private static final Long RUN_ID = 1674921486353642293L;
     private AgentProperties configuration;
-    private AgentDefinitionProvider definitions;
+    private ClasspathSkillRegistry skills;
     private ProjectService projects;
     private KnowledgeSearchService knowledge;
     private AgentRunService runs;
     private BoundedAgentRunScheduler scheduler;
+    private ProjectQaRunTaskExecutor taskExecutor;
     private PersistentAgentRunDispatchFailureHandler dispatchFailures;
     private AtomicReference<AgentRunCreateData> acceptedData;
     private AtomicReference<AgentExecutionRequest> scheduledRequest;
@@ -51,21 +53,31 @@ class AgentServiceStartTest {
     @BeforeEach
     void setUp() {
         configuration = configuration(true, true, "model-v1");
-        definitions = mock(AgentDefinitionProvider.class);
+        skills = mock(ClasspathSkillRegistry.class);
         projects = mock(ProjectService.class);
         knowledge = mock(KnowledgeSearchService.class);
         runs = mock(AgentRunService.class);
         acceptedData = new AtomicReference<>();
         scheduledRequest = new AtomicReference<>();
         scheduler = mock(BoundedAgentRunScheduler.class);
-        when(scheduler.schedule(any())).thenAnswer(invocation -> {
-            assertThat(acceptedData.get()).as("调度前运行必须已提交").isNotNull();
+        taskExecutor = mock(ProjectQaRunTaskExecutor.class);
+        org.mockito.Mockito.doAnswer(invocation -> {
             scheduledRequest.set(invocation.getArgument(0));
+            return null;
+        }).when(taskExecutor).execute(any());
+        when(scheduler.schedule(any(), any())).thenAnswer(invocation -> {
+            assertThat(acceptedData.get()).as("调度前运行必须已提交").isNotNull();
+            ((Runnable) invocation.getArgument(1)).run();
             return true;
         });
         dispatchFailures = mock(PersistentAgentRunDispatchFailureHandler.class);
         when(runs.findByOperatorAndIdempotencyKey(any(), any())).thenReturn(Optional.empty());
-        when(definitions.find("project_qa")).thenReturn(Optional.of(definition()));
+        when(skills.get("project-qa")).thenReturn(Optional.of(mock(SkillMetadata.class)));
+        try {
+            when(skills.readSkillContent("project-qa")).thenReturn("skill");
+        } catch (java.io.IOException exception) {
+            throw new AssertionError(exception);
+        }
         when(projects.resolveEnabledScope(any(), any())).thenReturn(project("main"));
         when(knowledge.findActiveIndexVersionId()).thenReturn(Optional.of(GENERATION_ID));
         when(runs.accept(any())).thenAnswer(invocation -> {
@@ -147,7 +159,7 @@ class AgentServiceStartTest {
         configuration = configuration(true, false, "model-v1");
         assertCode(AgentRun.ErrorCode.AGENT_MODEL_UNAVAILABLE);
         configuration = configuration(true, true, "model-v1");
-        when(definitions.find("project_qa")).thenReturn(Optional.empty());
+        when(skills.get("project-qa")).thenReturn(Optional.empty());
         assertCode(AgentRun.ErrorCode.AGENT_SKILL_UNAVAILABLE);
         verify(runs, org.mockito.Mockito.never()).accept(any());
         System.out.println("测试证据：场景=Agent不可用，关闭/无模型/无Skill的稳定错误均已校验");
@@ -202,7 +214,7 @@ class AgentServiceStartTest {
     @Test
     void rejectedSchedulingPersistsRuntimeBusyTerminalFact() {
         scheduler = mock(BoundedAgentRunScheduler.class);
-        when(scheduler.schedule(any())).thenReturn(false);
+        when(scheduler.schedule(any(), any())).thenReturn(false);
         when(runs.finishWithError(any(), any(), any(Boolean.class), any(), any())).thenReturn(true);
         dispatchFailures = new PersistentAgentRunDispatchFailureHandler(
                 runs, Clock.fixed(NOW, java.time.ZoneOffset.UTC));
@@ -215,8 +227,8 @@ class AgentServiceStartTest {
     }
 
     private AgentServiceImpl service() {
-        return new AgentServiceImpl(configuration, definitions, projects, knowledge,
-                runs, mock(AgentEventService.class), scheduler, dispatchFailures,
+        return new AgentServiceImpl(configuration, skills, "schema", projects, knowledge,
+                runs, mock(AgentEventService.class), scheduler, taskExecutor, dispatchFailures,
                 Clock.fixed(NOW, java.time.ZoneOffset.UTC));
     }
 
@@ -242,10 +254,6 @@ class AgentServiceStartTest {
                 new AgentProperties.Limits(
                         8, 8, Duration.ofSeconds(90), 10, 2000, 24000, 8000, 200, 0.1),
                 new AgentProperties.Executor(1, 1, 1, Duration.ofSeconds(1)));
-    }
-
-    private AgentDefinition definition() {
-        return new AgentDefinition("project_qa", "project-qa-v1", 8, "skill", "schema");
     }
 
     private ProjectScope project(String branch) {

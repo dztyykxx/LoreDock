@@ -45,7 +45,7 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 import reactor.core.publisher.Flux;
 
 @ExtendWith(OutputCaptureExtension.class)
-class SpringAiAlibabaAgentRuntimeTest {
+class ProjectQaAgentExecutorTest {
 
     private static final Long RUN_ID = 1052023740649963522L;
     private static final Long KNOWLEDGE_ID = 1052023740649963523L;
@@ -66,7 +66,7 @@ class SpringAiAlibabaAgentRuntimeTest {
         ProjectQaToolService tools = mock(ProjectQaToolService.class);
         when(tools.knowledgeSearch(eq(RUN_ID), any(KnowledgeSearchToolRequest.class)))
                 .thenReturn(toolResult(knowledgeEvidence(), longKnowledgeContext));
-        SpringAiAlibabaAgentRuntime adapter = new SpringAiAlibabaAgentRuntime(model, tools);
+        ProjectQaAgentExecutor adapter = new ProjectQaAgentExecutor(model, tools);
 
         AgentExecutionResult result = adapter.execute(request(RUN_ID, "为什么需要审核？", limits(8, 8, 30)));
 
@@ -102,7 +102,7 @@ class SpringAiAlibabaAgentRuntimeTest {
     void independentRunsDoNotShareMemory() {
         ScriptedChatModel model = new ScriptedChatModel(List.of(
                 refusal(), refusal()), Duration.ZERO, false);
-        SpringAiAlibabaAgentRuntime adapter = new SpringAiAlibabaAgentRuntime(
+        ProjectQaAgentExecutor adapter = new ProjectQaAgentExecutor(
                 model, mock(ProjectQaToolService.class));
 
         AgentExecutionResult first = adapter.execute(
@@ -123,7 +123,7 @@ class SpringAiAlibabaAgentRuntimeTest {
     @Test
     void conversationHistoryIsExplicitlyMarkedAsNonEvidenceContext() {
         ScriptedChatModel model = new ScriptedChatModel(List.of(refusal()), Duration.ZERO, false);
-        SpringAiAlibabaAgentRuntime adapter = new SpringAiAlibabaAgentRuntime(
+        ProjectQaAgentExecutor adapter = new ProjectQaAgentExecutor(
                 model, mock(ProjectQaToolService.class));
         AgentExecutionRequest request = request(RUN_ID, "它还有哪些限制？", limits(8, 8, 30));
         request = new AgentExecutionRequest(
@@ -154,7 +154,7 @@ class SpringAiAlibabaAgentRuntimeTest {
                  "citations":[],"refusalReason":"INSUFFICIENT_EVIDENCE","sourceConflict":false}
                 ```
                 """)), Duration.ZERO, false);
-        SpringAiAlibabaAgentRuntime adapter = new SpringAiAlibabaAgentRuntime(
+        ProjectQaAgentExecutor adapter = new ProjectQaAgentExecutor(
                 model, mock(ProjectQaToolService.class));
 
         AgentExecutionResult result = adapter.execute(
@@ -186,7 +186,7 @@ class SpringAiAlibabaAgentRuntimeTest {
                         answer("\"refusalReason\":\"INSUFFICIENT_EVIDENCE\",\"sourceConflict\":false}"));
             }
         };
-        SpringAiAlibabaAgentRuntime adapter = new SpringAiAlibabaAgentRuntime(
+        ProjectQaAgentExecutor adapter = new ProjectQaAgentExecutor(
                 model, mock(ProjectQaToolService.class));
 
         AgentExecutionResult result = adapter.execute(
@@ -217,10 +217,12 @@ class SpringAiAlibabaAgentRuntimeTest {
                                 answer("{\"text\":\"" + firstText),
                                 answer("已生成完成\",\"resultType\":\"ANSWER\",\"answerBasis\":null,"),
                                 answer("\"citations\":[],\"refusalReason\":null,\"sourceConflict\":false}"))
+                        // 用真实异步分块验证框架 StreamingInterceptor 的时间边界，避免同步源预取让计数先行。
+                        .delayElements(Duration.ofMillis(5))
                         .doOnNext(ignored -> deliveredChunks.incrementAndGet());
             }
         };
-        SpringAiAlibabaAgentRuntime adapter = new SpringAiAlibabaAgentRuntime(
+        ProjectQaAgentExecutor adapter = new ProjectQaAgentExecutor(
                 model, mock(ProjectQaToolService.class));
         List<String> deltas = new ArrayList<>();
         List<Integer> deliveryPositions = new ArrayList<>();
@@ -250,7 +252,7 @@ class SpringAiAlibabaAgentRuntimeTest {
                 tool("knowledge_search", "{\"query\":\"loop\",\"limit\":1}")), Duration.ZERO, false);
         ProjectQaToolService tools = mock(ProjectQaToolService.class);
         when(tools.knowledgeSearch(any(), any())).thenReturn(toolResult(knowledgeEvidence(), "knowledge evidence"));
-        SpringAiAlibabaAgentRuntime adapter = new SpringAiAlibabaAgentRuntime(model, tools);
+        ProjectQaAgentExecutor adapter = new ProjectQaAgentExecutor(model, tools);
 
         assertThatThrownBy(() -> adapter.execute(
                 request(RUN_ID, "持续调用", limits(8, 1, 30))))
@@ -274,7 +276,7 @@ class SpringAiAlibabaAgentRuntimeTest {
                 tool("knowledge_search", "{\"query\":\"仍然不存在\",\"limit\":1}")), Duration.ZERO, false);
         ProjectQaToolService tools = mock(ProjectQaToolService.class);
         when(tools.knowledgeSearch(any(), any())).thenReturn(new AgentToolResult("", List.of(), 0, 0));
-        SpringAiAlibabaAgentRuntime adapter = new SpringAiAlibabaAgentRuntime(model, tools);
+        ProjectQaAgentExecutor adapter = new ProjectQaAgentExecutor(model, tools);
 
         AgentExecutionResult result = adapter.execute(
                 request(RUN_ID, "目前有哪些文档？", limits(8, 1, 30)));
@@ -300,13 +302,15 @@ class SpringAiAlibabaAgentRuntimeTest {
         ProjectQaToolService tools = mock(ProjectQaToolService.class);
         when(tools.knowledgeSearch(any(), any()))
                 .thenThrow(new AgentToolException(AgentErrorCode.AGENT_EVIDENCE_VERSION_CHANGED));
-        SpringAiAlibabaAgentRuntime adapter = new SpringAiAlibabaAgentRuntime(model, tools);
+        ProjectQaAgentExecutor adapter = new ProjectQaAgentExecutor(model, tools);
 
         assertThatThrownBy(() -> adapter.execute(
                 request(RUN_ID, "规则是什么？", limits(8, 8, 30))))
                 .isInstanceOfSatisfying(AgentExecutionException.class,
                         error -> assertThat(error.code()).isEqualTo(AgentErrorCode.AGENT_EVIDENCE_VERSION_CHANGED));
-        System.out.println("测试证据：场景=检索故障不转拒答，错误=AGENT_EVIDENCE_VERSION_CHANGED");
+        assertThat(model.calls()).isEqualTo(1);
+        System.out.printf("测试证据：场景=检索故障立即终止，错误=AGENT_EVIDENCE_VERSION_CHANGED，模型调用=%d%n",
+                model.calls());
     }
 
     /**
@@ -318,7 +322,7 @@ class SpringAiAlibabaAgentRuntimeTest {
                 tool("knowledge_search", "{\"query\":\"规则\",\"limit\":1}")), Duration.ZERO, false);
         ProjectQaToolService tools = mock(ProjectQaToolService.class);
         when(tools.knowledgeSearch(any(), any())).thenThrow(new IllegalStateException("private endpoint detail"));
-        SpringAiAlibabaAgentRuntime adapter = new SpringAiAlibabaAgentRuntime(model, tools);
+        ProjectQaAgentExecutor adapter = new ProjectQaAgentExecutor(model, tools);
 
         assertThatThrownBy(() -> adapter.execute(
                 request(RUN_ID, "规则是什么？", limits(8, 8, 30))))
@@ -336,7 +340,7 @@ class SpringAiAlibabaAgentRuntimeTest {
     @Test
     void timeoutCancelsSlowStreamAndInvalidJsonUsesStableError() {
         ScriptedChatModel slow = new ScriptedChatModel(List.of(refusal()), Duration.ofMillis(300), false);
-        SpringAiAlibabaAgentRuntime slowAdapter = new SpringAiAlibabaAgentRuntime(
+        ProjectQaAgentExecutor slowAdapter = new ProjectQaAgentExecutor(
                 slow, mock(ProjectQaToolService.class));
         assertThatThrownBy(() -> slowAdapter.execute(
                 request(RUN_ID, "slow", limits(8, 8, 1), Instant.now().plusMillis(50))))
@@ -346,7 +350,7 @@ class SpringAiAlibabaAgentRuntimeTest {
         assertThat(slow.delivered()).isZero();
 
         ScriptedChatModel invalid = new ScriptedChatModel(List.of(answer("not-json")), Duration.ZERO, false);
-        SpringAiAlibabaAgentRuntime invalidAdapter = new SpringAiAlibabaAgentRuntime(
+        ProjectQaAgentExecutor invalidAdapter = new ProjectQaAgentExecutor(
                 invalid, mock(ProjectQaToolService.class));
         assertThatThrownBy(() -> invalidAdapter.execute(
                 request(RUN_ID, "invalid", limits(8, 8, 30))))

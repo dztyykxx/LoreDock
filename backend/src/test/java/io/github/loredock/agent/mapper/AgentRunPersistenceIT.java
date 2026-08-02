@@ -26,7 +26,7 @@ import io.github.loredock.agent.scheduler.AgentRunRecovery;
 import io.github.loredock.agent.service.AgentEventService;
 import io.github.loredock.agent.service.AgentEvidenceService;
 import io.github.loredock.agent.service.AgentRunService;
-import io.github.loredock.agent.service.AgentRuntime;
+import io.github.loredock.agent.service.impl.ProjectQaAgentExecutor;
 import io.github.loredock.agent.service.ProjectQaRunTaskExecutor;
 import java.time.Clock;
 import java.time.Duration;
@@ -54,7 +54,7 @@ import org.testcontainers.utility.DockerImageName;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @Testcontainers
-class AgentRuntimePersistenceIT {
+class AgentRunPersistenceIT {
 
     private static final String BCRYPT_HASH =
             "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
@@ -533,13 +533,17 @@ class AgentRuntimePersistenceIT {
         AgentRunCreateData data = withSnapshot
                 ? createDataWithSnapshot(runId, key, acceptedAt) : createData(runId, key, acceptedAt);
         runs.insert(data);
-        AgentRuntime fake = request -> {
+        ProjectQaAgentExecutor fake = org.mockito.Mockito.mock(ProjectQaAgentExecutor.class);
+        org.mockito.Mockito.when(fake.execute(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+                .thenAnswer(invocation -> {
             if (!ledger.isEmpty()) {
                 evidence.saveAll(runId, ledger);
             }
+            java.util.function.Consumer<String> answerDeltaObserver = invocation.getArgument(1);
+            answerDeltaObserver.accept(modelResult.text());
             return new AgentExecutionResult(modelResult, ledger,
                     new AgentExecutionUsage(3, 2, 1, 0, 20L, 10L, 25));
-        };
+        });
         ProjectQaRunTaskExecutor executor = new ProjectQaRunTaskExecutor(
                 java.util.Optional.of(fake), runs, events, validator, timeProvider);
         executor.execute(new AgentExecutionRequest(runId, "仅存在于进程内的问题", "skill", "schema",

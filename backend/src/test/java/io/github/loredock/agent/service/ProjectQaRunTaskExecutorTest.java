@@ -29,6 +29,7 @@ import io.github.loredock.agent.model.result.ProjectQaModelResult;
 import io.github.loredock.agent.model.result.TrustedProjectQaResult;
 import io.github.loredock.agent.model.snapshot.AgentScopeSnapshot;
 import io.github.loredock.agent.model.snapshot.AgentVersionSnapshot;
+import io.github.loredock.agent.service.impl.ProjectQaAgentExecutor;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -44,7 +45,7 @@ class ProjectQaRunTaskExecutorTest {
      */
     @Test
     void evidenceVersionChangeTerminatesRunWithOriginalStableCode() {
-        AgentRuntime execution = mock(AgentRuntime.class);
+        ProjectQaAgentExecutor execution = mock(ProjectQaAgentExecutor.class);
         AgentRunService runs = mock(AgentRunService.class);
         AgentEventService events = mock(AgentEventService.class);
         Clock time = mock(Clock.class);
@@ -76,7 +77,7 @@ class ProjectQaRunTaskExecutorTest {
                 AgentErrorCode.AGENT_MODEL_UNAVAILABLE,
                 AgentErrorCode.AGENT_RUN_TIMEOUT,
                 AgentErrorCode.AGENT_TOOL_NOT_ALLOWED)) {
-            AgentRuntime execution = mock(AgentRuntime.class);
+            ProjectQaAgentExecutor execution = mock(ProjectQaAgentExecutor.class);
             AgentRunService runs = mock(AgentRunService.class);
             AgentEventService events = mock(AgentEventService.class);
             Clock time = mock(Clock.class);
@@ -120,9 +121,10 @@ class ProjectQaRunTaskExecutorTest {
         AgentEvidence item = new AgentEvidence(8000000000000000099L, request.runId(), EvidenceSourceType.KNOWLEDGE,
                 true, 0.9, 8000000000000000100L, null, "atlas", "main", null, null, sensitive, now);
         AgentExecutionUsage usage = new AgentExecutionUsage(3, 2, 1, 12, 30L, 10L, 90);
-        AgentRuntime execution = ignored -> new AgentExecutionResult(
+        ProjectQaAgentExecutor execution = mock(ProjectQaAgentExecutor.class);
+        when(execution.execute(any(), any())).thenReturn(new AgentExecutionResult(
                 new ProjectQaModelResult(AgentResultType.ANSWER, AnswerBasis.BUSINESS_RULE,
-                        sensitive, null, List.of(item.id())), List.of(item), usage);
+                        sensitive, null, List.of(item.id())), List.of(item), usage));
         when(time.instant()).thenReturn(now);
         when(runs.markRunning(any(), any())).thenReturn(true);
         when(runs.complete(any(), any(), any(), any())).thenReturn(true);
@@ -162,24 +164,15 @@ class ProjectQaRunTaskExecutorTest {
         when(time.instant()).thenReturn(now);
         when(runs.markRunning(any(), any())).thenReturn(true);
         when(runs.complete(any(), any(), any(), any())).thenReturn(true);
-        AgentRuntime execution = new AgentRuntime() {
-            @Override
-            public AgentExecutionResult execute(AgentExecutionRequest request) {
-                throw new AssertionError("编排器必须使用流式观察入口");
-            }
-
-            @Override
-            public AgentExecutionResult execute(
-                    AgentExecutionRequest request,
-                    java.util.function.Consumer<String> observer
-            ) {
-                observer.accept("会话历史回答");
-                return new AgentExecutionResult(
-                        new ProjectQaModelResult(AgentResultType.ANSWER, null,
-                                "会话历史回答", null, List.of()),
-                        List.of(), AgentExecutionUsage.none());
-            }
-        };
+        ProjectQaAgentExecutor execution = mock(ProjectQaAgentExecutor.class);
+        when(execution.execute(any(), any())).thenAnswer(invocation -> {
+            java.util.function.Consumer<String> observer = invocation.getArgument(1);
+            observer.accept("会话历史回答");
+            return new AgentExecutionResult(
+                    new ProjectQaModelResult(AgentResultType.ANSWER, null,
+                            "会话历史回答", null, List.of()),
+                    List.of(), AgentExecutionUsage.none());
+        });
         AgentExecutionRequest request = request(now.plusSeconds(30));
 
         new ProjectQaRunTaskExecutor(Optional.of(execution), runs, events,

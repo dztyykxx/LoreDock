@@ -43,7 +43,7 @@ public class AdminKnowledgeTaskController {
         String operator = sessions.currentSession().username();
         return tasks.start(new KnowledgeTaskService.StartRequest(
                 body.idempotencyKey(), operator, identifier, KnowledgeTaskService.TriggerType.MANUAL,
-                body.triggerReason(), "knowledge_curator", body.goal()));
+                body.triggerReason(), "knowledge-curator", body.goal()));
     }
 
     /** @return 当前管理员在项目内可见的任务、消息、运行与公开事件 */

@@ -203,14 +203,17 @@ class WebQaSsePersistenceIT {
         AgentEvidence source = new AgentEvidence(
                 evidenceId, runId, EvidenceSourceType.KNOWLEDGE, true, 0.95,
                 DOCUMENT_ID, null, "atlas", "main", null, null, "范围隔离规则", timeProvider.instant());
-        var fakeModel = (io.github.loredock.agent.service.AgentRuntime) request -> {
+        var fakeModel = org.mockito.Mockito.mock(
+                io.github.loredock.agent.service.impl.ProjectQaAgentExecutor.class);
+        org.mockito.Mockito.when(fakeModel.execute(
+                org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any())).thenAnswer(invocation -> {
             evidence.saveAll(runId, List.of(source));
             return new AgentExecutionResult(
                     new ProjectQaModelResult(
                             AgentResultType.ANSWER, AnswerBasis.BUSINESS_RULE,
                             "范围隔离用于防止跨项目召回。", null, List.of(evidenceId)),
                     List.of(source), new AgentExecutionUsage(3, 1, 1, 0, 20L, 10L, 25));
-        };
+        });
         new ProjectQaRunTaskExecutor(
                 java.util.Optional.of(fakeModel), runs, eventRepository,
                 new ProjectQaResultConverter(), timeProvider)

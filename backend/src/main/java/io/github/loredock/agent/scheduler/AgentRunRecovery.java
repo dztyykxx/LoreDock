@@ -9,7 +9,7 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
 
-/** 启动时单调终结上一进程遗留的非终态运行，T6A 不伪装检查点恢复。 */
+/** 启动时只终结无法 Checkpoint 恢复的 project_qa 短运行。 */
 @Component
 @Slf4j
 public class AgentRunRecovery implements ApplicationRunner {
@@ -26,7 +26,7 @@ public class AgentRunRecovery implements ApplicationRunner {
     @Override
     public void run(ApplicationArguments args) {
         int recovered = 0;
-        for (var run : runs.findNonTerminalRuns()) {
+        for (var run : runs.findNonTerminalProjectQaRuns()) {
             var now = timeProvider.instant();
             if (runs.finishWithError(run.runId(), AgentErrorCode.AGENT_RUN_INTERRUPTED, true,
                     AgentExecutionUsage.none(), now)) {

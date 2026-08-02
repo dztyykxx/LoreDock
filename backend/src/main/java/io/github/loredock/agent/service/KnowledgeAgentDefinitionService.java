@@ -1,10 +1,10 @@
 package io.github.loredock.agent.service;
 
-import com.alibaba.cloud.ai.graph.agent.hook.skills.SkillsAgentHook;
 import com.alibaba.cloud.ai.graph.agent.tools.task.AgentSpec;
 import com.alibaba.cloud.ai.graph.agent.tools.task.AgentSpecLoader;
 import com.alibaba.cloud.ai.graph.agent.tools.task.AgentSpecReactAgentFactory;
 import com.alibaba.cloud.ai.graph.agent.tools.task.TaskToolsBuilder;
+import com.alibaba.cloud.ai.graph.agent.hook.skills.SkillsAgentHook;
 import com.alibaba.cloud.ai.graph.skills.registry.filesystem.FileSystemSkillRegistry;
 import io.github.loredock.agent.api.KnowledgeTaskRequestException;
 import io.github.loredock.agent.api.KnowledgeTaskService.RuntimeDefinition;
@@ -25,6 +25,7 @@ import java.util.Set;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
+import org.springframework.ai.tool.resolution.ToolCallbackResolver;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
@@ -35,31 +36,23 @@ import org.springframework.stereotype.Service;
 @Service
 public class KnowledgeAgentDefinitionService {
 
-    private final FileSystemSkillRegistry skills;
-    private final SkillsAgentHook skillHook;
     private final KnowledgeAgentProperties properties;
     private final ToolCallbackProvider toolProvider;
     private final ObjectProvider<ChatModel> chatModel;
     private final AgentProperties agentProperties;
 
     /**
-     * @param skills 框架文件系统 Skill Registry
-     * @param skillHook 框架自动重载 Hook
      * @param properties 固定定义目录
      * @param toolProvider 标准 ToolCallbackProvider 候选集
      * @param chatModel 可选生产或测试模型
      * @param agentProperties 固定模型描述
      */
     public KnowledgeAgentDefinitionService(
-            FileSystemSkillRegistry skills,
-            SkillsAgentHook skillHook,
             KnowledgeAgentProperties properties,
             ToolCallbackProvider toolProvider,
             ObjectProvider<ChatModel> chatModel,
             AgentProperties agentProperties
     ) {
-        this.skills = skills;
-        this.skillHook = skillHook;
         this.properties = properties;
         this.toolProvider = toolProvider;
         this.chatModel = chatModel;
@@ -75,8 +68,12 @@ public class KnowledgeAgentDefinitionService {
      */
     public LoadedDefinition load(String skillName) {
         try {
-            skills.reload();
-            if (!skillHook.hasSkill(skillName)) {
+            // 每个新 run 创建一次 Registry 快照，摘要和执行共享这一实例，避免加载后再次 reload 造成定义漂移。
+            FileSystemSkillRegistry skills = FileSystemSkillRegistry.builder()
+                    .userSkillsDirectory(Path.of(properties.skillsDirectory(), ".empty-user").toString())
+                    .projectSkillsDirectory(properties.skillsDirectory())
+                    .build();
+            if (!skills.contains(skillName)) {
                 throw invalidDefinition();
             }
             String skillContent = skills.readSkillContent(skillName);
@@ -93,7 +90,7 @@ public class KnowledgeAgentDefinitionService {
             RuntimeDefinition runtime = new RuntimeDefinition(
                     skillName, hash(skillContent), digestAgentSpecs(specDirectory),
                     agentProperties.modelName(), allowed);
-            return new LoadedDefinition(runtime, taskTools);
+            return new LoadedDefinition(runtime, taskTools, skills, callbacks);
         } catch (KnowledgeTaskRequestException exception) {
             throw exception;
         } catch (IOException | RuntimeException exception) {
@@ -156,10 +153,31 @@ public class KnowledgeAgentDefinitionService {
         }
     }
 
-    /** @param runtime 本轮不可变定义摘要 @param taskTools 框架原生 Task 与 TaskOutput Tool */
-    public record LoadedDefinition(RuntimeDefinition runtime, List<ToolCallback> taskTools) {
+    /**
+     * @param runtime 本轮不可变定义摘要
+     * @param taskTools 框架原生 Task 与 TaskOutput Tool
+     * @param skills 与摘要来自同一时点、供本轮 Hook 使用的 Registry
+     * @param businessTools 仅在 Skill 激活后动态披露的服务端业务 Tool
+     */
+    public record LoadedDefinition(
+            RuntimeDefinition runtime,
+            List<ToolCallback> taskTools,
+            FileSystemSkillRegistry skills,
+            List<ToolCallback> businessTools
+    ) {
         public LoadedDefinition {
             taskTools = List.copyOf(taskTools);
+            businessTools = List.copyOf(businessTools);
+        }
+
+        /** @return 绑定本轮 Registry 快照并按 Skill 渐进披露业务 Tool 的独立框架 Hook */
+        public SkillsAgentHook createSkillHook(ToolCallbackResolver resolver) {
+            return SkillsAgentHook.builder()
+                    .skillRegistry(skills)
+                    .groupedTools(java.util.Map.of(runtime.skillName(), businessTools))
+                    .toolCallbackResolver(resolver)
+                    .autoReload(false)
+                    .build();
         }
     }
 }

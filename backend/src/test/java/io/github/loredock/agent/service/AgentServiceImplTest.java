@@ -1,5 +1,6 @@
 package io.github.loredock.agent.service;
 
+import com.alibaba.cloud.ai.graph.skills.registry.classpath.ClasspathSkillRegistry;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -40,9 +41,10 @@ class AgentServiceImplTest {
         events = mock(AgentEventService.class);
         projects = mock(ProjectService.class);
         service = new AgentServiceImpl(
-                mock(AgentProperties.class), mock(AgentDefinitionProvider.class), projects,
+                mock(AgentProperties.class), mock(ClasspathSkillRegistry.class), "schema", projects,
                 mock(KnowledgeSearchService.class), runs, events,
-                mock(BoundedAgentRunScheduler.class), mock(PersistentAgentRunDispatchFailureHandler.class),
+                mock(BoundedAgentRunScheduler.class), mock(ProjectQaRunTaskExecutor.class),
+                mock(PersistentAgentRunDispatchFailureHandler.class),
                 Clock.systemUTC());
         when(projects.resolveEnabledScope("atlas", "main"))
                 .thenReturn(new ProjectScope(11L, "atlas", "Atlas", true, 12L, "main"));

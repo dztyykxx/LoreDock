@@ -35,8 +35,7 @@ class BackendMvcArchitectureTest {
             "exception", "scheduler", "converter", "skill");
     private static final Set<String> PLATFORM_PACKAGES = Set.of("config", "persistence", "time", "web");
     private static final Set<String> ALLOWED_BOUNDARY_INTERFACES = Set.of(
-            "AgentDefinitionProvider", "AgentRuntime", "ObjectStorage",
-            "WebQaSseSink");
+            "ObjectStorage", "WebQaSseSink");
     /** 阶段六渐进迁移的存量跨模块非 api 引用清单；只允许随模块重构清空，不允许新增条目。 */
     private static final List<String> KNOWN_CROSS_MODULE_VIOLATIONS = List.of();
 

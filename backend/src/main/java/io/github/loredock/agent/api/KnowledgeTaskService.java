@@ -64,7 +64,7 @@ public interface KnowledgeTaskService {
      * @param projectIdentifier 已启用项目标识
      * @param triggerType 人工或系统触发
      * @param triggerReason 作为首条系统消息保存的有限触发原因
-     * @param targetSkill 目标本地 Skill，当前知识整理固定为 knowledge_curator
+     * @param targetSkill 目标本地 Skill，当前知识整理固定为 knowledge-curator
      * @param goal 本次知识任务目标
      */
     record StartRequest(

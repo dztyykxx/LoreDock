@@ -3,9 +3,20 @@ package io.github.loredock.agent.service.impl;
 import com.alibaba.cloud.ai.graph.agent.ReactAgent;
 import com.alibaba.cloud.ai.graph.agent.hook.modelcalllimit.ModelCallLimitExceededException;
 import com.alibaba.cloud.ai.graph.agent.hook.modelcalllimit.ModelCallLimitHook;
+import com.alibaba.cloud.ai.graph.agent.hook.skills.SkillsAgentHook;
 import com.alibaba.cloud.ai.graph.agent.hook.toolcalllimit.ToolCallLimitExceededException;
 import com.alibaba.cloud.ai.graph.agent.hook.toolcalllimit.ToolCallLimitHook;
+import com.alibaba.cloud.ai.graph.agent.interceptor.ModelCallHandler;
+import com.alibaba.cloud.ai.graph.agent.interceptor.ModelInterceptor;
+import com.alibaba.cloud.ai.graph.agent.interceptor.ModelRequest;
+import com.alibaba.cloud.ai.graph.agent.interceptor.ModelResponse;
+import com.alibaba.cloud.ai.graph.agent.interceptor.StreamingModelInterceptor;
+import com.alibaba.cloud.ai.graph.agent.interceptor.ToolCallHandler;
+import com.alibaba.cloud.ai.graph.agent.interceptor.ToolCallRequest;
+import com.alibaba.cloud.ai.graph.agent.interceptor.ToolCallResponse;
+import com.alibaba.cloud.ai.graph.agent.interceptor.ToolInterceptor;
 import com.alibaba.cloud.ai.graph.checkpoint.savers.MemorySaver;
+import com.alibaba.cloud.ai.graph.skills.registry.classpath.ClasspathSkillRegistry;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.loredock.agent.config.AgentRuntimeLimits;
@@ -23,7 +34,6 @@ import io.github.loredock.agent.model.result.AgentExecutionUsage;
 import io.github.loredock.agent.model.result.AgentToolResult;
 import io.github.loredock.agent.model.result.ProjectQaModelResult;
 import io.github.loredock.agent.model.tool.KnowledgeSearchToolRequest;
-import io.github.loredock.agent.service.AgentRuntime;
 import io.github.loredock.agent.service.ProjectQaToolService;
 import java.time.Duration;
 import java.time.Instant;
@@ -44,46 +54,86 @@ import org.springframework.ai.chat.metadata.EmptyUsage;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
-import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.StaticToolCallbackProvider;
+import org.springframework.ai.tool.execution.DefaultToolExecutionExceptionProcessor;
+import org.springframework.ai.tool.execution.ToolExecutionException;
 import org.springframework.ai.tool.function.FunctionToolCallback;
+import org.springframework.ai.tool.resolution.StaticToolCallbackResolver;
 import reactor.core.Exceptions;
 import reactor.core.publisher.Flux;
 
 /**
- * 每次运行创建独立 ReactAgent、MemorySaver、计数包装器和知识检索 ToolCallback；不共享会话或证据正文。
+ * 每次运行直接创建独立 ReactAgent、框架 Interceptor 与知识检索 ToolCallback；不共享会话或证据正文。
  */
-public class SpringAiAlibabaAgentRuntime implements AgentRuntime {
+public class ProjectQaAgentExecutor {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(SpringAiAlibabaAgentRuntime.class);
+    private static final Logger LOGGER = LoggerFactory.getLogger(ProjectQaAgentExecutor.class);
     private static final int TOOL_RESULT_PREVIEW_CODE_POINTS = 500;
 
     private final Supplier<ChatModel> model;
     private final ProjectQaToolService tools;
     private final ObjectMapper objectMapper;
+    private final ClasspathSkillRegistry skills;
 
-    /** @param model OpenAI 兼容模型或测试 Fake @param tools 固定知识工具注册表 */
-    public SpringAiAlibabaAgentRuntime(ChatModel model, ProjectQaToolService tools) {
+    /**
+     * @param model OpenAI 兼容模型或标准测试替身
+     * @param tools 固定范围的知识检索业务服务
+     */
+    public ProjectQaAgentExecutor(ChatModel model, ProjectQaToolService tools) {
         this(() -> model, tools, new ObjectMapper());
     }
 
-    /** @param model 延迟模型工厂 @param tools 工具注册表 @param objectMapper 结构化结果解析器 */
-    public SpringAiAlibabaAgentRuntime(
+    /**
+     * @param model 延迟模型工厂
+     * @param tools 固定范围的知识检索业务服务
+     * @param objectMapper 结构化结果解析器
+     */
+    public ProjectQaAgentExecutor(
             Supplier<ChatModel> model,
             ProjectQaToolService tools,
             ObjectMapper objectMapper
     ) {
+        this(model, tools, objectMapper,
+                ClasspathSkillRegistry.builder().classpathPath("agent-skills").build());
+    }
+
+    /**
+     * @param model 延迟模型工厂
+     * @param tools 固定范围的知识检索业务服务
+     * @param objectMapper 结构化结果解析器
+     * @param skills 框架 classpath Skill Registry
+     */
+    public ProjectQaAgentExecutor(
+            Supplier<ChatModel> model,
+            ProjectQaToolService tools,
+            ObjectMapper objectMapper,
+            ClasspathSkillRegistry skills
+    ) {
         this.model = model;
         this.tools = tools;
         this.objectMapper = objectMapper;
+        this.skills = skills;
     }
 
-    @Override
+    /**
+     * 同步执行项目问答，不公开中间正文增量。
+     *
+     * @param request 已固定业务范围、定义和截止时间的执行请求
+     * @return 未经最终业务引用转换的模型结果、证据和真实用量
+     */
     public AgentExecutionResult execute(AgentExecutionRequest request) {
         return execute(request, ignored -> { });
     }
 
-    @Override
+    /**
+     * 通过框架流式 API 执行项目问答，并把已解析的正文增量交给业务事件投影。
+     *
+     * @param request 已固定业务范围、定义和截止时间的执行请求
+     * @param answerDeltaObserver 仅接收用户可见正文增量的观察器
+     * @return 未经最终业务引用转换的模型结果、证据和真实用量
+     * @throws AgentExecutionException 模型、Tool、限制或响应校验失败
+     */
     public AgentExecutionResult execute(
             AgentExecutionRequest request,
             Consumer<String> answerDeltaObserver
@@ -91,12 +141,11 @@ public class SpringAiAlibabaAgentRuntime implements AgentRuntime {
         System.out.println("project_qa.question");
         System.out.println(request.question());
         long started = System.nanoTime();
-        ExecutionMetrics metrics = new ExecutionMetrics();
         StreamingAnswerEmitter answerEmitter = new StreamingAnswerEmitter(
                 answerDeltaObserver, request.limits().maxAnswerCharacters(), request.limits().maxEvents());
-        ObservedChatModel observedModel = new ObservedChatModel(model.get(), metrics, answerEmitter::observe);
+        ExecutionMetrics metrics = new ExecutionMetrics(answerEmitter::observe);
         ExecutionLedger ledger = new ExecutionLedger();
-        ReactAgent agent = buildAgent(request, observedModel, metrics, ledger);
+        ReactAgent agent = buildAgent(request, model.get(), metrics, ledger);
         try {
             Duration remaining = Duration.between(Instant.now(), request.deadline());
             if (remaining.isNegative() || remaining.isZero()) {
@@ -128,26 +177,18 @@ public class SpringAiAlibabaAgentRuntime implements AgentRuntime {
             long elapsed = Duration.ofNanos(System.nanoTime() - started).toMillis();
             AgentExecutionUsage usage = new AgentExecutionUsage(
                     metrics.steps(), metrics.modelCalls(), ledger.retrievalCount.get(), ledger.trimmed.get(),
-                    observedModel.inputTokens(), observedModel.outputTokens(), elapsed);
+                    metrics.inputTokens(), metrics.outputTokens(), elapsed);
             return new AgentExecutionResult(modelResult, List.copyOf(ledger.evidence), usage);
         } catch (Exception exception) {
             AgentExecutionException failure = mapped(exception);
             long elapsed = Duration.ofNanos(System.nanoTime() - started).toMillis();
             AgentExecutionUsage usage = new AgentExecutionUsage(
                     metrics.steps(), metrics.modelCalls(), ledger.retrievalCount.get(), ledger.trimmed.get(),
-                    observedModel.inputTokens(), observedModel.outputTokens(), elapsed);
-            AgentErrorCode toolFailure = ledger.toolFailure.get();
-            if (toolFailure != null && budgetFailure(failure.code())) {
-                // Spring AI 可能继续编排已经失败的工具调用并最终触发运行上限；业务上必须保留最先发生的工具错误。
-                LOGGER.warn(
-                        "agent_execution_tool_failure_preserved runId={} errorCode={} terminalCode={} stepCount={} modelCallCount={} elapsedMs={}",
-                        request.runId(), toolFailure, failure.code(), usage.stepCount(), usage.modelCallCount(), elapsed);
-                throw new AgentExecutionException(toolFailure, usage);
-            }
+                    metrics.inputTokens(), metrics.outputTokens(), elapsed);
             if (emptyRetrievalTerminal(failure.code())
                     && ledger.successfulRetrievalCount.get() > 0
                     && ledger.retainedEvidenceCount.get() == 0
-                    && toolFailure == null) {
+                    ) {
                 // 已成功检索但始终没有可引用证据时，继续消耗预算不会产生可信答案，应收敛为业务拒答。
                 LOGGER.info(
                         "agent_execution_insufficient_evidence runId={} successfulRetrievalCount={} retainedEvidenceCount={} stepCount={} modelCallCount={} elapsedMs={}",
@@ -167,7 +208,7 @@ public class SpringAiAlibabaAgentRuntime implements AgentRuntime {
 
     private ReactAgent buildAgent(
             AgentExecutionRequest request,
-            ChatModel countedModel,
+            ChatModel chatModel,
             ExecutionMetrics metrics,
             ExecutionLedger ledger
     ) {
@@ -179,14 +220,28 @@ public class SpringAiAlibabaAgentRuntime implements AgentRuntime {
                 .runLimit(request.limits().maxSteps())
                 .exitBehavior(ToolCallLimitHook.ExitBehavior.ERROR)
                 .build();
+        ToolCallback[] businessTools = callbacks(request.runId(), ledger);
+        StaticToolCallbackProvider provider = new StaticToolCallbackProvider(businessTools);
+        StaticToolCallbackResolver resolver = new StaticToolCallbackResolver(List.of(businessTools));
+        SkillsAgentHook skillHook = SkillsAgentHook.builder()
+                .skillRegistry(skills)
+                .toolCallbackResolver(resolver)
+                .autoReload(false)
+                .build();
         return ReactAgent.builder()
                 .name("project-qa-" + request.runId())
                 .instruction(instruction(request))
                 // Skill 与 JSON Schema 含大量花括号；这里不做模板变量替换，避免把证据或 schema 当模板执行。
                 .templateRenderer((template, model) -> template)
-                .model(countedModel)
-                .tools(callbacks(request.runId(), metrics, ledger))
-                .hooks(modelLimit, toolLimit)
+                .model(chatModel)
+                .toolCallbackProviders(provider)
+                .resolver(resolver)
+                .hooks(skillHook, modelLimit, toolLimit)
+                .interceptors(metrics, metrics.toolInterceptor())
+                .streamingInterceptors(metrics)
+                // 业务 Tool 失败是稳定运行终态，不能转成模型可继续消费的 Tool 文本后耗尽预算。
+                .toolExecutionExceptionProcessor(DefaultToolExecutionExceptionProcessor.builder()
+                        .alwaysThrow(true).build())
                 .saver(new MemorySaver())
                 .releaseThread(true)
                 .parallelToolExecution(false)
@@ -219,10 +274,10 @@ public class SpringAiAlibabaAgentRuntime implements AgentRuntime {
         return value.toString();
     }
 
-    private ToolCallback[] callbacks(Long runId, ExecutionMetrics metrics, ExecutionLedger ledger) {
+    private ToolCallback[] callbacks(Long runId, ExecutionLedger ledger) {
         ToolCallback knowledge = FunctionToolCallback.builder("knowledge_search",
                         (KnowledgeSearchToolRequest input) -> invoke(
-                                runId, "knowledge_search", metrics, ledger,
+                                "knowledge_search", ledger,
                                 () -> tools.knowledgeSearch(runId, input)))
                 .description("在服务端固定项目、分支和知识 generation 内执行混合搜索")
                 .inputType(KnowledgeSearchToolRequest.class).build();
@@ -230,35 +285,33 @@ public class SpringAiAlibabaAgentRuntime implements AgentRuntime {
     }
 
     private String invoke(
-            Long runId,
             String name,
-            ExecutionMetrics metrics,
             ExecutionLedger ledger,
             Supplier<AgentToolResult> action
     ) {
-        metrics.toolCalled();
+        AgentToolResult result;
         try {
-            AgentToolResult result = action.get();
-            System.out.println("project_qa.tool_result tool=" + name
-                    + " resultCount=" + result.resultCount()
-                    + " evidenceCount=" + result.evidence().size());
-            System.out.println(preview(result.modelContext()));
-            ledger.successfulRetrievalCount.incrementAndGet();
-            ledger.retainedEvidenceCount.addAndGet((int) result.evidence().stream()
-                    .filter(AgentEvidence::retained)
-                    .count());
-            ledger.evidence.addAll(result.evidence());
-            ledger.retrievalCount.addAndGet(result.resultCount());
-            ledger.trimmed.addAndGet(result.trimmedCharacterCount());
-            return result.modelContext();
+            result = action.get();
         } catch (AgentToolException exception) {
-            ledger.toolFailure.compareAndSet(null, exception.code());
             throw exception;
         } catch (RuntimeException exception) {
-            // 未分类的工具基础设施异常也不能在框架继续编排后被伪装成“没有证据”或运行上限。
-            ledger.toolFailure.compareAndSet(null, AgentErrorCode.AGENT_INTERNAL_ERROR);
-            throw exception;
+            // 框架会在 Tool 节点记录抛出的异常，先转换成稳定业务码，避免底层端点或连接细节进入日志。
+            LOGGER.error("agent_tool_unexpected tool={} failureType={}",
+                    name, exception.getClass().getSimpleName());
+            throw new AgentToolException(AgentErrorCode.AGENT_INTERNAL_ERROR);
         }
+        System.out.println("project_qa.tool_result tool=" + name
+                + " resultCount=" + result.resultCount()
+                + " evidenceCount=" + result.evidence().size());
+        System.out.println(preview(result.modelContext()));
+        ledger.successfulRetrievalCount.incrementAndGet();
+        ledger.retainedEvidenceCount.addAndGet((int) result.evidence().stream()
+                .filter(AgentEvidence::retained)
+                .count());
+        ledger.evidence.addAll(result.evidence());
+        ledger.retrievalCount.addAndGet(result.resultCount());
+        ledger.trimmed.addAndGet(result.trimmedCharacterCount());
+        return result.modelContext();
     }
 
     private boolean budgetFailure(AgentErrorCode code) {
@@ -402,12 +455,16 @@ public class SpringAiAlibabaAgentRuntime implements AgentRuntime {
             return failure;
         }
         Throwable current = exception;
+        boolean toolExecutionFailed = false;
         while (current != null) {
             if (current instanceof AgentExecutionException failure) {
                 return failure;
             }
             if (current instanceof AgentToolException failure) {
                 return new AgentExecutionException(failure.code());
+            }
+            if (current instanceof ToolExecutionException) {
+                toolExecutionFailed = true;
             }
             if (current instanceof TimeoutException) {
                 return new AgentExecutionException(AgentErrorCode.AGENT_RUN_TIMEOUT);
@@ -419,6 +476,9 @@ public class SpringAiAlibabaAgentRuntime implements AgentRuntime {
                 return new AgentExecutionException(AgentErrorCode.AGENT_STEP_LIMIT_EXCEEDED);
             }
             current = current.getCause();
+        }
+        if (toolExecutionFailed) {
+            return new AgentExecutionException(AgentErrorCode.AGENT_INTERNAL_ERROR);
         }
         if (Exceptions.isCancel(exception)) {
             return new AgentExecutionException(AgentErrorCode.AGENT_RUN_TIMEOUT);
@@ -469,22 +529,77 @@ public class SpringAiAlibabaAgentRuntime implements AgentRuntime {
         private final AtomicInteger trimmed = new AtomicInteger();
         private final AtomicInteger successfulRetrievalCount = new AtomicInteger();
         private final AtomicInteger retainedEvidenceCount = new AtomicInteger();
-        private final AtomicReference<AgentErrorCode> toolFailure = new AtomicReference<>();
     }
 
     /**
      * 只观察框架实际调用次数；调用上限由 ReactAgent 的 ModelCallLimitHook 和 ToolCallLimitHook 负责。
      */
-    private static final class ExecutionMetrics {
+    private static final class ExecutionMetrics extends ModelInterceptor implements StreamingModelInterceptor {
         private final AtomicInteger modelCalls = new AtomicInteger();
         private final AtomicInteger toolCalls = new AtomicInteger();
+        private final AtomicLong inputTokens = new AtomicLong();
+        private final AtomicLong outputTokens = new AtomicLong();
+        private final AtomicBoolean usageComplete = new AtomicBoolean(true);
+        private final java.util.function.BiConsumer<String, Boolean> structuredTextObserver;
+        private final AtomicReference<Usage> streamUsage = new AtomicReference<>();
+        private final AtomicReference<StringBuilder> streamContent = new AtomicReference<>(new StringBuilder());
 
-        private void modelCalled() {
-            modelCalls.incrementAndGet();
+        private ExecutionMetrics(java.util.function.BiConsumer<String, Boolean> structuredTextObserver) {
+            this.structuredTextObserver = structuredTextObserver;
         }
 
-        private void toolCalled() {
-            toolCalls.incrementAndGet();
+        @Override
+        public ModelResponse interceptModel(ModelRequest request, ModelCallHandler handler) {
+            modelCalls.incrementAndGet();
+            return handler.call(request);
+        }
+
+        @Override
+        public ChatResponse onStreamChunk(ChatResponse chunk, ModelRequest request) {
+            if (chunk != null && chunk.getMetadata().getUsage() != null) {
+                streamUsage.set(chunk.getMetadata().getUsage());
+            }
+            if (chunk != null && !chunk.getResults().isEmpty()) {
+                AssistantMessage output = chunk.getResults().getFirst().getOutput();
+                if (output != null && !output.hasToolCalls()
+                        && output.getText() != null && !output.getText().isBlank()) {
+                    String value = streamContent.get().append(output.getText()).toString();
+                    structuredTextObserver.accept(value, false);
+                }
+            }
+            return chunk;
+        }
+
+        @Override
+        public ModelRequest beforeStreamCall(ModelRequest request) {
+            streamUsage.set(null);
+            streamContent.set(new StringBuilder());
+            return request;
+        }
+
+        @Override
+        public void afterStreamComplete(AssistantMessage aggregatedMessage, ModelRequest request) {
+            record(streamUsage.getAndSet(null));
+        }
+
+        @Override
+        public String getName() {
+            return "projectQaModelMetrics";
+        }
+
+        private ToolInterceptor toolInterceptor() {
+            return new ToolInterceptor() {
+                @Override
+                public ToolCallResponse interceptToolCall(ToolCallRequest request, ToolCallHandler handler) {
+                    toolCalls.incrementAndGet();
+                    return handler.call(request);
+                }
+
+                @Override
+                public String getName() {
+                    return "projectQaToolMetrics";
+                }
+            };
         }
 
         private int modelCalls() {
@@ -493,63 +608,6 @@ public class SpringAiAlibabaAgentRuntime implements AgentRuntime {
 
         private int steps() {
             return modelCalls.get() + toolCalls.get();
-        }
-    }
-
-    private static final class ObservedChatModel implements ChatModel {
-        private final ChatModel delegate;
-        private final ExecutionMetrics metrics;
-        private final java.util.function.BiConsumer<String, Boolean> structuredTextObserver;
-        private final AtomicLong inputTokens = new AtomicLong();
-        private final AtomicLong outputTokens = new AtomicLong();
-        private final AtomicBoolean usageComplete = new AtomicBoolean(true);
-
-        private ObservedChatModel(
-                ChatModel delegate,
-                ExecutionMetrics metrics,
-                java.util.function.BiConsumer<String, Boolean> structuredTextObserver
-        ) {
-            this.delegate = delegate;
-            this.metrics = metrics;
-            this.structuredTextObserver = structuredTextObserver;
-        }
-
-        @Override
-        public ChatResponse call(Prompt prompt) {
-            metrics.modelCalled();
-            ChatResponse response = delegate.call(prompt);
-            record(response == null ? null : response.getMetadata().getUsage());
-            return response;
-        }
-
-        @Override
-        public Flux<ChatResponse> stream(Prompt prompt) {
-            metrics.modelCalled();
-            AtomicReference<Usage> usage = new AtomicReference<>();
-            AtomicBoolean finalized = new AtomicBoolean();
-            StringBuilder responseContent = new StringBuilder();
-            return delegate.stream(prompt)
-                    .doOnNext(response -> {
-                        if (response != null && response.getMetadata().getUsage() != null) {
-                            usage.set(response.getMetadata().getUsage());
-                        }
-                        if (response == null || response.getResults().isEmpty()) {
-                            return;
-                        }
-                        AssistantMessage output = response.getResults().getFirst().getOutput();
-                        if (output != null && !output.hasToolCalls()
-                                && output.getText() != null && !output.getText().isBlank()) {
-                            responseContent.append(output.getText());
-                            structuredTextObserver.accept(responseContent.toString(), false);
-                        }
-                    })
-                    .doFinally(signal -> finalizeUsage(usage.get(), finalized));
-        }
-
-        private void finalizeUsage(Usage usage, AtomicBoolean finalized) {
-            if (finalized.compareAndSet(false, true)) {
-                record(usage);
-            }
         }
 
         private void record(Usage usage) {

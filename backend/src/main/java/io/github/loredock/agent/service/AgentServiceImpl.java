@@ -1,5 +1,6 @@
 package io.github.loredock.agent.service;
 
+import com.alibaba.cloud.ai.graph.skills.registry.classpath.ClasspathSkillRegistry;
 import io.github.loredock.agent.api.AgentEvent;
 import io.github.loredock.agent.api.AgentRequestException;
 import io.github.loredock.agent.api.AgentRun;
@@ -14,11 +15,11 @@ import io.github.loredock.agent.model.snapshot.AgentRunSnapshot;
 import io.github.loredock.agent.model.snapshot.AgentScopeSnapshot;
 import io.github.loredock.agent.model.snapshot.AgentVersionSnapshot;
 import io.github.loredock.agent.scheduler.BoundedAgentRunScheduler;
-import io.github.loredock.agent.skill.AgentDefinition;
 import io.github.loredock.knowledge.api.KnowledgeSearchService;
 import io.github.loredock.project.api.ProjectScope;
 import io.github.loredock.project.api.ProjectService;
 import java.nio.charset.StandardCharsets;
+import java.io.IOException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
@@ -32,61 +33,71 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * Agent 公开契约实现：启动时先固定范围并短事务落库，查询时复核操作者与项目访问，
- * 事件只暴露已提交的安全载荷。模型执行继续由 {@link AgentRuntime} 隔离。
+ * 事件只暴露已提交的安全载荷；项目问答 Skill 直接来自框架 classpath Registry。
  */
 @Service
 @Slf4j
 public class AgentServiceImpl implements AgentService {
 
     private static final String TASK_TYPE = "project_qa";
+    private static final String SKILL_NAME = "project-qa";
     private static final int MAX_EVENT_PAGE_SIZE = 200;
     private static final int MAX_HISTORY_MESSAGES = 16;
     private static final int MAX_HISTORY_CODE_POINTS = 8000;
     private static final ObjectMapper EVENT_JSON = new ObjectMapper().findAndRegisterModules();
     private final AgentProperties configuration;
-    private final AgentDefinitionProvider definitions;
+    private final ClasspathSkillRegistry skills;
+    private final String outputSchema;
     private final ProjectService projects;
     private final KnowledgeSearchService knowledge;
     private final AgentRunService runs;
     private final AgentEventService events;
     private final BoundedAgentRunScheduler scheduler;
+    private final ProjectQaRunTaskExecutor taskExecutor;
     private final PersistentAgentRunDispatchFailureHandler dispatchFailures;
     private final Clock timeProvider;
 
     /**
      * @param configuration Agent 受控配置
-     * @param definitions classpath Agent 定义
+     * @param skills 框架 classpath Skill Registry
+     * @param outputSchema 固定输出 JSON Schema
      * @param projects 启用项目与分支查询
      * @param knowledge 知识检索与活动索引版本契约
      * @param runs 运行仓储
      * @param events 已提交公开事件仓储与进程内通知
      * @param scheduler Agent 专用有界调度器
+     * @param taskExecutor project_qa 具体运行执行器
      * @param dispatchFailures 提交后调度失败的独立事务终态处理
      * @param timeProvider UTC 时间源
      */
     public AgentServiceImpl(
             AgentProperties configuration,
-            AgentDefinitionProvider definitions,
+            ClasspathSkillRegistry skills,
+            @Qualifier("projectQaOutputSchema") String outputSchema,
             ProjectService projects,
             KnowledgeSearchService knowledge,
             AgentRunService runs,
             AgentEventService events,
             BoundedAgentRunScheduler scheduler,
+            ProjectQaRunTaskExecutor taskExecutor,
             PersistentAgentRunDispatchFailureHandler dispatchFailures,
             Clock timeProvider
     ) {
         this.configuration = configuration;
-        this.definitions = definitions;
+        this.skills = skills;
+        this.outputSchema = outputSchema;
         this.projects = projects;
         this.knowledge = knowledge;
         this.runs = runs;
         this.events = events;
         this.scheduler = scheduler;
+        this.taskExecutor = taskExecutor;
         this.dispatchFailures = dispatchFailures;
         this.timeProvider = timeProvider;
     }
@@ -109,11 +120,7 @@ public class AgentServiceImpl implements AgentService {
             return existing.get();
         }
         requireAvailable();
-        AgentDefinition definition = definitions.find(TASK_TYPE)
-                .orElseThrow(() -> new AgentRequestException(AgentRun.ErrorCode.AGENT_SKILL_UNAVAILABLE));
-        if (!configuration.outputSchemaVersion().equals(definition.outputSchemaVersion())) {
-            throw new AgentRequestException(AgentRun.ErrorCode.AGENT_SKILL_UNAVAILABLE);
-        }
+        String instructions = readProjectQaSkill();
         ProjectScope project = projects.resolveEnabledScope(input.projectIdentifier(), input.branch());
         Long generationId = knowledge.findActiveIndexVersionId().orElse(null);
         AgentScopeSnapshot scope = new AgentScopeSnapshot(
@@ -121,7 +128,7 @@ public class AgentServiceImpl implements AgentService {
                 null, null,
                 generationId, List.of("GLOBAL", "PROJECT", "BRANCH"));
         AgentVersionSnapshot versions = new AgentVersionSnapshot(
-                definition.name(), configuration.modelName(), definition.outputSchemaVersion());
+                SKILL_NAME, configuration.modelName(), configuration.outputSchemaVersion());
         Instant acceptedAt = timeProvider.instant();
         AgentRunCreateData data = new AgentRunCreateData(
                 null, input.operatorId(), input.idempotencyKey(), requestHash, TASK_TYPE,
@@ -137,7 +144,7 @@ public class AgentServiceImpl implements AgentService {
         }
         Long runId = accepted.runId();
         AgentExecutionRequest request = new AgentExecutionRequest(
-                runId, input.question(), definition.instructions(), definition.outputSchema(), scope, versions,
+                runId, input.question(), instructions, outputSchema, scope, versions,
                 configuration.runtimeLimits(), acceptedAt.plus(configuration.totalTimeout()),
                 input.conversationHistory());
         dispatchAfterCommit(request);
@@ -147,6 +154,17 @@ public class AgentServiceImpl implements AgentService {
                 traceId(runId), runId, scope.projectIdentifier(), scope.branch(),
                 scope.knowledgeGenerationId() != null, result.status());
         return result;
+    }
+
+    private String readProjectQaSkill() {
+        if (skills.get(SKILL_NAME).isEmpty()) {
+            throw new AgentRequestException(AgentRun.ErrorCode.AGENT_SKILL_UNAVAILABLE);
+        }
+        try {
+            return skills.readSkillContent(SKILL_NAME);
+        } catch (IOException | RuntimeException exception) {
+            throw new AgentRequestException(AgentRun.ErrorCode.AGENT_SKILL_UNAVAILABLE);
+        }
     }
 
     @Override
@@ -260,7 +278,7 @@ public class AgentServiceImpl implements AgentService {
 
     private void dispatch(AgentExecutionRequest request) {
         try {
-            if (!scheduler.schedule(request)) {
+            if (!scheduler.schedule(request.runId(), () -> taskExecutor.execute(request))) {
                 finishDispatchFailure(request.runId(), AgentErrorCode.AGENT_RUNTIME_BUSY);
             }
         } catch (RuntimeException exception) {

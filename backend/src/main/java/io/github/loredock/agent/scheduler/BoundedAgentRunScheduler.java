@@ -1,8 +1,6 @@
 package io.github.loredock.agent.scheduler;
 
 import io.github.loredock.agent.config.AgentProperties;
-import io.github.loredock.agent.model.request.AgentExecutionRequest;
-import io.github.loredock.agent.service.ProjectQaRunTaskExecutor;
 import jakarta.annotation.PreDestroy;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
@@ -20,13 +18,11 @@ import org.springframework.stereotype.Component;
 @Slf4j
 public class BoundedAgentRunScheduler {
 
-    private final ProjectQaRunTaskExecutor taskExecutor;
     private final ThreadPoolExecutor executor;
     private final AgentProperties properties;
 
-    /** @param taskExecutor 运行任务执行器 @param properties Agent 有界执行器配置 */
-    public BoundedAgentRunScheduler(ProjectQaRunTaskExecutor taskExecutor, AgentProperties properties) {
-        this.taskExecutor = taskExecutor;
+    /** @param properties Agent 有界执行器配置 */
+    public BoundedAgentRunScheduler(AgentProperties properties) {
         this.properties = properties;
         var limits = properties.executor();
         BlockingQueue<Runnable> queue = limits.queueCapacity() == 0
@@ -35,10 +31,6 @@ public class BoundedAgentRunScheduler {
                 limits.corePoolSize(), limits.maxPoolSize(), 30, TimeUnit.SECONDS,
                 queue,
                 threadFactory(), new ThreadPoolExecutor.AbortPolicy());
-    }
-
-    public boolean schedule(AgentExecutionRequest request) {
-        return schedule(request.runId(), () -> taskExecutor.execute(request));
     }
 
     /**

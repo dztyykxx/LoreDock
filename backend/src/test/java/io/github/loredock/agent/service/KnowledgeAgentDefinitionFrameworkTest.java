@@ -6,6 +6,8 @@ import com.alibaba.cloud.ai.graph.agent.ReactAgent;
 import com.alibaba.cloud.ai.graph.RunnableConfig;
 import com.alibaba.cloud.ai.graph.checkpoint.savers.MemorySaver;
 import com.alibaba.cloud.ai.graph.agent.hook.skills.SkillsAgentHook;
+import com.alibaba.cloud.ai.graph.agent.interceptor.ModelRequest;
+import com.alibaba.cloud.ai.graph.agent.interceptor.ModelResponse;
 import com.alibaba.cloud.ai.graph.agent.tools.task.AgentSpec;
 import com.alibaba.cloud.ai.graph.agent.tools.task.AgentSpecLoader;
 import com.alibaba.cloud.ai.graph.agent.tools.task.AgentSpecReactAgentFactory;
@@ -14,16 +16,21 @@ import com.alibaba.cloud.ai.graph.skills.registry.filesystem.FileSystemSkillRegi
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.function.FunctionToolCallback;
+import org.springframework.ai.model.tool.ToolCallingChatOptions;
+import org.springframework.ai.tool.resolution.StaticToolCallbackResolver;
+import io.github.loredock.agent.api.KnowledgeTaskService.RuntimeDefinition;
 
 /** 验证知识整理直接使用项目锁定版本的 Skill、Agent Spec 与子 Agent 组件。 */
 class KnowledgeAgentDefinitionFrameworkTest {
@@ -53,7 +60,7 @@ class KnowledgeAgentDefinitionFrameworkTest {
                 .autoReload(true)
                 .build();
 
-        String firstSkill = registry.readSkillContent("knowledge_curator");
+        String firstSkill = registry.readSkillContent("knowledge-curator");
         AgentSpec firstSpec = AgentSpecLoader.loadFromDirectory(specs).getFirst();
 
         Files.writeString(skillFile, skillMarkdown("第二版：先读取草稿再增量修改"));
@@ -71,9 +78,9 @@ class KnowledgeAgentDefinitionFrameworkTest {
                 .addAgentDirectory(specs.toString())
                 .build();
 
-        assertThat(hook.hasSkill("knowledge_curator")).isTrue();
+        assertThat(hook.hasSkill("knowledge-curator")).isTrue();
         assertThat(firstSkill).contains("第一版");
-        assertThat(registry.readSkillContent("knowledge_curator")).contains("第二版");
+        assertThat(registry.readSkillContent("knowledge-curator")).contains("第二版");
         assertThat(firstSpec.systemPrompt()).contains("第一版");
         assertThat(secondSpec.systemPrompt()).contains("第二版");
         assertThat(child.name()).isEqualTo("source_reviewer");
@@ -135,8 +142,63 @@ class KnowledgeAgentDefinitionFrameworkTest {
                 threadId, result.getText());
     }
 
+    /**
+     * 业务目的：知识整理业务 Tool 必须等模型真实读取目标 Skill 后才可见；
+     * 防止协调 Agent 在未接受服务端 Skill 约束前直接调用草稿写入能力。
+     */
+    @Test
+    void productionSkillHookDisclosesOnlyGroupedBusinessToolsAfterReadSkill() throws Exception {
+        Path userSkills = Files.createDirectories(temporaryDirectory.resolve("grouped-user-skills"));
+        Path projectSkills = Files.createDirectories(temporaryDirectory.resolve("grouped-project-skills"));
+        writeSkill(projectSkills, "先读取草稿，再做增量修改");
+        FileSystemSkillRegistry registry = FileSystemSkillRegistry.builder()
+                .userSkillsDirectory(userSkills.toString())
+                .projectSkillsDirectory(projectSkills.toString())
+                .build();
+        ToolCallback knowledgeRead = tool("knowledge_read");
+        ToolCallback draftUpdate = tool("draft_update");
+        var definition = new KnowledgeAgentDefinitionService.LoadedDefinition(
+                new RuntimeDefinition("knowledge-curator", "skill-digest", "spec-digest", "fake-model",
+                        List.of("draft_update", "knowledge_read")),
+                List.of(), registry, List.of(knowledgeRead, draftUpdate));
+        SkillsAgentHook hook = definition.createSkillHook(
+                new StaticToolCallbackResolver(List.of(knowledgeRead, draftUpdate)));
+        var interceptor = hook.getModelInterceptors().getFirst();
+        AtomicReference<ModelRequest> observed = new AtomicReference<>();
+
+        interceptor.interceptModel(request(List.of()), request -> {
+            observed.set(request);
+            return ModelResponse.of(new AssistantMessage("before"));
+        });
+        assertThat(observed.get().getDynamicToolCallbacks()).isEmpty();
+
+        AssistantMessage activation = AssistantMessage.builder().content("").toolCalls(List.of(
+                new AssistantMessage.ToolCall("skill-call-1", "function", "read_skill",
+                        "{\"skill_name\":\"knowledge-curator\"}"))).build();
+        interceptor.interceptModel(request(List.of(activation)), request -> {
+            observed.set(request);
+            return ModelResponse.of(new AssistantMessage("after"));
+        });
+
+        assertThat(observed.get().getDynamicToolCallbacks())
+                .extracting(value -> value.getToolDefinition().name())
+                .containsExactlyInAnyOrder("knowledge_read", "draft_update");
+        assertThat(hook.getTools()).extracting(value -> value.getToolDefinition().name())
+                .containsExactlyInAnyOrder("read_skill", "search_skills", "disable_skill");
+        assertThat(definition.skills()).isSameAs(registry);
+        System.out.println("测试证据：场景=Skill渐进披露，激活前业务Tool=0，激活后业务Tool=2，Registry快照=同一实例");
+    }
+
+    private ModelRequest request(List<org.springframework.ai.chat.messages.Message> messages) {
+        return ModelRequest.builder()
+                .systemMessage(new SystemMessage("测试系统提示"))
+                .messages(messages)
+                .options(ToolCallingChatOptions.builder().build())
+                .build();
+    }
+
     private Path writeSkill(Path root, String instruction) throws Exception {
-        Path directory = Files.createDirectories(root.resolve("knowledge_curator"));
+        Path directory = Files.createDirectories(root.resolve("knowledge-curator"));
         Path file = directory.resolve("SKILL.md");
         Files.writeString(file, skillMarkdown(instruction));
         return file;
@@ -151,7 +213,7 @@ class KnowledgeAgentDefinitionFrameworkTest {
     private String skillMarkdown(String instruction) {
         return """
                 ---
-                name: knowledge_curator
+                name: knowledge-curator
                 description: 整理项目知识草稿
                 ---
                 # 知识整理

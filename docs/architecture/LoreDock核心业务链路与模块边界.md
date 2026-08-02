@@ -114,7 +114,7 @@ Change Service ──→ Project / Knowledge / Agent Service
 - 每个业务模块内部使用 `Controller → Service → Mapper → PostgreSQL`；
 - 跨模块只引用对方模块的 `api` 契约包（Service 接口与最小稳定契约类型），不访问对方 Service 实现、Mapper、Entity 或内部过程模型；
 - MCP 和 Web 只做入口适配，不复制范围、检索和引用规则；
-- `AgentRuntime` 只隔离 Spring AI Alibaba，具体知识规则仍由业务 Service 决定；
+- Agent 执行器直接装配 Spring AI Alibaba `ReactAgent`、框架 Skill Registry、Hook 和 Interceptor；项目只保留范围、证据、引用、事件与结果投影等业务规则；
 - 模型和嵌入模型分别直接依赖 Spring AI 的 `ChatModel`、`EmbeddingModel`，替换实现不影响上层链路。
 
 ## 4. 开发优先级

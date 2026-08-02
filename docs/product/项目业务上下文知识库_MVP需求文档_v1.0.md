@@ -49,7 +49,7 @@
 1. 在公司内部环境启动系统；
 2. 导入场景包文档和部分原公司 Wiki 内容；
 3. 在 Web 中连续提出真实业务问题，实时看到 Agent、Tool、RAG 来源和引用校验过程，并只基于已发布文档得到带来源的回答；
-4. 由本地 `knowledge_curator` Skill 自主调用预定义子 Agent，检查已有知识的重复、冲突、过期和缺口，生成待审核的整理报告或草稿；
+4. 由本地 `knowledge-curator` Skill 自主调用预定义子 Agent，检查已有知识的重复、冲突、过期和缺口，生成待审核的整理报告或草稿；
 5. 导入一次真实需求文档及其 PR、diff 和测试材料，由复用同一 Tool/子 Agent 平台的 `change_documenter` 生成业务知识草稿；
 6. 管理员核对来源、冲突、实现材料和测试证据后发布文档；
 7. 在 Claude Code 中通过 MCP 查询同一问题，获取原始业务知识和引用；
@@ -314,9 +314,9 @@ MVP 规划以下面向用户的协调 Skill：
 
 | Skill | 优先级 | 用途 | 允许结果 |
 |---|---|---|---|
-| `project_qa` | P0 | 围绕所选项目检索已发布文档并生成带引用回答 | Web 回答或拒答 |
+| `project-qa` | P0 | 围绕所选项目检索已发布文档并生成带引用回答 | Web 回答或拒答 |
 | `change_documenter` | P0 | 整理需求文档、PR 变更和测试证据，建立需求到实现的映射 | 变更知识草稿 |
-| `knowledge_curator` | P0 | 挖掘现有知识、检查过期/重复/冲突/缺口并提出整理方案 | 整理报告、待审核草稿或建议 |
+| `knowledge-curator` | P0 | 挖掘现有知识、检查过期/重复/冲突/缺口并提出整理方案 | 整理报告、待审核草稿或建议 |
 
 预定义子 Agent 至少覆盖：
 
@@ -348,13 +348,13 @@ MVP 规划以下面向用户的协调 Skill：
 |---|---|---|---|
 | FR-AGENT-01 | P0 | 统一 Agent Runtime | Web 问答和文档生成均直接使用 Spring AI Alibaba `ReactAgent`/Graph、工具调用和运行记录机制，不另建通用 Agent Runtime |
 | FR-AGENT-02 | P0 | 本地 Skill 加载 | 系统使用 `FileSystemSkillRegistry` 与 `SkillsAgentHook` 从受控本地目录加载 `SKILL.md`，下一次新运行使用修改后的内容并记录内容摘要 |
-| FR-AGENT-03 | P0 | Skill 选择 | Web 问答使用 `project_qa`；需求与 PR 整理使用 `change_documenter`；知识库整理使用 `knowledge_curator` |
+| FR-AGENT-03 | P0 | Skill 选择 | Web 问答使用 `project-qa`；需求与 PR 整理使用 `change-documenter`；知识库整理使用 `knowledge-curator` |
 | FR-AGENT-04 | P0 | 安全 Tool 解析 | Skill 和 Agent Spec 只能通过 `ToolCallback`/`ToolCallbackResolver` 解析服务端显式提供且当前任务授权的 Tool，不允许任意命令、网络、数据库或文件系统访问 |
 | FR-AGENT-05 | P0 | 运行限制 | 协调 Agent 和子 Agent 使用框架 Hook/Interceptor 配置最大步骤数、模型调用数、超时、检索条数和上下文长度，不复制模型/Tool 循环 |
 | FR-AGENT-06 | P0 | 可追溯运行 | 保存 Skill/Agent Spec 摘要、模型、Agent/工具调用摘要、输入来源、最终引用和运行状态 |
 | FR-AGENT-07 | P0 | 写入隔离 | Agent 只能创建草稿、报告和知识缺口，不能直接修改或发布正式知识 |
-| FR-AGENT-08 | P0 | 知识整理 Skill | 手动任务能够调用 `knowledge_curator`，并将报告或修订建议保存为待审核产物 |
-| FR-AGENT-09 | P1 | 定期整理触发 | 定时任务按项目触发本地 `knowledge_curator` Skill，失败不影响正式知识检索且不重复实现整理逻辑 |
+| FR-AGENT-08 | P0 | 知识整理 Skill | 手动任务能够调用 `knowledge-curator`，并将报告或修订建议保存为待审核产物 |
+| FR-AGENT-09 | P1 | 定期整理触发 | 定时任务按项目触发本地 `knowledge-curator` Skill，失败不影响正式知识检索且不重复实现整理逻辑 |
 | FR-AGENT-10 | P0 | 文件化子 Agent | 系统使用 `AgentSpecLoader` 与 `TaskToolsBuilder` 从本地 Markdown Agent Spec 加载预定义子 Agent，修改职责或提示不要求新增 Java 类 |
 | FR-AGENT-11 | P0 | 人在回路 | 证据不足或检查阻断时保存未确认项，管理员可补充方向、修改草稿、发布或取消 |
 | FR-AGENT-12 | P0 | 运行过程展示 | Web 可折叠展示 Agent、Tool、搜索摘要、文档标题、校验摘要、Token、耗时、错误和最终产物，不把模型自述当成已执行事实 |
@@ -439,7 +439,7 @@ MVP 可以基于 diff/patch 生成草稿，但必须把实现结论限定为该 
 | 编号 | 优先级 | 需求 | 验收标准 |
 |---|---|---|---|
 | FR-QA-01 | P0 | 项目问答 | 用户选择项目后可提出自然语言问题 |
-| FR-QA-02 | P0 | Agent 检索增强生成 | DeepSeek `deepseek-v4-flash` 使用 `project_qa` Skill，通过受限工具检索和补充读取后生成回答 |
+| FR-QA-02 | P0 | Agent 检索增强生成 | DeepSeek `deepseek-v4-flash` 使用 `project-qa` Skill，通过受限工具检索和补充读取后生成回答 |
 | FR-QA-03 | P0 | 引用 | 项目事实回答至少包含一个可查看的已发布知识文档来源 |
 | FR-QA-04 | P0 | 文档边界提示 | 回答明确基于已发布文档，不保证与用户当前本地代码实现一致 |
 | FR-QA-05 | P0 | 流式响应 | 支持逐步展示回答；模型暂时不可用时显示明确错误 |
@@ -637,15 +637,15 @@ MVP 只建设以下页面：
 
 ### 11.4 Agent 与 Skill 验收
 
-- Web 问答运行记录显示使用了 `project_qa` Skill、内容摘要和实际 Agent/Tool 轨迹；
+- Web 问答运行记录显示使用了 `project-qa` Skill、内容摘要和实际 Agent/Tool 轨迹；
 - 需求实现整理运行记录显示使用了 `change_documenter` Skill；
-- 知识库整理运行记录显示使用了 `knowledge_curator` Skill；
+- 知识库整理运行记录显示使用了 `knowledge-curator` Skill；
 - Skill 和 Agent Spec 可以从受控本地目录加载，修改文件后下一次新运行生效且不需要重新编译；
 - 下载的定义无法调用服务端 ToolCallback 候选集合之外的工具或执行携带脚本；
 - 协调 Agent 可以按 Skill 自主选择预定义检索、证据审查、冲突分析和整理 Agent，不由 Java 固定调用顺序；
 - Agent 达到最大步骤数或超时后能够安全停止，不产生半发布状态；
 - Agent 只能保存草稿、报告和知识缺口，不能直接发布文档；
-- `project_qa` 无法调用代码搜索或代码片段读取工具；
+- `project-qa` 无法调用代码搜索或代码片段读取工具；
 - 知识挖掘与冲突整理的主要结论能追溯到平台 Tool 返回的来源，子 Agent 不能自行增加角色或权限；
 - 管理员可补充本次整理方向、修改草稿、发布或取消；
 - IDEA 停止并重新启动后端后，短时 QA 明确失败并可重新发起；知识挖掘或冲突整理长任务从 PostgreSQL 最近 Checkpoint 的下一节点继续；
@@ -695,14 +695,14 @@ MVP 只建设以下页面：
 1. 项目和文档数据准备；
 2. 管理员导入与编辑、普通用户浏览；
 3. 业务文档关键词与向量检索；
-4. `project_qa` 的可折叠处理过程、真实 Tool/来源事件、流式结果与多轮项目会话；
+4. `project-qa` 的可折叠处理过程、真实 Tool/来源事件、流式结果与多轮项目会话；
 5. 接入 Spring AI Alibaba 的本地 Skill/Agent Spec、Task/Agent Tool、Hook、Human-in-the-Loop 和持久化 Graph Checkpoint，不重复建设对应运行时基础；
 6. 使用 Spring AI ToolCallback 机制把知识搜索、文档读取、任务会话、草稿读取/增量更新、修订 Diff 和报告保存等 LoreDock 平台能力工具化；
-7. `knowledge_curator` 通过预定义子 Agent 完成可暂停、可继续调整的对话式知识挖掘、冲突整理和待审核修订；
+7. `knowledge-curator` 通过预定义子 Agent 完成可暂停、可继续调整的对话式知识挖掘、冲突整理和待审核修订；
 8. 需求文档、PR、diff/patch 和测试材料导入；
 9. `change_documenter` 复用同一多 Agent/Tool 基础生成业务知识草稿并由管理员审核发布；
 10. Claude Code MCP 的知识搜索和文档读取工具；
-11. 每周知识整理任务触发同一 `knowledge_curator` Skill；
+11. 每周知识整理任务触发同一 `knowledge-curator` Skill；
 12. Docker Compose、测试、文档和现场演示脚本。
 
 ## 13. 最终交付物
@@ -712,7 +712,7 @@ MVP 只建设以下页面：
 - README 与初始化说明；
 - 本需求文档；
 - 系统架构与数据模型说明；
-- 可直接放入受控本地目录的 `project_qa`、`change_documenter`、`knowledge_curator` Skill、预定义子 Agent Spec 与使用说明；
+- 可直接放入受控本地目录的 `project-qa`、`change-documenter`、`knowledge-curator` Skill、预定义子 Agent Spec 与使用说明；
 - Claude Code MCP 配置示例；
 - 15～20 个问题的检索效果报告；
 - 知识生成与整理演示样例；

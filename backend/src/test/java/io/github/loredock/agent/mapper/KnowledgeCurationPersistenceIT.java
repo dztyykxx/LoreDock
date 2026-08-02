@@ -9,6 +9,8 @@ import io.github.loredock.agent.api.AgentEvent;
 import io.github.loredock.agent.service.AgentEventService;
 import io.github.loredock.agent.model.enums.AgentEventType;
 import io.github.loredock.agent.service.KnowledgeTaskRunProjectionService;
+import io.github.loredock.agent.scheduler.AgentRunRecovery;
+import io.github.loredock.agent.service.KnowledgeCurationRunExecutor;
 import io.github.loredock.knowledge.api.KnowledgeDraftException;
 import io.github.loredock.knowledge.api.KnowledgeDraftService;
 import java.util.List;
@@ -22,9 +24,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.DefaultApplicationArguments;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -63,6 +67,13 @@ class KnowledgeCurationPersistenceIT {
 
     @Autowired
     private KnowledgeTaskRunProjectionService runProjection;
+
+    @Autowired
+    private AgentRunRecovery shortRunRecovery;
+
+    /** 持久化契约测试显式隔离后台模型执行，状态推进由各用例确定性控制。 */
+    @MockitoBean
+    private KnowledgeCurationRunExecutor executor;
 
     @DynamicPropertySource
     static void configure(DynamicPropertyRegistry registry) {
@@ -359,6 +370,7 @@ class KnowledgeCurationPersistenceIT {
         KnowledgeTaskService.KnowledgeTask task = tasks.start(start(
                 "pause-resume", "admin", "atlas", KnowledgeTaskService.TriggerType.MANUAL));
         KnowledgeTaskService.KnowledgeTaskRun running = task.runs().getFirst();
+        jdbc.update("update agent_run set status = 'RUNNING', started_at = now() where id = ?", running.runId());
         KnowledgeTaskService.KnowledgeTaskRun requested = tasks.requestPause(
                 new KnowledgeTaskService.PauseRequest(running.runId(), "admin"));
         RunnableConfig config = RunnableConfig.builder().threadId(running.threadId()).build();
@@ -387,6 +399,34 @@ class KnowledgeCurationPersistenceIT {
                 resumed.runId(), resumed.threadId(), recovered.getNextNodeId());
     }
 
+    /**
+     * 业务目的：后端启动时的短运行恢复器不得终结带真实 Checkpoint 的知识整理运行；
+     * 防止 project_qa 的不可恢复语义误伤可继续的长任务。
+     */
+    @Test
+    void shortRunRecoveryLeavesCheckpointedKnowledgeRunRecoverable() throws Exception {
+        KnowledgeTaskService.KnowledgeTask task = tasks.start(start(
+                "restart-split", "admin", "atlas", KnowledgeTaskService.TriggerType.MANUAL));
+        KnowledgeTaskService.KnowledgeTaskRun run = task.runs().getFirst();
+        jdbc.update("update agent_run set status = 'RUNNING', started_at = now() where id = ?", run.runId());
+        RunnableConfig config = RunnableConfig.builder().threadId(run.threadId()).build();
+        checkpointSaver().put(config, Checkpoint.builder()
+                .id("8e6a41cd-fcd3-42e8-a88d-71c7154c26a1")
+                .nodeId("safe_boundary")
+                .nextNodeId("agent")
+                .state(Map.of("recoverable", true))
+                .build());
+
+        shortRunRecovery.run(new DefaultApplicationArguments());
+
+        KnowledgeTaskService.KnowledgeTaskRun recovered = tasks.get(task.conversationId(), "admin")
+                .runs().getFirst();
+        assertThat(recovered.status()).isEqualTo(KnowledgeTaskService.RunStatus.RUNNING);
+        assertThat(checkpointSaver().get(config)).isPresent();
+        System.out.printf("测试证据：场景=重启恢复分流，run=%s，taskType=knowledge_curation，状态=%s，checkpoint=1%n",
+                recovered.runId(), recovered.status());
+    }
+
     private PostgresSaver checkpointSaver() throws Exception {
         return PostgresSaver.builder()
                 .datasource(dataSource)
@@ -401,7 +441,7 @@ class KnowledgeCurationPersistenceIT {
             KnowledgeTaskService.TriggerType trigger
     ) {
         return new KnowledgeTaskService.StartRequest(
-                key, operator, project, trigger, "测试触发", "knowledge_curator", "整理项目知识");
+                key, operator, project, trigger, "测试触发", "knowledge-curator", "整理项目知识");
     }
 
     private KnowledgeDraftService.AccessContext context(

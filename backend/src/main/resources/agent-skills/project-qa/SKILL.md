@@ -1,8 +1,7 @@
 ---
-name: project_qa
-output_schema_version: project-qa-v1
-max_steps: 8
-tools:
+name: project-qa
+description: 在服务端固定范围内完成带证据引用的项目业务问答
+allowed-tools:
   - knowledge_search
 ---
 

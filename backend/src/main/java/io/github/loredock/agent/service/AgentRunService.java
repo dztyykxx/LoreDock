@@ -180,8 +180,10 @@ public class AgentRunService {
     }
 
     @Transactional(readOnly = true)
-    public List<AgentRunSnapshot> findNonTerminalRuns() {
+    /** @return 仅包含不可从 Checkpoint 恢复的 project_qa 短运行 */
+    public List<AgentRunSnapshot> findNonTerminalProjectQaRuns() {
         return runs.selectList(new LambdaQueryWrapper<AgentRunEntity>()
+                        .eq(AgentRunEntity::getTaskType, "project_qa")
                         .in(AgentRunEntity::getStatus, AgentRunStatus.ACCEPTED.name(), AgentRunStatus.RUNNING.name())
                         .orderByAsc(AgentRunEntity::getAcceptedAt, AgentRunEntity::getId))
                 .stream().map(this::snapshot).toList();

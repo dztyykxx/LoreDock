@@ -1,5 +1,5 @@
 ---
-name: knowledge_curator
+name: knowledge-curator
 description: 基于已授权项目知识与来源，增量整理版本化待审核草稿
 ---
 
