@@ -36,6 +36,103 @@ public interface AgentRunMapper extends BaseMapper<AgentRunEntity> {
             """)
     Long insertIfAbsent(@Param("value") AgentRunEntity value);
 
+    /** @return 复用既有 agent_run 创建知识长任务运行的数据库 ID */
+    @Select("""
+            insert into agent_run(
+                operator_id, idempotency_key, request_hash, task_type, question_hash, question_length,
+                project_id, project_identifier, branch_id, branch_name, knowledge_generation_id,
+                agent_name, model_name, config_summary,
+                status, event_sequence, step_count, model_call_count, tool_call_count,
+                retrieval_count, trimmed_character_count, knowledge_task_conversation_id, thread_id,
+                skill_digest, agent_spec_digest, tool_names,
+                accepted_at, updated_at
+            ) values (
+                #{value.operatorId}, #{value.idempotencyKey}, #{value.requestHash}, #{value.taskType},
+                #{value.questionHash}, #{value.questionLength}, #{value.projectId}, #{value.projectIdentifier},
+                #{value.branchId}, #{value.branchName}, #{value.knowledgeGenerationId},
+                #{value.agentName}, #{value.modelName},
+                #{value.configSummary}, #{value.status}, #{value.eventSequence}, #{value.stepCount},
+                #{value.modelCallCount}, #{value.toolCallCount}, #{value.retrievalCount},
+                #{value.trimmedCharacterCount}, #{value.knowledgeTaskConversationId}, #{value.threadId},
+                #{value.skillDigest}, #{value.agentSpecDigest}, #{value.toolNames},
+                #{value.acceptedAt}, #{value.updatedAt}
+            ) returning id
+            """)
+    Long insertKnowledgeRun(@Param("value") AgentRunEntity value);
+
+    /** @return 运行中或已受理知识任务成功投影为请求暂停的行数 */
+    @Update("""
+            update agent_run set status = 'PAUSE_REQUESTED', updated_at = #{updatedAt}
+            where id = #{runId} and operator_id = #{operatorId}
+              and task_type = 'knowledge_curation' and status in ('ACCEPTED', 'RUNNING')
+            """)
+    int requestKnowledgePause(
+            @Param("runId") Long runId,
+            @Param("operatorId") String operatorId,
+            @Param("updatedAt") Instant updatedAt
+    );
+
+    /** @return 已有可靠 Checkpoint 的等待运行成功恢复为 RUNNING 的行数 */
+    @Update("""
+            update agent_run set status = 'RUNNING', started_at = coalesce(started_at, #{updatedAt}),
+                   updated_at = #{updatedAt}
+            where id = #{runId} and operator_id = #{operatorId}
+              and task_type = 'knowledge_curation' and status = 'WAITING_FOR_USER'
+              and checkpoint_saved_at is not null
+            """)
+    int resumeKnowledgeRun(
+            @Param("runId") Long runId,
+            @Param("operatorId") String operatorId,
+            @Param("updatedAt") Instant updatedAt
+    );
+
+    /** @return 已请求暂停的 run 在 Checkpoint 提交后成功投影为等待人工的行数 */
+    @Update("""
+            update agent_run set status = 'WAITING_FOR_USER', checkpoint_saved_at = #{savedAt},
+                   updated_at = #{savedAt}
+            where id = #{runId} and task_type = 'knowledge_curation' and status = 'PAUSE_REQUESTED'
+            """)
+    int markKnowledgeWaiting(@Param("runId") Long runId, @Param("savedAt") Instant savedAt);
+
+    /** @return 知识任务从受理态进入框架执行的行数 */
+    @Update("""
+            update agent_run set status = 'RUNNING', started_at = #{startedAt}, updated_at = #{startedAt}
+            where id = #{runId} and task_type = 'knowledge_curation' and status = 'ACCEPTED'
+            """)
+    int markKnowledgeRunning(@Param("runId") Long runId, @Param("startedAt") Instant startedAt);
+
+    /** @return 框架正常结束的知识任务成功提交终态的行数 */
+    @Update("""
+            update agent_run set status = 'COMPLETED', result_text = #{resultText}, error_code = null,
+                   step_count = #{stepCount}, model_call_count = #{modelCallCount},
+                   tool_call_count = #{toolCallCount}, elapsed_millis = #{elapsedMillis},
+                   finished_at = #{finishedAt}, updated_at = #{finishedAt}
+            where id = #{runId} and task_type = 'knowledge_curation' and status in ('RUNNING', 'PAUSE_REQUESTED')
+            """)
+    int completeKnowledge(
+            @Param("runId") Long runId,
+            @Param("resultText") String resultText,
+            @Param("stepCount") int stepCount,
+            @Param("modelCallCount") int modelCallCount,
+            @Param("toolCallCount") int toolCallCount,
+            @Param("elapsedMillis") long elapsedMillis,
+            @Param("finishedAt") Instant finishedAt
+    );
+
+    /** @return 非终态知识任务成功保存真实失败终态的行数 */
+    @Update("""
+            update agent_run set status = 'FAILED', error_code = #{errorCode}, elapsed_millis = #{elapsedMillis},
+                   finished_at = #{finishedAt}, updated_at = #{finishedAt}
+            where id = #{runId} and task_type = 'knowledge_curation'
+              and status in ('ACCEPTED', 'RUNNING', 'PAUSE_REQUESTED')
+            """)
+    int failKnowledge(
+            @Param("runId") Long runId,
+            @Param("errorCode") String errorCode,
+            @Param("elapsedMillis") long elapsedMillis,
+            @Param("finishedAt") Instant finishedAt
+    );
+
     /** @return ACCEPTED 成功进入 RUNNING 的行数 */
     @Update("""
             update agent_run

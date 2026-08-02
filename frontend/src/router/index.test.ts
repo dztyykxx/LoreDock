@@ -107,6 +107,7 @@ describe('router session guards', () => {
     expect(router.resolve('/projects/network-designer/knowledge/51').name).toBe('project-knowledge-detail')
     expect(router.resolve('/projects/network-designer/knowledge/51/edit').name).toBe('project-knowledge-edit')
     expect(router.resolve('/projects/network-designer/qa?branch=feature%2Fimport').name).toBe('project-qa')
+    expect(router.resolve('/projects/network-designer/knowledge-tasks/41').name).toBe('project-knowledge-task')
     expect(router.getRoutes().map(route => route.name)).not.toContain('project-code-snapshots')
     expect(router.resolve('/projects/1/settings').name).toBe('project-settings')
   })

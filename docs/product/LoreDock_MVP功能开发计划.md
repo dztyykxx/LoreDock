@@ -4,7 +4,7 @@
 |---|---|
 | 计划目标 | 在不裁剪需求基线 P0/P1 功能的前提下，按功能任务逐项完成 LoreDock MVP |
 | 计划方式 | 按功能和依赖关系拆分，不按日期拆分 |
-| 当前进度 | T1～T5、T6A、T7、T7A 已完成，首个可用闭环、第一阶段后端模块化重构、单 Agent 公开过程展示与多轮会话已验收；下一阶段建设 T6B，并进入 T8 知识挖掘与冲突整理 |
+| 当前进度 | T1～T5、T6A、T6B、T7、T7A 已完成，首个可用闭环、第一阶段后端模块化重构、单 Agent 公开过程展示、多轮会话与安全知识整理平台已验收；下一阶段进入 T8 知识挖掘与冲突整理 |
 | 需求依据 | `项目业务上下文知识库_MVP需求文档_v1.0.md` |
 | 执行方法 | 每个功能任务分别遵循 OpenSpec、接口优先和 TDD |
 
@@ -171,7 +171,7 @@ flowchart TD
 
 重点验收：依赖树中不存在 Spring Boot 4 或 Spring AI 2.0 残留；T1～T5 相关测试在新版本基线上通过；`project_qa` 能在指定项目内调用知识检索工具并返回引用；越权工具调用、跨范围读取和无依据回答被拒绝；达到步骤或时间限制后安全停止。
 
-### [ ] T6B：Spring AI Alibaba Skill/Agent Spec 接入与平台 Tool
+### [x] T6B：Spring AI Alibaba Skill/Agent Spec 接入与平台 Tool
 
 目标：在 T6A 的统一运行时上直接复用 Spring AI Alibaba Agent Framework 与 Graph 的 Skill、Agent Spec、子 Agent、Hook、Human-in-the-Loop 和 Checkpoint 能力，只把 LoreDock 平台业务能力实现为受服务端约束的安全 Tool，为 T8～T10 提供可迭代的编排基础。
 

@@ -4,11 +4,13 @@ import cn.dev33.satoken.exception.NotLoginException;
 import cn.dev33.satoken.exception.NotPermissionException;
 import cn.dev33.satoken.exception.NotRoleException;
 import io.github.loredock.agent.api.AgentRequestException;
+import io.github.loredock.agent.api.KnowledgeTaskRequestException;
 import io.github.loredock.auth.exception.ForbiddenOperationException;
 import io.github.loredock.auth.exception.InvalidCredentialsException;
 import io.github.loredock.auth.exception.LoginRequiredException;
 import io.github.loredock.knowledge.exception.DocumentReplacementConflictException;
 import io.github.loredock.knowledge.exception.DocumentStateConflictException;
+import io.github.loredock.knowledge.api.KnowledgeDraftException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.time.Clock;
@@ -75,6 +77,22 @@ public class GlobalExceptionHandler {
             default -> ErrorCode.INTERNAL_ERROR;
         };
         LOGGER.warn("agent_request_failure traceId={} code={}", traceId(), code.name());
+        return response(code, List.of());
+    }
+
+    /** 把知识任务与草稿的稳定失败语义映射为公开 404/409，不透传内部异常文本。 */
+    @ExceptionHandler({KnowledgeTaskRequestException.class, KnowledgeDraftException.class})
+    public ResponseEntity<ApiError> handleKnowledgeTask(RuntimeException exception) {
+        ErrorCode code;
+        if (exception instanceof KnowledgeTaskRequestException task) {
+            code = task.code() == KnowledgeTaskRequestException.Code.KNOWLEDGE_TASK_NOT_FOUND
+                    ? ErrorCode.KNOWLEDGE_TASK_NOT_FOUND : ErrorCode.KNOWLEDGE_TASK_STATE_CONFLICT;
+        } else {
+            KnowledgeDraftException draft = (KnowledgeDraftException) exception;
+            code = draft.code() == KnowledgeDraftException.Code.DRAFT_NOT_FOUND
+                    ? ErrorCode.KNOWLEDGE_DRAFT_NOT_FOUND : ErrorCode.KNOWLEDGE_DRAFT_CONFLICT;
+        }
+        LOGGER.warn("knowledge_task_failure traceId={} code={}", traceId(), code.name());
         return response(code, List.of());
     }
 

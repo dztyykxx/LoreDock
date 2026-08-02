@@ -32,6 +32,8 @@
         :data-directory="node.path"
         :aria-current="currentPath === node.path ? 'page' : undefined"
         @click="emit('select', node.path)"
+        @keydown.enter.prevent="emit('select', node.path)"
+        @keydown.space.prevent="emit('select', node.path)"
       >
         <IconGlyph name="folder" />
         <span class="document-directory-tree__name" :title="node.name">{{ node.name }}</span>
@@ -58,8 +60,10 @@ const parentPaths = computed(() => {
   return paths
 })
 
+const nodePaths = computed(() => new Set(props.nodes.map(node => node.path)))
+
 const visibleNodes = computed(() => props.nodes.filter(node =>
-  directoryAncestors(node.path).every(path => expandedPaths.value.has(path))))
+  directoryAncestors(node.path).every(path => !nodePaths.value.has(path) || expandedPaths.value.has(path))))
 
 watch(() => props.currentPath, path => {
   if (!path) return

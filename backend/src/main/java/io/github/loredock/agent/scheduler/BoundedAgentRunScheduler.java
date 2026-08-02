@@ -38,12 +38,23 @@ public class BoundedAgentRunScheduler {
     }
 
     public boolean schedule(AgentExecutionRequest request) {
+        return schedule(request.runId(), () -> taskExecutor.execute(request));
+    }
+
+    /**
+     * 复用同一专用有界线程池执行其他已持久化 Agent 运行，不创建第二套调度基础设施。
+     *
+     * @param runId 已持久化运行标识
+     * @param task 只负责该运行的框架调用
+     * @return 是否进入有界执行器
+     */
+    public boolean schedule(Long runId, Runnable task) {
         try {
-            executor.execute(() -> taskExecutor.execute(request));
+            executor.execute(task);
             return true;
         } catch (RejectedExecutionException exception) {
             log.warn("agent_run scheduling rejected runId={} activeCount={} queuedCount={}",
-                    request.runId(), executor.getActiveCount(), executor.getQueue().size());
+                    runId, executor.getActiveCount(), executor.getQueue().size());
             return false;
         }
     }

@@ -47,6 +47,13 @@ public class AgentRunEntity {
     @TableField("input_tokens") private Long inputTokens;
     @TableField("output_tokens") private Long outputTokens;
     @TableField("elapsed_millis") private Long elapsedMillis;
+    @TableField("knowledge_task_conversation_id") private Long knowledgeTaskConversationId;
+    @TableField("thread_id") private String threadId;
+    @TableField("checkpoint_saved_at") private Instant checkpointSavedAt;
+    @TableField("skill_digest") private String skillDigest;
+    @TableField("agent_spec_digest") private String agentSpecDigest;
+    @TableField("tool_names") private String toolNames;
+    @TableField("tool_call_count") private Integer toolCallCount;
     @TableField("accepted_at") private Instant acceptedAt;
     @TableField("started_at") private Instant startedAt;
     @TableField("finished_at") private Instant finishedAt;
