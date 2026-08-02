@@ -1,198 +1,151 @@
 import { mount } from '@vue/test-utils'
-import type { Component } from 'vue'
 import { describe, expect, it } from 'vitest'
+import KnowledgeTaskWorkspace from './KnowledgeTaskWorkspace.vue'
 
 const task = {
   conversationId: 41,
   projectIdentifier: 'atlas',
+  triggerType: 'MANUAL' as const,
+  targetSkill: 'knowledge-curator',
   goal: '整理项目约束',
+  status: 'PROCESSING' as const,
   selectedDrafts: [
-    { documentId: 71, title: '需求约束', directory: '待整理', originalFilename: 'requirement.md' },
-    { documentId: 72, title: '实现经验', directory: '待整理', originalFilename: 'experience.md' },
+    { documentId: 71, title: '需求约束', directory: '待整理', originalFilename: 'requirement.md', curationStatus: 'PROCESSING' as const },
+    { documentId: 72, title: '实现经验', directory: '待整理', originalFilename: 'experience.md', curationStatus: 'PROCESSING' as const },
   ],
   currentDraftId: 51,
   currentDraftRevision: 3,
+  workspaceDocuments: [
+    { draftId: 51, operation: 'MODIFY' as const, baselineDocumentId: 11, baselineRevision: 4, title: '发布约束', directory: '项目规范', currentRevision: 3, lastChangedRunId: 61 },
+    { draftId: 52, operation: 'ADD' as const, baselineDocumentId: null, baselineRevision: null, title: '复盘流程', directory: '团队协作', currentRevision: 1, lastChangedRunId: 61 },
+  ],
   messages: [
-    { messageId: 1, runId: null, role: 'SYSTEM_TRIGGER', subjectName: null, content: '每周整理触发', createdAt: '2026-08-02T00:00:00Z' },
-    { messageId: 2, runId: 61, role: 'TOOL', subjectName: 'draft_update', content: '生成修订 3', createdAt: '2026-08-02T00:01:00Z' },
-    { messageId: 3, runId: 61, role: 'TOOL', subjectName: 'finding_record:conflict-1', content: JSON.stringify({ type: 'CONFLICT', topic: '发布权限', summary: '两份草稿对自动发布的描述相反', recommendation: '保留人工审核', humanQuestion: '是否删除自动发布描述？' }), createdAt: '2026-08-02T00:01:10Z' },
+    { messageId: 1, runId: null, role: 'SYSTEM_TRIGGER', subjectName: null, content: '管理员启动任务', createdAt: '2026-08-02T00:00:00Z' },
+    { messageId: 2, runId: 61, role: 'COORDINATOR_AGENT', subjectName: '公开行动摘要', content: '我会先核对两份输入与现有发布规则，再分别修订冲突文档。', createdAt: '2026-08-02T00:00:10Z' },
+    { messageId: 3, runId: 61, role: 'COORDINATOR_AGENT', subjectName: 'public_message:decision-1', content: '现有正式文档已经覆盖发布权限，因此我会修改它，而不是新增重复文档。', createdAt: '2026-08-02T00:00:15Z' },
+    { messageId: 4, runId: 61, role: 'COORDINATOR_AGENT', subjectName: 'knowledge-curator', content: '**本轮完成**\n\n- 修订发布约束\n- 新增复盘流程', createdAt: '2026-08-02T00:00:25Z' },
   ],
   runs: [{
-    runId: 61, conversationId: 41, threadId: 'knowledge-task-41-run-61', status: 'RUNNING',
-    checkpointSavedAt: '2026-08-02T00:00:30Z', stepCount: 4, modelCallCount: 2, toolCallCount: 2,
-    definition: { skillName: 'knowledge_curator', skillDigest: 'abc', agentSpecDigest: 'def', modelName: 'deepseek-v4-flash', toolNames: ['draft_read', 'draft_update'] },
+    runId: 61, conversationId: 41, threadId: 'knowledge-task-41-run-61', status: 'RUNNING' as const,
+    checkpointSavedAt: null, stepCount: 4, modelCallCount: 2, toolCallCount: 1, errorCode: null,
+    acceptedAt: '2026-08-02T00:00:05Z', startedAt: '2026-08-02T00:00:06Z', finishedAt: null,
+    definition: { skillName: 'knowledge-curator', skillDigest: 'abc', agentSpecDigest: 'def', modelName: 'deepseek-v4-flash', toolNames: ['draft_read', 'draft_update'] },
   }],
+  events: [],
+  toolInvocations: [{
+    invocationId: 91, runId: 61, toolCallId: 'call-1', sequence: 1, toolName: 'knowledge_search',
+    purpose: '检索相关业务知识', arguments: '{"query":"发布权限"}', result: '找到 3 份相关知识', resultSummary: '已完成近似文档检索', error: null,
+    status: 'COMPLETED' as const, argumentsTruncated: false, resultTruncated: false,
+    startedAt: '2026-08-02T00:00:20Z', finishedAt: '2026-08-02T00:00:21Z', durationMillis: 900,
+  }],
+  patchSets: [{
+    runId: 61, additions: 18, deletions: 5,
+    documents: [
+      { draftId: 51, operation: 'MODIFY' as const, title: '发布约束', fromRevision: 2, toRevision: 3, additions: 8, deletions: 5 },
+      { draftId: 52, operation: 'ADD' as const, title: '复盘流程', fromRevision: 0, toRevision: 1, additions: 10, deletions: 0 },
+    ],
+  }],
+  lastEventSequence: 12,
 }
-
-const revisions = [
-  { revision: 1, changeSummary: '建立背景', createdAt: '2026-08-02T00:00:20Z' },
-  { revision: 2, changeSummary: '补充来源', createdAt: '2026-08-02T00:00:40Z' },
-  { revision: 3, changeSummary: '收敛建议', createdAt: '2026-08-02T00:01:00Z' },
-]
 
 const diff = {
-  draftId: 51,
-  fromRevision: null,
-  toRevision: 3,
-  unifiedDiff: '@@ -0,0 +1,2 @@\n+# Atlas 约束\n+新增范围隔离规则',
-  additions: 2,
-  deletions: 0,
-  truncated: true,
-}
-
-async function workspace(): Promise<Component> {
-  const componentPath = './KnowledgeTaskWorkspace.vue'
-  try {
-    return (await import(/* @vite-ignore */ componentPath)).default
-  } catch {
-    // 红阶段允许测试先于组件落地；占位组件只让所有业务断言落到明确缺失的可观察行为。
-    return { template: '<div data-testid="knowledge-task-workspace-missing" />' }
-  }
-}
-
-async function mountWorkspace(overrides: Record<string, unknown> = {}) {
-  return mount(await workspace() as any, {
-    props: { task, revisions, diff, ...overrides },
-  })
+  draftId: 51, fromRevision: null, toRevision: 3,
+  unifiedDiff: '@@ -1,1 +1,2 @@\n-允许自动发布\n+必须由管理员审核\n+所有文档原子发布',
+  additions: 2, deletions: 1, truncated: false,
 }
 
 describe('KnowledgeTaskWorkspace', () => {
-  /**
-   * 业务目的：知识任务必须把对话过程与版本化草稿产物分栏展示，并默认折叠详细过程；
-   * 防止把 Agent 最终消息误认为已经保存的待审核草稿。
-   */
-  it('separates conversation events from the versioned draft artifact', async () => {
-    const wrapper = await mountWorkspace()
-
+  /** 业务目的：MVP 主页面必须以单列连续对话和累计审核条取代固定右侧草稿面板。 */
+  it('uses a centered conversation with a cumulative review bar', () => {
+    const wrapper = mount(KnowledgeTaskWorkspace, { props: { task } })
+    expect(wrapper.get('[data-testid="workspace-review-bar"]').text()).toContain('2 份待审核文档')
     expect(wrapper.get('[data-testid="knowledge-task-conversation"] h2').text()).toBe('任务对话')
-    expect(wrapper.get('[data-testid="knowledge-task-artifact"] h2').text()).toBe('待审核草稿')
-    expect(wrapper.get('[data-testid="knowledge-task-conversation"]').text()).toContain('每周整理触发')
-    expect(wrapper.get('[data-testid="knowledge-task-artifact"]').text()).toContain('当前修订 3')
-    expect(wrapper.get('[data-testid="knowledge-task-process"]').attributes('open')).toBeUndefined()
+    expect(wrapper.find('[data-testid="knowledge-task-artifact"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="selected-draft-inputs"]').text()).toContain('需求约束')
-    expect(wrapper.get('[data-testid="selected-draft-inputs"]').text()).toContain('实现经验')
-    expect(wrapper.get('[data-testid="knowledge-task-findings"]').text()).toContain('规则冲突')
-    expect(wrapper.get('[data-testid="knowledge-task-findings"]').text()).toContain('保留人工审核')
-    expect(wrapper.text()).toContain('对话消息不等于草稿产物')
   })
 
-  /**
-   * 业务目的：知识整理失败时页面必须把稳定错误码翻译为可行动原因，同时保留真实调用计数；
-   * 防止用户只能看到笼统 FAILED，无法判断是模型、Tool 还是运行限额问题。
-   */
-  it('explains a failed run with actionable limits and actual usage', async () => {
-    const failed = {
+  /** 业务目的：公开决策消息与真实 Tool Invocation 必须在同一轮时间线中出现，详细参数默认折叠。 */
+  it('shows public decisions and expandable tool facts without hidden reasoning', () => {
+    const wrapper = mount(KnowledgeTaskWorkspace, { props: { task } })
+    expect(wrapper.text()).toContain('我会先核对两份输入')
+    expect(wrapper.text()).toContain('因此我会修改它，而不是新增重复文档')
+    expect(wrapper.text()).not.toContain('public_message:decision-1')
+    const process = wrapper.get('[data-testid="run-process-group"]')
+    expect(process.attributes('open')).toBeDefined()
+    const group = wrapper.get('[data-testid="tool-invocation-group"]')
+    expect(group.text()).toContain('工具调用 1 次')
+    expect(group.attributes('open')).toBeUndefined()
+    const tool = wrapper.get('[data-testid="tool-invocation"]')
+    expect(tool.text()).toContain('检索相关业务知识')
+    expect(tool.attributes('data-density')).toBe('compact')
+    expect(tool.get('.tool-card__meta').text()).toContain('knowledge_search · 已完成')
+    expect(tool.attributes('open')).toBeUndefined()
+    expect(wrapper.text()).toContain('不展示内部思维')
+  })
+
+  /** 业务目的：终态运行默认只露出模型最终回复；执行过程整体可展开，最终回复安全渲染 Markdown。 */
+  it('collapses a completed run process and previews the final answer as safe markdown', () => {
+    const completed = {
       ...task,
-      runs: [{
-        ...task.runs[0], status: 'FAILED', errorCode: 'AGENT_STEP_LIMIT_EXCEEDED',
-        stepCount: 17, modelCallCount: 9, toolCallCount: 8,
-      }],
+      messages: task.messages.map(message => message.messageId === 4
+        ? { ...message, content: '**本轮完成**\n\n- 修订发布约束\n- 新增复盘流程\n\n<script>alert(1)</script>' }
+        : message),
+      runs: [{ ...task.runs[0], status: 'COMPLETED' as const, finishedAt: '2026-08-02T00:02:00Z' }],
     }
-    const wrapper = await mountWorkspace({ task: failed })
 
-    expect(wrapper.get('[data-testid="knowledge-task-failure"]').text()).toContain('工具调用达到知识整理上限')
-    expect(wrapper.get('[data-testid="knowledge-task-failure"]').text()).toContain('模型 9 次 · 工具 8 次')
+    const wrapper = mount(KnowledgeTaskWorkspace, { props: { task: completed } })
+    const process = wrapper.get('[data-testid="run-process-group"]')
+    const finalAnswer = wrapper.get('[data-testid="run-final-answer"]')
+
+    expect(process.attributes('open')).toBeUndefined()
+    expect(process.find('[data-testid="run-final-answer"]').exists()).toBe(false)
+    expect(finalAnswer.get('strong').text()).toBe('知识整理 Agent')
+    expect(finalAnswer.get('.markdown-preview strong').text()).toBe('本轮完成')
+    expect(finalAnswer.findAll('.markdown-preview li').map(item => item.text())).toEqual(['修订发布约束', '新增复盘流程'])
+    expect(finalAnswer.find('script').exists()).toBe(false)
+    expect(finalAnswer.text()).toContain('<script>alert(1)</script>')
   })
 
-  /**
-   * 业务目的：草稿范围校验失败必须指出是服务端阻止了越界写入；
-   * 防止管理员按模型服务故障方向排查实际的 Tool 参数问题。
-   */
-  it('explains a rejected draft scope without blaming the model service', async () => {
-    const failed = {
-      ...task,
-      runs: [{ ...task.runs[0], status: 'FAILED', errorCode: 'AGENT_TOOL_SCOPE_VIOLATION' }],
-    }
-    const wrapper = await mountWorkspace({ task: failed })
-
-    expect(wrapper.get('[data-testid="knowledge-task-failure"]').text()).toContain('草稿写入范围校验失败')
-    expect(wrapper.get('[data-testid="knowledge-task-failure"]').text()).toContain('服务端已阻止写入')
+  /** 业务目的：每轮多文档 Patch Set 必须保留在时间线，并可从具体文档打开 Diff。 */
+  it('emits the selected document from a run patch set', async () => {
+    const wrapper = mount(KnowledgeTaskWorkspace, { props: { task } })
+    expect(wrapper.get('[data-testid="run-patch-set"]').text()).toContain('发布约束')
+    expect(wrapper.get('[data-testid="run-patch-set"]').text()).toContain('复盘流程')
+    await wrapper.get('[data-testid="run-patch-set"] button').trigger('click')
+    expect(wrapper.emitted('review-document')).toEqual([[51]])
   })
 
-  /**
-   * 业务目的：运行中点击暂停只能先显示“当前步骤完成后暂停”，进入真实等待状态前不得展示指导恢复表单。
-   */
-  it('projects pause requested separately from waiting for guidance', async () => {
-    const wrapper = await mountWorkspace()
-
-    await wrapper.get('[data-testid="request-task-pause"]').trigger('click')
-
-    expect(wrapper.emitted('request-pause')).toEqual([[61]])
-    expect(wrapper.text()).toContain('将在当前步骤完成后暂停')
-    expect(wrapper.find('[data-testid="resume-task-guidance"]').exists()).toBe(false)
+  /** 业务目的：运行中禁止注入新消息，只允许停止本轮，并保留已经提交的修订。 */
+  it('locks input while active and emits stop', async () => {
+    const wrapper = mount(KnowledgeTaskWorkspace, { props: { task } })
+    expect(wrapper.get('[data-testid="continue-task-guidance"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('[data-testid="stop-task-run"]').trigger('click')
+    expect(wrapper.emitted('stop')).toEqual([[61]])
   })
 
-  /**
-   * 业务目的：只有 WAITING_FOR_USER 才允许提交指导并恢复同一 run，同时显示最近 Checkpoint；
-   * 防止前端把消息注入正在执行的模型或 Tool 调用。
-   */
-  it('offers guidance only for a checkpoint-backed waiting run', async () => {
-    const waiting = { ...task, runs: [{ ...task.runs[0], status: 'WAITING_FOR_USER' }] }
-    const wrapper = await mountWorkspace({ task: waiting })
-
-    await wrapper.get('[data-testid="resume-task-guidance"]').setValue('优先核对适用版本')
-    await wrapper.get('[data-testid="resume-task"]').trigger('click')
-
-    expect(wrapper.text()).toContain('最近暂停点')
-    expect(wrapper.emitted('resume')).toEqual([[{ runId: 61, guidance: '优先核对适用版本' }]])
-  })
-
-  /**
-   * 业务目的：一轮完成后输入框仍须可用，追加意见触发新 run 而不是覆盖已完成运行和历史消息。
-   */
-  it('keeps the composer enabled after a run completes', async () => {
-    const completed = { ...task, runs: [{ ...task.runs[0], status: 'COMPLETED' }] }
-    const wrapper = await mountWorkspace({ task: completed })
-
-    const composer = wrapper.get('[data-testid="continue-task-guidance"]')
-    expect(composer.attributes('disabled')).toBeUndefined()
-    await composer.setValue('删除没有双来源支持的建议')
+  /** 业务目的：一轮终态后用户指导创建新 run，不恢复同一 run 或 Checkpoint。 */
+  it('starts a new run from terminal guidance', async () => {
+    const completed = { ...task, runs: [{ ...task.runs[0], status: 'COMPLETED' as const, finishedAt: '2026-08-02T00:02:00Z' }] }
+    const wrapper = mount(KnowledgeTaskWorkspace, { props: { task: completed } })
+    await wrapper.get('[data-testid="continue-task-guidance"]').setValue('保留人工发布并补充冲突说明')
     await wrapper.get('[data-testid="continue-task"]').trigger('click')
-
-    expect(wrapper.emitted('continue-task')).toEqual([['删除没有双来源支持的建议']])
+    expect(wrapper.emitted('continue-task')).toEqual([['保留人工发布并补充冲突说明']])
   })
 
-  /**
-   * 业务目的：单轮失败不能关闭整个任务会话，管理员必须能在原对话中给出修正意见并重试；
-   * 防止失败态只提示返回草稿列表，丢失已经形成的发现和草稿上下文。
-   */
-  it('keeps human guidance available after a failed run', async () => {
-    const failed = { ...task, runs: [{ ...task.runs[0], status: 'FAILED', errorCode: 'AGENT_MODEL_RESPONSE_INVALID' }] }
-    const wrapper = await mountWorkspace({ task: failed })
-
-    await wrapper.get('[data-testid="continue-task-guidance"]').setValue('重新读取当前草稿并修正区块操作')
-    await wrapper.get('[data-testid="continue-task"]').trigger('click')
-
-    expect(wrapper.text()).toContain('本轮失败，但任务对话仍可继续')
-    expect(wrapper.emitted('continue-task')).toEqual([['重新读取当前草稿并修正区块操作']])
+  /** 业务目的：Diff 仅按需覆盖打开，并使用最小行级颜色区分增删。 */
+  it('renders an on-demand overlay diff drawer', () => {
+    const wrapper = mount(KnowledgeTaskWorkspace, { props: { task, selectedDraftId: 51, selectedDiff: diff } })
+    expect(wrapper.get('[data-testid="diff-drawer"]').text()).toContain('正式知识 v4')
+    expect(wrapper.get('.diff-lines .added').text()).toContain('必须由管理员审核')
+    expect(wrapper.get('.diff-lines .deleted').text()).toContain('允许自动发布')
   })
 
-  /**
-   * 业务目的：审批必须展示服务端修订间 Markdown Diff、截断状态和明确修订；
-   * 发布前若当前修订变化，页面必须阻止继续确认并要求重新审核。
-   */
-  it('renders revision diff and blocks publication after a revision conflict', async () => {
-    const wrapper = await mountWorkspace({ publicationConflict: true })
-
-    expect(wrapper.get('[data-testid="draft-revision-list"]').text()).toContain('v1')
-    expect(wrapper.get('[data-testid="draft-revision-list"]').text()).toContain('v3')
-    expect(wrapper.get('[data-testid="draft-markdown-diff"]').text()).toContain('+2')
-    expect(wrapper.get('[data-testid="draft-markdown-diff"]').text()).toContain('# Atlas 约束')
-    expect(wrapper.text()).toContain('Diff 已截断')
-    expect(wrapper.text()).toContain('草稿已产生新修订，请重新查看 Diff')
-    expect(wrapper.get('[data-testid="publish-reviewed-revision"]').attributes('disabled')).toBeDefined()
-  })
-
-  /**
-   * 业务目的：仅创建但尚未写入正文的 v0 不是可审核产物；
-   * 防止 Agent 失败后管理员误将空基线发布为正式知识。
-   */
-  it('blocks publication of an empty baseline revision', async () => {
-    const emptyTask = { ...task, currentDraftRevision: 0 }
-    const emptyDiff = { ...diff, toRevision: 0, unifiedDiff: '', additions: 0, deletions: 0, truncated: false }
-    const wrapper = await mountWorkspace({ task: emptyTask, revisions: [{ revision: 0, changeSummary: '初始基线', createdAt: '2026-08-02T00:00:00Z' }], diff: emptyDiff })
-
-    expect(wrapper.get('[data-testid="publish-reviewed-revision"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.text()).toContain('尚无可审核变更')
+  /** 业务目的：发布后的任务只能审计查看，不能再发消息或重复发布。 */
+  it('makes a published task read only', () => {
+    const published = { ...task, status: 'PUBLISHED' as const, runs: [{ ...task.runs[0], status: 'COMPLETED' as const }] }
+    const wrapper = mount(KnowledgeTaskWorkspace, { props: { task: published } })
+    expect(wrapper.text()).toContain('任务已结束，只读保留')
+    expect(wrapper.find('[data-testid="continue-task-guidance"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="publish-workspace"]').attributes('disabled')).toBeDefined()
   })
 })

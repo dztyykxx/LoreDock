@@ -11,40 +11,44 @@
       <span class="task-history-item__content">
         <span class="task-history-item__heading">
           <strong>{{ task.goal }}</strong>
-          <span class="task-history-status" :class="`task-history-status--${statusTone(task.latestRunStatus)}`">{{ statusLabel(task.latestRunStatus) }}</span>
+          <span class="task-history-status" :class="`task-history-status--${taskTone(task.status)}`">{{ taskStatusLabel(task.status) }}</span>
         </span>
         <span class="task-history-item__meta">
-          {{ task.triggerType === 'SYSTEM' ? '系统触发' : '管理员触发' }} · {{ task.selectedDraftCount }} 份输入 · {{ task.runCount }} 轮运行 · 更新于 {{ formatTime(task.updatedAt) }}
+          {{ task.triggerType === 'SYSTEM' ? '系统触发' : '管理员触发' }} · {{ task.selectedDraftCount }} 份输入 · {{ task.workspaceDocumentCount ?? 0 }} 份待审核 · 最近一轮 {{ statusLabel(task.latestRunStatus) }} · 更新于 {{ formatTime(task.updatedAt) }}
         </span>
         <span v-if="task.latestErrorCode" class="task-history-item__error">{{ task.latestErrorCode }}</span>
       </span>
-      <span class="task-history-item__action">{{ actionLabel(task.latestRunStatus) }}<IconGlyph name="chevronRight" /></span>
+      <span class="task-history-item__action">{{ actionLabel(task.status, task.latestRunStatus) }}<IconGlyph name="chevronRight" /></span>
     </RouterLink>
   </section>
 </template>
 
 <script setup lang="ts">
 import { RouterLink } from 'vue-router'
-import type { KnowledgeTaskRunStatus, KnowledgeTaskSummary } from '../api/knowledgeTasks'
+import type { KnowledgeTaskRunStatus, KnowledgeTaskStatus, KnowledgeTaskSummary } from '../api/knowledgeTasks'
 import IconGlyph from './IconGlyph.vue'
 
 defineProps<{ projectIdentifier: string; tasks: KnowledgeTaskSummary[] }>()
 
-function statusLabel(status: KnowledgeTaskRunStatus): string {
+function statusLabel(status: KnowledgeTaskRunStatus | null): string {
+  if (!status) return '未运行'
   return ({ ACCEPTED: '排队中', RUNNING: '运行中', PAUSE_REQUESTED: '请求暂停', WAITING_FOR_USER: '等待人工', COMPLETED: '已完成', FAILED: '失败', TERMINATED: '已终止', CANCELLED: '已取消' } as Record<string, string>)[status]
 }
 
-function statusTone(status: KnowledgeTaskRunStatus): string {
-  if (status === 'COMPLETED') return 'success'
-  if (status === 'FAILED' || status === 'TERMINATED' || status === 'CANCELLED') return 'danger'
-  if (status === 'WAITING_FOR_USER' || status === 'PAUSE_REQUESTED') return 'warning'
+function taskStatusLabel(status?: KnowledgeTaskStatus): string {
+  return ({ PROCESSING: '整理中', PUBLISHED: '已发布', CLOSED_NO_CHANGE: '无需变更', ABANDONED: '已放弃' } as Record<string, string>)[status ?? 'PROCESSING']
+}
+
+function taskTone(status?: KnowledgeTaskStatus): string {
+  if (status === 'PUBLISHED' || status === 'CLOSED_NO_CHANGE') return 'success'
+  if (status === 'ABANDONED') return 'danger'
   return 'running'
 }
 
-function actionLabel(status: KnowledgeTaskRunStatus): string {
-  if (status === 'COMPLETED') return '继续调整'
-  if (status === 'WAITING_FOR_USER') return '继续并恢复'
-  if (status === 'FAILED') return '修正并重试'
+function actionLabel(taskStatus: KnowledgeTaskStatus | undefined, runStatus: KnowledgeTaskRunStatus | null): string {
+  if (taskStatus && taskStatus !== 'PROCESSING') return '查看记录'
+  if (runStatus === 'COMPLETED') return '继续调整'
+  if (runStatus === 'FAILED' || runStatus === 'CANCELLED') return '修正并重试'
   return '查看任务'
 }
 

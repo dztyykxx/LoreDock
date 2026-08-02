@@ -24,7 +24,7 @@
 
 为尽早验证 LoreDock 的核心用户价值，当前首个可用闭环收口为：管理员上传并发布知识，用户随后可以在指定项目内进行混合检索与带引用问答。代码快照和前端分支操作均已退出当前 MVP；后端保留既有分支能力，所有 Web 流程省略分支并使用默认 `main`。
 
-首个可用闭环不等同于需求基线定义的完整 MVP。T6B 已接入 Spring AI Alibaba 的本地 Skill、Hook、Human-in-the-Loop 和持久化 Graph Checkpoint，并提供受控 Tool 基础。后续不再建设多 Agent、需求/PR/代码服务端生成、定期整理或额外运营任务；只完成 Web Markdown 提交、平台文档检索与读取 Tool、单一 `knowledge-curator` Workflow、草稿 Diff 和人工发布，再增加复用同一 Service 的 MCP 入口。
+首个可用闭环不等同于需求基线定义的完整 MVP。T6B 已接入 Spring AI Alibaba 的本地 Skill、Hook、原生模型/Tool 循环和受控 Tool 基础。后续不再建设多 Agent、同 run 人工等待恢复、需求/PR/代码服务端生成、定期整理或额外运营任务；只完成 Web Markdown 提交、平台文档检索与读取 Tool、单一 `knowledge-curator` Workflow、多文档 Diff 和人工原子发布，再增加复用同一 Service 的 MCP 入口。
 
 ## 2. 功能依赖关系
 
@@ -163,9 +163,9 @@ flowchart TD
 
 ### [x] T6B：Spring AI Alibaba Skill 与平台 Tool 基础
 
-目标：直接复用 Spring AI Alibaba Agent Framework 与 Graph 的 Skill、Hook、Human-in-the-Loop 和 Checkpoint 能力，只把 LoreDock 平台业务能力实现为受服务端约束的安全 Tool，为 T8～T10 提供可迭代的单 Agent 基础。
+目标：直接复用 Spring AI Alibaba Agent Framework 的 Skill、Hook 和模型/Tool 循环，只把 LoreDock 平台业务能力实现为受服务端约束的安全 Tool，为 T8～T10 提供可迭代的单 Agent 基础。当前 MVP 不启用 Human-in-the-Loop 或同 run Checkpoint 恢复。
 
-覆盖需求：FR-AGENT-01～20 中仍属于当前产品边界的框架接入、平台 Tool、运行固定、对话式任务、版本化草稿、暂停恢复与安全边界；实际业务接入由 T8 完成。
+覆盖需求：FR-AGENT-01～20 中仍属于当前产品边界的框架接入、平台 Tool、运行固定、对话式任务、版本化草稿与安全边界；实际业务接入由 T8 完成。
 
 功能范围：
 
@@ -176,18 +176,17 @@ flowchart TD
 - 首批 LoreDock Tool 提供项目知识检索、指定文档读取、证据来源读取、草稿创建/读取/增量更新、修订 Diff、整理报告、冲突候选和知识缺口保存；引用与来源完整性、运行事件记录和正式发布门禁由服务端强制执行，不依赖模型主动调用；
 - Tool 使用框架 `ToolContext`/运行配置取得操作者、项目、run、会话和截止时间，模型请求不得携带或扩大这些范围；Tool 内强制校验知识状态、参数、结果数量、超时、来源、幂等键和写入目标；
 - 使用框架 `ModelCallLimitHook`、`ToolCallLimitHook` 及既有服务端上限限制调用；如需运行级聚合统计，只通过 Hook/事件做薄扩展，不另建运行时；
-- 使用现有 `PostgresSaver`、稳定 `RunnableConfig.threadId`、Graph interrupt 和 Human-in-the-Loop 接入可恢复知识长任务；不自建 Checkpoint 或暂停恢复执行器；
-- 建立长期任务会话与 Agent 运行边界：首次系统/人工触发创建 run，等待状态下的用户指导恢复当前 run，正常完成后的追加调整创建新 run；每个 run 拥有独立状态、用量与错误；
-- `PAUSE_REQUESTED`、`WAITING_FOR_USER` 等页面状态只投影框架 interrupt、Checkpoint 和 human feedback 的真实状态，不在业务代码复制一套 Agent 状态机；
+- 建立长期任务会话与 Agent 运行边界：首次系统/人工触发创建 run，模型提问、正常完成、失败或取消后的追加消息都创建新 run；每个 run 拥有独立状态、用量与错误；
+- 新 run 注入同项目、同操作者、同会话内有界的历史用户消息与各轮最终回复，不注入历史过程消息、Tool 调用、参数或结果；工作区事实由当前 run 重新读取；
 - 草稿先创建空基线或绑定待修订文档，再通过 `draft_read` 和 `draft_update(baseRevision, idempotencyKey, operations, sourceRefs)` 进行区块级插入、替换和删除；事实修改引用 evidenceId，用户要求的措辞/结构修改可引用用户消息；禁止模型最终消息直接覆盖全文；
 - 每次成功更新生成不可变草稿修订和 Markdown Diff；基础修订冲突必须拒绝并重新读取，不自动覆盖；
-- 为草稿修订、结构化发现和人工决定等写 Tool 定义稳定幂等键与重复提交语义，防止暂停、恢复或节点重放造成重复副作用；
+- 为草稿修订等写 Tool 定义稳定幂等键与重复提交语义，防止重试造成重复副作用；
 - 从 ReactAgent/Graph 的模型、Tool、Hook 输出投影并保存开始、结束、失败、输入输出摘要、来源引用和最终结果等安全事件，不提供让模型自行声明事件的 Tool；
 - 本地 Skill 文件按不可信配置处理，只能引用服务端显式提供的 ToolCallback，不允许执行任意脚本、命令或网络请求；
-- 写入能力仅允许生成草稿、报告、冲突候选和知识缺口，禁止 Agent 自动发布或覆盖正式知识；
-- Graph 只作为 Agent Framework 的状态与恢复底座，不用于硬编码知识挖掘的固定业务节点顺序；Checkpoint 不承诺恢复正在传输的模型 Token 或单个 Tool 调用内部状态；当前阶段不为短时 QA 建设续跑，也不建设项目长期记忆、数据库/Web Skill 市场、可视化编排器、运行时任意创建 Agent 或多实例自动抢占。
+- 写入能力仅允许新增或修订工作草稿，禁止 Agent 自动发布或覆盖正式知识；警告、冲突、缺口和待确认问题由最终 AssistantMessage 说明，不使用专用记录 Tool；
+- 当前阶段不建设同 run 恢复、项目长期记忆、数据库/Web Skill 市场、可视化编排器、运行时任意创建 Agent 或多实例自动抢占。
 
-重点验收：实现中没有自建 Skill Loader、通用 Tool Registry、模型/Tool 循环、Graph Checkpoint 或 Human-in-the-Loop；修改本地 Skill 后新运行通过框架加载并体现变化；一个 ReactAgent 只能取得批准的 LoreDock Tool；重启后通过 PostgreSQL Checkpoint 恢复且不重复已提交业务写入；草稿更新产生可追溯修订和 Diff；运行记录来自框架真实事件且不泄露原始思维链。
+重点验收：实现中没有自建 Skill Loader、通用 Tool Registry 或模型/Tool 循环；修改本地 Skill 后新运行通过框架加载并体现变化；一个 ReactAgent 只能取得批准的 LoreDock Tool；草稿更新产生可追溯修订和 Diff；运行记录来自框架真实事件且不泄露原始思维链。
 
 ### [x] T7：Web 项目问答与知识缺口
 
@@ -225,13 +224,13 @@ flowchart TD
 - 模型先判断本轮是否需要 RAG：项目事实自主调用知识检索并保留引用门禁，闲聊、能力说明和会话历史类问题不检索也不因零引用拒答；
 - 最终结构化结果生成期间实时推送尚未校验的回答正文，页面明确提示待最终校验；引用校验在末尾收敛为回答或拒答，不阻塞用户先看到生成内容；
 - 引入会话标识；同一会话的每次提问仍创建独立 Agent run，并只注入同项目、同用户、同会话内已完成且数量受限的问题与最终回答；
-- 知识整理长任务使用框架 Checkpoint 恢复；不可恢复的短时 `project_qa` 在后端重启后以稳定中断错误终结。
+- 活动 run 在后端重启后以稳定中断错误终结；知识任务仍可基于已提交工作区创建新一轮。
 
 重点验收：处理过程随 Agent 执行实时出现，最终事件顺序与详情一致；用户能看到 RAG 命中文档和 Tool 结果摘要但无法读取敏感内部上下文；第二轮问题能基于同一会话已完成问答正确理解指代；不同项目、用户和会话的历史不会串入模型上下文；重启后已完成历史仍可查看，未完成轮次明确失败且可重新提问。
 
 ### [~] T8：Web 待处理草稿与单 Agent 合并整理
 
-目标：让管理员先将多份 Markdown 放入待处理草稿池，再勾选 `1～N` 份草稿手动启动单 Agent 合并整理，通过多轮对话、结构化发现项和 Diff 完成人工审核发布。
+目标：让管理员先将多份 Markdown 放入待处理草稿池，再勾选 `1～N` 份草稿手动启动单 Agent 整理，通过多轮对话、多文档工作区和 Diff 完成人工审核发布。
 
 覆盖需求：FR-KG-01～16、FR-AGENT-08～09、FR-AGENT-17～20。
 
@@ -239,17 +238,17 @@ flowchart TD
 
 - 复用现有 Markdown 导入和 `DRAFT` 生命周期形成待处理草稿池，上传本身不创建会话、不调用模型；
 - 管理员只能勾选同一项目的 `1～N` 份待处理草稿；点击“合并整理”后才原子创建长期任务会话和首轮 run；
-- 在会话中固定勾选草稿 ID，原草稿作为不可变输入；每个合并任务只生成一份新的合并草稿；
-- 直接使用框架 `ReactAgent`、`ClasspathSkillRegistry`/`SkillsAgentHook`、ToolCallback、Checkpoint 和 Human-in-the-Loop，不使用 Agent Spec、子 Agent 或项目自建运行时；
-- 完善 `knowledge-curator` Workflow Skill，让模型自主读取勾选草稿、查看目录、语义检索、关键词匹配、读取已发布文档全文、记录发现项并修订合并草稿；
-- 补齐 `selected_draft_list/read`、`knowledge_directory_list`、`knowledge_document_list/read`、`knowledge_search`、`knowledge_grep`、`finding_record`、`draft_create/read/update/diff` 等受控 Tool；
+- 在会话中固定勾选草稿 ID，原草稿作为不可变输入；任务按稳定知识主题生成或修改最多 10 份工作文档；
+- 直接使用框架 `ReactAgent`、`ClasspathSkillRegistry`/`SkillsAgentHook` 和 ToolCallback，不使用 Agent Spec、子 Agent 或项目自建运行时；
+- 完善 `knowledge-curator` Workflow Skill，让模型自主读取勾选草稿、恢复多文档工作区、查看目录、检索并读取已发布文档全文，再修订相关工作文档；
+- 补齐 `selected_draft_list/read`、`workspace_document_list`、`knowledge_directory_list`、`knowledge_document_list/read`、`knowledge_search`、`knowledge_grep`、`draft_create/read/update/diff` 等受控 Tool；
 - Tool 内强制项目、文档状态、会话固定输入、参数上限、来源完整性、幂等和发布边界；
-- 合并草稿使用带基础修订号和幂等键的结构化更新，每次更新保存不可变修订并由服务端生成 Markdown Diff；
-- 将重复、冲突、过期和缺口保存为可查看、可追溯的结构化发现项；不能确定的问题保留给人工；
-- 任务页展示固定输入、安全 Tool 事件、发现项、合并草稿修订和 Diff；管理员可继续对话要求 AI 修改；
-- Agent 永远不获得发布 Tool；只有管理员明确确认某个修订后才发布，并触发知识索引更新。
+- 工作文档使用带基础修订号和幂等键的结构化更新，每次更新保存不可变修订并由服务端生成 Markdown Diff；
+- 重复、冲突、过期、缺口和待确认问题由模型在最终回复中说明，不调用专用警告 Tool，也不写入工作文档正文；
+- 任务页把每轮过程与 Tool Invocation 整体折叠，折叠区外展示安全 Markdown 最终回复、本轮多文档变更和累计 Diff；
+- Agent 永远不获得发布 Tool；只有管理员明确审核当前全部有效修订后才原子发布，并触发一次知识索引更新。
 
-重点验收：上传后仅出现在待处理列表；勾选后点击合并才启动 Agent；Agent 只能读取本次固定草稿和授权的已发布知识；一个任务只有一份合并输出；多轮指导会生成新修订和新 Diff；人工发布前不进入正式检索。
+重点验收：上传后仅出现在待处理列表；勾选后点击合并才启动 Agent；Agent 只能读取本次固定草稿和授权的已发布知识；一个任务可安全新增或修改多篇文档；多轮指导携带有界问答历史并从当前工作区继续；人工发布前不进入正式检索。
 
 ### [x] T9：MCP 草稿提交与知识查询
 
@@ -277,7 +276,7 @@ flowchart TD
 - 导入两个项目、Wiki Markdown、场景包文档和真实变更样例；
 - 执行 15～20 个检索问题集；
 - 完成 Web、Agent、MCP、权限、安全和故障降级验收；
-- 验证多轮 QA 隔离、草稿池上传、勾选合并、对话式知识任务、安全 Tool 事件、结构化发现项、唯一合并草稿、修订 Diff、人工发布和 MCP 草稿提交；
+- 验证多轮 QA 隔离、草稿池上传、勾选整理、对话式知识任务、安全 Tool 事件、原生 AssistantMessage、多文档修订 Diff、原子发布和 MCP 草稿提交；
 - 编写 README、架构、数据模型、Skill、MCP 配置和已知限制；
 - 固化现场演示脚本和验收结果。
 

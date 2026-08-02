@@ -37,6 +37,7 @@ import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -104,9 +105,19 @@ public class KnowledgeDraftServiceImpl implements KnowledgeDraftService {
     public DraftRevision create(CreateRequest request) {
         AccessContext context = requireContext(request == null ? null : request.context());
         String key = text(request.idempotencyKey(), 128);
-        String title = text(request.title(), 255);
         ProjectScope project = project(context.projectIdentifier());
-        String requestHash = hash(title + "\n" + Objects.toString(request.baselineDocumentId(), ""));
+        KnowledgeDocument baseline = request.baselineDocumentId() == null ? null
+                : baseline(request.baselineDocumentId(), project.projectId());
+        String title = baseline == null ? text(request.title(), 255) : baseline.fields().title().value();
+        String directory = baseline == null ? directory(request.directory()) : baseline.fields().directory().value();
+        if (baseline == null && !documents.projectDirectoryExists(project.projectId(), directory)) {
+            throw failure(KnowledgeDraftException.Code.DRAFT_OPERATION_INVALID);
+        }
+        Long baselineRevision = baseline == null ? null : baseline.revision().value();
+        WorkspaceOperation operation = baseline == null ? WorkspaceOperation.ADD : WorkspaceOperation.MODIFY;
+        String requestHash = hash(title + "\n" + directory + "\n"
+                + Objects.toString(request.baselineDocumentId(), "") + "\n"
+                + Objects.toString(baselineRevision, ""));
         KnowledgeDraftEntity replay = drafts.selectOne(Wrappers.<KnowledgeDraftEntity>lambdaQuery()
                 .eq(KnowledgeDraftEntity::getCreateRunId, context.runId())
                 .eq(KnowledgeDraftEntity::getCreateIdempotencyKey, key));
@@ -116,14 +127,22 @@ public class KnowledgeDraftServiceImpl implements KnowledgeDraftService {
             }
             return revision(replay, requireRevision(replay.getId(), 0));
         }
-        String markdown = baselineMarkdown(request.baselineDocumentId(), project.projectId());
+        long workspaceCount = drafts.selectCount(Wrappers.<KnowledgeDraftEntity>lambdaQuery()
+                .eq(KnowledgeDraftEntity::getConversationId, context.conversationId())
+                .eq(KnowledgeDraftEntity::getOperatorId, context.operatorId()));
+        if (workspaceCount >= 10) {
+            throw failure(KnowledgeDraftException.Code.DRAFT_OPERATION_INVALID);
+        }
+        String markdown = baseline == null ? "" : baseline.fields().body().value();
         List<DraftBlock> blocks = markdown.isEmpty()
                 ? List.of() : List.of(new DraftBlock("b-baseline", markdown));
         Instant now = clock.instant();
         KnowledgeDraftEntity entity = KnowledgeDraftEntity.builder()
                 .conversationId(context.conversationId()).operatorId(context.operatorId())
                 .projectId(project.projectId()).projectIdentifier(project.projectIdentifier())
-                .title(title).baselineDocumentId(request.baselineDocumentId()).currentRevision(0L)
+                .title(title).operation(operation.name()).directoryPath(directory)
+                .baselineDocumentId(request.baselineDocumentId()).baselineRevision(baselineRevision)
+                .currentRevision(0L)
                 .createRunId(context.runId()).createIdempotencyKey(key).createRequestHash(requestHash)
                 .createdAt(now).updatedAt(now).build();
         drafts.insert(entity);
@@ -162,6 +181,63 @@ public class KnowledgeDraftServiceImpl implements KnowledgeDraftService {
                 .stream()
                 .map(value -> revision(draft, value))
                 .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<WorkspaceDocument> listWorkspace(AccessContext value) {
+        AccessContext context = requireContext(value);
+        return drafts.selectList(Wrappers.<KnowledgeDraftEntity>lambdaQuery()
+                        .eq(KnowledgeDraftEntity::getConversationId, context.conversationId())
+                        .eq(KnowledgeDraftEntity::getOperatorId, context.operatorId())
+                        .eq(KnowledgeDraftEntity::getProjectIdentifier, context.projectIdentifier())
+                        .orderByAsc(KnowledgeDraftEntity::getId))
+                .stream().map(draft -> {
+                    KnowledgeDraftRevisionEntity latest = revisions.selectOne(
+                            Wrappers.<KnowledgeDraftRevisionEntity>lambdaQuery()
+                                    .eq(KnowledgeDraftRevisionEntity::getDraftId, draft.getId())
+                                    .isNotNull(KnowledgeDraftRevisionEntity::getCreatedByRunId)
+                                    .orderByDesc(KnowledgeDraftRevisionEntity::getRevision)
+                                    .last("limit 1"));
+                    return new WorkspaceDocument(
+                            draft.getId(), WorkspaceOperation.valueOf(draft.getOperation()),
+                            draft.getBaselineDocumentId(), draft.getBaselineRevision(), draft.getTitle(),
+                            draft.getDirectoryPath(), draft.getCurrentRevision(),
+                            latest == null ? draft.getCreateRunId() : latest.getCreatedByRunId());
+                }).toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public RunPatchSet patchSet(AccessContext value, Long requestedRunId) {
+        AccessContext context = requireContext(value);
+        Long runId = positive(requestedRunId);
+        List<RunDocumentChange> changes = new ArrayList<>();
+        for (KnowledgeDraftEntity draft : drafts.selectList(Wrappers.<KnowledgeDraftEntity>lambdaQuery()
+                .eq(KnowledgeDraftEntity::getConversationId, context.conversationId())
+                .eq(KnowledgeDraftEntity::getOperatorId, context.operatorId())
+                .orderByAsc(KnowledgeDraftEntity::getId))) {
+            List<KnowledgeDraftRevisionEntity> runRevisions = revisions.selectList(
+                    Wrappers.<KnowledgeDraftRevisionEntity>lambdaQuery()
+                            .eq(KnowledgeDraftRevisionEntity::getDraftId, draft.getId())
+                            .eq(KnowledgeDraftRevisionEntity::getCreatedByRunId, runId)
+                            .orderByAsc(KnowledgeDraftRevisionEntity::getRevision));
+            if (runRevisions.isEmpty()) {
+                continue;
+            }
+            long fromRevision = Math.max(0, runRevisions.getFirst().getRevision() - 1);
+            long toRevision = runRevisions.getLast().getRevision();
+            String from = requireRevision(draft.getId(), fromRevision).getMarkdown();
+            String to = requireRevision(draft.getId(), toRevision).getMarkdown();
+            int additions = lineCount(to);
+            int deletions = lineCount(from);
+            changes.add(new RunDocumentChange(
+                    draft.getId(), WorkspaceOperation.valueOf(draft.getOperation()), draft.getTitle(),
+                    fromRevision, toRevision, additions, deletions));
+        }
+        return new RunPatchSet(runId, changes,
+                changes.stream().mapToInt(RunDocumentChange::additions).sum(),
+                changes.stream().mapToInt(RunDocumentChange::deletions).sum());
     }
 
     @Override
@@ -285,6 +361,85 @@ public class KnowledgeDraftServiceImpl implements KnowledgeDraftService {
         return new Publication(draft.getId(), request.reviewedRevision(), published.id(), publishedAt);
     }
 
+    @Override
+    @Transactional
+    public WorkspacePublication publishWorkspace(WorkspacePublishRequest request) {
+        AccessContext context = requireContext(request == null ? null : request.context());
+        List<ReviewedDraft> reviewed = request.reviewedDrafts().stream()
+                .sorted(Comparator.comparing(ReviewedDraft::draftId)).toList();
+        if (reviewed.isEmpty() || reviewed.size() > 10
+                || reviewed.stream().anyMatch(value -> value == null || value.draftId() == null
+                        || value.draftId() <= 0 || value.reviewedRevision() <= 0)
+                || reviewed.stream().map(ReviewedDraft::draftId).distinct().count() != reviewed.size()) {
+            throw failure(KnowledgeDraftException.Code.DRAFT_PUBLICATION_CONFLICT);
+        }
+        List<KnowledgeDraftEntity> lockedDrafts = reviewed.stream()
+                .map(value -> locked(value.draftId(), context)).toList();
+        List<WorkspaceDocument> changedWorkspace = listWorkspace(context).stream()
+                .filter(document -> document.currentRevision() > 0).toList();
+        if (changedWorkspace.size() != reviewed.size()) {
+            throw failure(KnowledgeDraftException.Code.DRAFT_PUBLICATION_CONFLICT);
+        }
+        Map<Long, Long> reviewedRevisions = reviewed.stream().collect(
+                java.util.stream.Collectors.toMap(ReviewedDraft::draftId, ReviewedDraft::reviewedRevision));
+        if (changedWorkspace.stream().anyMatch(document -> !Objects.equals(
+                reviewedRevisions.get(document.draftId()), document.currentRevision()))) {
+            throw failure(KnowledgeDraftException.Code.DRAFT_PUBLICATION_CONFLICT);
+        }
+        List<Long> baselineIds = lockedDrafts.stream().map(KnowledgeDraftEntity::getBaselineDocumentId)
+                .filter(Objects::nonNull).distinct().sorted().toList();
+        Map<Long, KnowledgeDocument> baselines = documents.findAllByIdsForUpdate(baselineIds).stream()
+                .collect(java.util.stream.Collectors.toMap(KnowledgeDocument::id, value -> value));
+        if (baselines.size() != baselineIds.size()) {
+            throw failure(KnowledgeDraftException.Code.DRAFT_PUBLICATION_CONFLICT);
+        }
+        Instant now = clock.instant();
+        DocumentAudit audit = new DocumentAudit(now, context.operatorId());
+        List<Publication> publications = new ArrayList<>();
+        for (KnowledgeDraftEntity draft : lockedDrafts) {
+            long revision = reviewedRevisions.get(draft.getId());
+            if (!Objects.equals(draft.getCurrentRevision(), revision) || draft.getPublishedDocumentId() != null) {
+                throw failure(KnowledgeDraftException.Code.DRAFT_PUBLICATION_CONFLICT);
+            }
+            KnowledgeDraftRevisionEntity reviewedRevision = requireRevision(draft.getId(), revision);
+            KnowledgeDocument published;
+            if (WorkspaceOperation.ADD.name().equals(draft.getOperation())) {
+                if (!documents.projectDirectoryExists(draft.getProjectId(), draft.getDirectoryPath())
+                        || documents.existsPublishedProjectTitle(
+                                draft.getProjectId(), draft.getDirectoryPath(), draft.getTitle())) {
+                    throw failure(KnowledgeDraftException.Code.DRAFT_PUBLICATION_CONFLICT);
+                }
+                KnowledgeDocument candidate = documents.insertDraft(publicationFields(draft, reviewedRevision), audit);
+                published = candidate.publish(audit);
+                if (!documents.update(published, candidate.revision())) {
+                    throw failure(KnowledgeDraftException.Code.DRAFT_PUBLICATION_CONFLICT);
+                }
+            } else {
+                KnowledgeDocument baseline = baselines.get(draft.getBaselineDocumentId());
+                if (baseline == null || !Objects.equals(baseline.revision().value(), draft.getBaselineRevision())) {
+                    throw failure(KnowledgeDraftException.Code.DRAFT_PUBLICATION_CONFLICT);
+                }
+                KnowledgeDocumentFields updatedFields = new KnowledgeDocumentFields(
+                        baseline.fields().format(), baseline.fields().title(),
+                        new DocumentBody(reviewedRevision.getMarkdown()), baseline.fields().directory(),
+                        baseline.fields().tags(), baseline.fields().source(), baseline.fields().scope());
+                published = baseline.edit(updatedFields, audit);
+                if (!documents.update(published, baseline.revision())) {
+                    throw failure(KnowledgeDraftException.Code.DRAFT_PUBLICATION_CONFLICT);
+                }
+            }
+            Instant publishedAt = published.publishedAt() == null ? now : published.publishedAt();
+            if (drafts.markPublished(draft.getId(), revision, published.id(), publishedAt) != 1) {
+                throw failure(KnowledgeDraftException.Code.DRAFT_PUBLICATION_CONFLICT);
+            }
+            publications.add(new Publication(draft.getId(), revision, published.id(), publishedAt));
+        }
+        indexJobs.submit();
+        log.info("knowledge_workspace published conversationId={} operatorId={} documentCount={}",
+                context.conversationId(), context.operatorId(), publications.size());
+        return new WorkspacePublication(publications, now);
+    }
+
     private KnowledgeDocumentFields publicationFields(
             KnowledgeDraftEntity draft,
             KnowledgeDraftRevisionEntity reviewed
@@ -292,7 +447,8 @@ public class KnowledgeDraftServiceImpl implements KnowledgeDraftService {
         KnowledgeDocument baseline = draft.getBaselineDocumentId() == null ? null
                 : documents.findById(draft.getBaselineDocumentId())
                         .orElseThrow(() -> failure(KnowledgeDraftException.Code.DRAFT_PUBLICATION_CONFLICT));
-        DocumentDirectory directory = baseline == null ? new DocumentDirectory("") : baseline.fields().directory();
+        DocumentDirectory directory = baseline == null
+                ? new DocumentDirectory(draft.getDirectoryPath()) : baseline.fields().directory();
         DocumentTags tags = baseline == null ? DocumentTags.of(List.of()) : baseline.fields().tags();
         return new KnowledgeDocumentFields(
                 DocumentFormat.MARKDOWN,
@@ -358,8 +514,9 @@ public class KnowledgeDraftServiceImpl implements KnowledgeDraftService {
                 .stream().map(source -> new SourceRef(
                         SourceType.valueOf(source.getSourceType()), source.getSourceId())).toList();
         return new DraftRevision(
-                draft.getId(), value.getRevision(), draft.getBaselineDocumentId(), draft.getTitle(),
-                value.getMarkdown(), blocks(value), revisionSources, value.getChangeSummary(),
+                draft.getId(), value.getRevision(), WorkspaceOperation.valueOf(draft.getOperation()),
+                draft.getBaselineDocumentId(), draft.getBaselineRevision(), draft.getTitle(),
+                draft.getDirectoryPath(), value.getMarkdown(), blocks(value), revisionSources, value.getChangeSummary(),
                 value.getCreatedByRunId(), value.getCreatedAt());
     }
 
@@ -418,6 +575,21 @@ public class KnowledgeDraftServiceImpl implements KnowledgeDraftService {
                         || value.fields().scope().projectId().equals(projectId))
                 .orElseThrow(() -> failure(KnowledgeDraftException.Code.DRAFT_SCOPE_VIOLATION));
         return document.fields().body().value();
+    }
+
+    private KnowledgeDocument baseline(Long baselineDocumentId, Long projectId) {
+        return documents.findById(baselineDocumentId)
+                .filter(value -> value.fields().scope().projectId() == null
+                        || value.fields().scope().projectId().equals(projectId))
+                .orElseThrow(() -> failure(KnowledgeDraftException.Code.DRAFT_SCOPE_VIOLATION));
+    }
+
+    private String directory(String value) {
+        String normalized = value == null ? "" : value.strip();
+        if (normalized.codePointCount(0, normalized.length()) > 500) {
+            throw new IllegalArgumentException("草稿目录参数无效");
+        }
+        return normalized;
     }
 
     private ProjectScope project(String identifier) {

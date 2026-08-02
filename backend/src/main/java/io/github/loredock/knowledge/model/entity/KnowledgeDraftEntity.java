@@ -21,7 +21,10 @@ public class KnowledgeDraftEntity {
     @TableField("project_id") private Long projectId;
     @TableField("project_identifier") private String projectIdentifier;
     @TableField("title") private String title;
+    @TableField("operation") private String operation;
     @TableField("baseline_document_id") private Long baselineDocumentId;
+    @TableField("baseline_revision") private Long baselineRevision;
+    @TableField("directory_path") private String directoryPath;
     @TableField("current_revision") private Long currentRevision;
     @TableField("create_run_id") private Long createRunId;
     @TableField("create_idempotency_key") private String createIdempotencyKey;

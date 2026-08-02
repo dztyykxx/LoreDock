@@ -354,8 +354,9 @@ public class KnowledgeIndexRebuildService {
                                 .eq(KnowledgeIndexGenerationEntity::getStatus, "RETIRED")
                                 .orderByDesc(KnowledgeIndexGenerationEntity::getActivatedAt)
                                 .orderByDesc(KnowledgeIndexGenerationEntity::getCreatedAt));
-                // 保留上一个成功 generation 作为诊断与回退证据；更旧数据删除失败不能影响 ACTIVE。
-                retired.stream().skip(1).forEach(generation -> generations.deleteById(generation.getId()));
+                // 保留上一个成功 generation 作为诊断与回退证据；历史运行引用的更旧索引继续保留。
+                retired.stream().skip(1)
+                        .forEach(generation -> generations.deleteUnreferencedRetiredById(generation.getId()));
             });
         } catch (RuntimeException exception) {
             LOGGER.warn("knowledge_index_retired_generation_cleanup_failed errorType={}",

@@ -3,6 +3,8 @@ package io.github.loredock.agent.service;
 import com.alibaba.cloud.ai.graph.RunnableConfig;
 import com.alibaba.cloud.ai.graph.checkpoint.savers.postgresql.PostgresSaver;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.loredock.agent.api.KnowledgeTaskRequestException;
 import io.github.loredock.agent.api.KnowledgeTaskService;
 import io.github.loredock.agent.api.AgentService;
@@ -10,10 +12,13 @@ import io.github.loredock.agent.mapper.AgentRunMapper;
 import io.github.loredock.agent.mapper.KnowledgeTaskConversationMapper;
 import io.github.loredock.agent.mapper.KnowledgeTaskMessageMapper;
 import io.github.loredock.agent.mapper.KnowledgeTaskSelectedDraftMapper;
+import io.github.loredock.agent.mapper.KnowledgeTaskPublicationMapper;
 import io.github.loredock.agent.model.entity.AgentRunEntity;
 import io.github.loredock.agent.model.entity.KnowledgeTaskConversationEntity;
 import io.github.loredock.agent.model.entity.KnowledgeTaskMessageEntity;
 import io.github.loredock.agent.model.entity.KnowledgeTaskSelectedDraftEntity;
+import io.github.loredock.agent.model.entity.KnowledgeTaskPublicationEntity;
+import io.github.loredock.agent.model.entity.KnowledgeToolInvocationEntity;
 import io.github.loredock.project.api.ProjectScope;
 import io.github.loredock.project.api.ProjectService;
 import io.github.loredock.knowledge.api.KnowledgeSearchService;
@@ -24,6 +29,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
@@ -45,6 +51,10 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 @Slf4j
 public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
 
+    private static final int MAX_CONTINUATION_MESSAGES = 12;
+    private static final int MAX_CONTINUATION_CODE_POINTS = 12_000;
+    private static final int MAX_CONTINUATION_MESSAGE_CODE_POINTS = 3_000;
+
     private final ProjectService projects;
     private final KnowledgeTaskConversationMapper conversations;
     private final KnowledgeTaskMessageMapper messages;
@@ -57,6 +67,10 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
     private final KnowledgeCurationRunExecutor executor;
     private final KnowledgeDraftService drafts;
     private final KnowledgeDocumentAccessService documentAccess;
+    private final KnowledgeTaskEventService taskEvents;
+    private final KnowledgeToolInvocationService toolInvocations;
+    private final KnowledgeTaskPublicationMapper publications;
+    private final ObjectMapper objectMapper;
     private final Clock clock;
 
     /**
@@ -87,6 +101,10 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
             KnowledgeCurationRunExecutor executor,
             KnowledgeDraftService drafts,
             KnowledgeDocumentAccessService documentAccess,
+            KnowledgeTaskEventService taskEvents,
+            KnowledgeToolInvocationService toolInvocations,
+            KnowledgeTaskPublicationMapper publications,
+            ObjectMapper objectMapper,
             Clock clock
     ) {
         this.projects = projects;
@@ -101,6 +119,10 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
         this.executor = executor;
         this.drafts = drafts;
         this.documentAccess = documentAccess;
+        this.taskEvents = taskEvents;
+        this.toolInvocations = toolInvocations;
+        this.publications = publications;
+        this.objectMapper = objectMapper;
         this.clock = clock;
     }
 
@@ -131,7 +153,8 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
                 .operatorId(command.operatorId()).idempotencyKey(command.idempotencyKey())
                 .requestHash(requestHash).projectId(scope.projectId()).projectIdentifier(scope.projectIdentifier())
                 .triggerType(command.triggerType().name()).triggerReason(command.triggerReason())
-                .targetSkill(command.targetSkill()).goal(command.goal()).createdAt(now).updatedAt(now).build();
+                .targetSkill(command.targetSkill()).goal(command.goal())
+                .status(TaskStatus.PROCESSING.name()).createdAt(now).updatedAt(now).build();
         Long conversationId = conversations.insertIfAbsent(pending);
         if (conversationId == null) {
             KnowledgeTaskConversationEntity winner = findByIdempotency(command.operatorId(), command.idempotencyKey());
@@ -148,12 +171,13 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
                     .conversationId(conversationId).documentId(input.documentId())
                     .documentRevision(input.revision()).title(input.title()).directoryPath(input.directory())
                     .markdown(input.markdown()).originalFilename(input.originalFilename())
-                    .ordinal(index).createdAt(now).build());
+                    .ordinal(index).curationStatus(CurationStatus.PROCESSING.name()).createdAt(now).build());
         }
         insertMessage(conversationId, null, MessageRole.SYSTEM_TRIGGER, null,
                 command.triggerReason() + "\n目标：" + command.goal()
                         + "\n已固定待处理草稿：" + inputs.size() + " 份", now);
         AgentRunEntity run = createRun(pending, scope, command.idempotencyKey(), definition, now);
+        taskEvents.append(conversationId, run.getId(), "RUN_UPDATED", run.getId(), now);
         afterCommit(() -> executor.start(run, command.goal(), loaded));
         log.info("knowledge_task started conversationId={} runId={} project={} selectedDraftCount={} "
                         + "triggerType={} skill={}",
@@ -197,15 +221,116 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
                         KnowledgeTaskSelectedDraftEntity::getConversationId, Collectors.counting()));
         return visible.stream().map(conversation -> {
             List<AgentRunEntity> history = runHistory.getOrDefault(conversation.getId(), List.of());
-            AgentRunEntity latest = history.getLast();
+            AgentRunEntity latest = history.isEmpty() ? null : history.getLast();
+            int workspaceDocumentCount = latest == null ? 0 : (int) drafts.listWorkspace(
+                    new KnowledgeDraftService.AccessContext(
+                            operator, conversation.getProjectIdentifier(), conversation.getId(), latest.getId()))
+                    .stream().filter(document -> document.currentRevision() > 0).count();
             return new KnowledgeTaskSummary(
                     conversation.getId(), conversation.getProjectIdentifier(),
                     TriggerType.valueOf(conversation.getTriggerType()), conversation.getGoal(),
+                    taskStatus(conversation),
                     inputCounts.getOrDefault(conversation.getId(), 0L).intValue(),
-                    conversation.getCurrentDraftId(), history.size(), latest.getId(),
-                    RunStatus.valueOf(latest.getStatus()), latest.getErrorCode(),
+                    conversation.getCurrentDraftId(), workspaceDocumentCount, history.size(),
+                    latest == null ? null : latest.getId(),
+                    latest == null ? null : RunStatus.valueOf(latest.getStatus()),
+                    latest == null ? null : latest.getErrorCode(),
                     conversation.getCreatedAt(), conversation.getUpdatedAt());
         }).toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<KnowledgeTaskEvent> events(Long conversationId, String operatorId, long after) {
+        visibleConversation(conversationId, operatorId);
+        return taskEvents.list(conversationId, after, 500).stream()
+                .map(value -> new KnowledgeTaskEvent(
+                        value.getId(), value.getRunId(), value.getEventType(),
+                        value.getSubjectId(), value.getOccurredAt()))
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public KnowledgeTask closeNoChange(CloseRequest request) {
+        return close(request, TaskStatus.CLOSED_NO_CHANGE, CurationStatus.CURATED, true);
+    }
+
+    @Override
+    @Transactional
+    public KnowledgeTask abandon(CloseRequest request) {
+        return close(request, TaskStatus.ABANDONED, CurationStatus.PENDING, false);
+    }
+
+    @Override
+    @Transactional
+    public TaskPublication publish(PublishTaskRequest request) {
+        Long conversationId = requireId(request == null ? null : request.conversationId());
+        String operator = requireText(request.operatorId(), 128);
+        String key = requireText(request.idempotencyKey(), 128);
+        List<KnowledgeDraftService.ReviewedDraft> reviewed = request.reviewedDrafts().stream()
+                .sorted(java.util.Comparator.comparing(KnowledgeDraftService.ReviewedDraft::draftId)).toList();
+        if (reviewed.isEmpty() || reviewed.size() > 10
+                || reviewed.stream().anyMatch(value -> value == null || value.draftId() == null
+                        || value.draftId() <= 0 || value.reviewedRevision() <= 0)
+                || reviewed.stream().map(KnowledgeDraftService.ReviewedDraft::draftId).distinct().count()
+                        != reviewed.size()) {
+            throw new KnowledgeTaskRequestException(
+                    KnowledgeTaskRequestException.Code.KNOWLEDGE_TASK_NOT_CLOSABLE);
+        }
+        String requestHash = hash(reviewed.stream()
+                .map(value -> value.draftId() + ":" + value.reviewedRevision())
+                .collect(Collectors.joining(",")));
+        KnowledgeTaskConversationEntity conversation = conversations.selectVisibleForUpdate(conversationId, operator);
+        if (conversation == null) {
+            throw new KnowledgeTaskRequestException(KnowledgeTaskRequestException.Code.KNOWLEDGE_TASK_NOT_FOUND);
+        }
+        KnowledgeTaskPublicationEntity replay = publications.selectOne(
+                Wrappers.<KnowledgeTaskPublicationEntity>lambdaQuery()
+                        .eq(KnowledgeTaskPublicationEntity::getConversationId, conversationId)
+                        .eq(KnowledgeTaskPublicationEntity::getIdempotencyKey, key));
+        if (replay != null) {
+            if (!requestHash.equals(replay.getRequestHash()) || replay.getResultJson() == null) {
+                throw new KnowledgeTaskRequestException(
+                        KnowledgeTaskRequestException.Code.KNOWLEDGE_TASK_IDEMPOTENCY_CONFLICT);
+            }
+            return publication(replay.getResultJson());
+        }
+        if (taskStatus(conversation) != TaskStatus.PROCESSING) {
+            throw new KnowledgeTaskRequestException(KnowledgeTaskRequestException.Code.KNOWLEDGE_TASK_NOT_CLOSABLE);
+        }
+        List<AgentRunEntity> history = runEntities(conversationId);
+        if (history.isEmpty() || RunStatus.valueOf(history.getLast().getStatus()) != RunStatus.COMPLETED) {
+            throw new KnowledgeTaskRequestException(KnowledgeTaskRequestException.Code.KNOWLEDGE_TASK_NOT_CLOSABLE);
+        }
+        Instant now = clock.instant();
+        KnowledgeTaskPublicationEntity publication = KnowledgeTaskPublicationEntity.builder()
+                .conversationId(conversationId).operatorId(operator).idempotencyKey(key)
+                .requestHash(requestHash).createdAt(now).build();
+        publications.insert(publication);
+        KnowledgeDraftService.AccessContext context = new KnowledgeDraftService.AccessContext(
+                operator, conversation.getProjectIdentifier(), conversationId, history.getLast().getId());
+        KnowledgeDraftService.WorkspacePublication published = drafts.publishWorkspace(
+                new KnowledgeDraftService.WorkspacePublishRequest(context, reviewed));
+        TaskPublication result = new TaskPublication(conversationId, published.documents(), published.publishedAt());
+        String resultJson = publication(result);
+        publications.update(null, Wrappers.<KnowledgeTaskPublicationEntity>lambdaUpdate()
+                .set(KnowledgeTaskPublicationEntity::getResultJson, resultJson)
+                .set(KnowledgeTaskPublicationEntity::getCompletedAt, now)
+                .eq(KnowledgeTaskPublicationEntity::getId, publication.getId()));
+        conversations.update(null, Wrappers.<KnowledgeTaskConversationEntity>lambdaUpdate()
+                .set(KnowledgeTaskConversationEntity::getStatus, TaskStatus.PUBLISHED.name())
+                .set(KnowledgeTaskConversationEntity::getCloseReason, "管理员原子发布全部工作文档")
+                .set(KnowledgeTaskConversationEntity::getClosedAt, now)
+                .set(KnowledgeTaskConversationEntity::getUpdatedAt, now)
+                .eq(KnowledgeTaskConversationEntity::getId, conversationId));
+        selectedDrafts.update(null, Wrappers.<KnowledgeTaskSelectedDraftEntity>lambdaUpdate()
+                .set(KnowledgeTaskSelectedDraftEntity::getCurationStatus, CurationStatus.CURATED.name())
+                .eq(KnowledgeTaskSelectedDraftEntity::getConversationId, conversationId));
+        insertMessage(conversationId, null, MessageRole.SYSTEM_TRIGGER, null,
+                "已原子发布 " + published.documents().size() + " 份知识文档", now);
+        taskEvents.append(conversationId, null, "TASK_UPDATED", conversationId, now);
+        return result;
     }
 
     @Override
@@ -224,6 +349,27 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
         log.info("knowledge_task pause requested conversationId={} runId={} threadId={} status={}",
                 result.conversationId(), result.runId(), result.threadId(), result.status());
         return result;
+    }
+
+    @Override
+    @Transactional
+    public KnowledgeTaskRun stop(StopRequest request) {
+        Long runId = requireId(request == null ? null : request.runId());
+        String operator = requireText(request.operatorId(), 128);
+        AgentRunEntity current = Optional.ofNullable(runs.selectById(runId))
+                .filter(value -> operator.equals(value.getOperatorId()))
+                .orElseThrow(() -> new KnowledgeTaskRequestException(
+                        KnowledgeTaskRequestException.Code.KNOWLEDGE_TASK_NOT_FOUND));
+        Instant now = clock.instant();
+        if (runs.cancelKnowledge(runId, operator, now) != 1) {
+            throw new KnowledgeTaskRequestException(
+                    KnowledgeTaskRequestException.Code.KNOWLEDGE_TASK_NOT_PAUSABLE);
+        }
+        taskEvents.append(current.getKnowledgeTaskConversationId(), runId, "RUN_UPDATED", runId, now);
+        touchConversation(current.getKnowledgeTaskConversationId(), now);
+        AgentRunEntity cancelled = Objects.requireNonNull(runs.selectById(runId));
+        afterCommit(() -> executor.stop(cancelled));
+        return run(cancelled);
     }
 
     @Override
@@ -275,45 +421,86 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
         if (conversation == null) {
             throw new KnowledgeTaskRequestException(KnowledgeTaskRequestException.Code.KNOWLEDGE_TASK_NOT_FOUND);
         }
+        if (taskStatus(conversation) != TaskStatus.PROCESSING) {
+            throw new KnowledgeTaskRequestException(
+                    KnowledgeTaskRequestException.Code.KNOWLEDGE_TASK_NOT_CONTINUABLE);
+        }
         String runKey = runIdempotency(conversationId, key);
         AgentRunEntity replay = findRun(operator, runKey);
         if (replay != null) {
             return run(replay);
         }
         List<AgentRunEntity> history = runEntities(conversationId);
-        if (history.isEmpty() || !List.of(RunStatus.COMPLETED.name(), RunStatus.FAILED.name())
-                .contains(history.getLast().getStatus())) {
+        if (history.isEmpty() || !RunStatus.valueOf(history.getLast().getStatus()).terminal()) {
             throw new KnowledgeTaskRequestException(
                     KnowledgeTaskRequestException.Code.KNOWLEDGE_TASK_NOT_CONTINUABLE);
         }
         Instant now = clock.instant();
         KnowledgeAgentDefinitionService.LoadedDefinition loaded = definitions.load(conversation.getTargetSkill());
         RuntimeDefinition definition = loaded.runtime();
-        insertMessage(conversationId, null, MessageRole.USER, null, guidance, now);
         ProjectScope scope = projects.resolveEnabledScope(conversation.getProjectIdentifier(), null);
+        String previousDialogue = previousDialogue(conversationId, conversation.getTargetSkill());
         AgentRunEntity created = createRun(conversation, scope, key, definition, now);
-        String continuationPrompt = continuationPrompt(conversation, guidance);
+        insertMessage(conversationId, created.getId(), MessageRole.USER, null, guidance, now);
+        taskEvents.append(conversationId, created.getId(), "RUN_UPDATED", created.getId(), now);
+        String continuationPrompt = continuationPrompt(conversation, previousDialogue, guidance);
         afterCommit(() -> executor.start(created, continuationPrompt, loaded));
-        // 用户消息在 run 创建前落库以保持入口原子性，随后回填本轮 run 便于审计。
-        messages.update(null, Wrappers.<KnowledgeTaskMessageEntity>lambdaUpdate()
-                .set(KnowledgeTaskMessageEntity::getRunId, created.getId())
-                .eq(KnowledgeTaskMessageEntity::getConversationId, conversationId)
-                .isNull(KnowledgeTaskMessageEntity::getRunId)
-                .eq(KnowledgeTaskMessageEntity::getRole, MessageRole.USER.name())
-                .eq(KnowledgeTaskMessageEntity::getCreatedAt, now));
         touchConversation(conversationId, now);
         log.info("knowledge_task continued conversationId={} previousRunId={} newRunId={} threadId={}",
                 conversationId, history.getLast().getId(), created.getId(), created.getThreadId());
         return run(created);
     }
 
-    private String continuationPrompt(KnowledgeTaskConversationEntity conversation, String guidance) {
-        String draftContext = conversation.getCurrentDraftId() == null
-                ? "当前会话尚未创建合并草稿；完成核对后只创建一份。"
-                : "继续修改当前合并草稿，draftId=" + conversation.getCurrentDraftId()
-                        + "；先调用 draft_read 取得最新修订，不要创建第二份草稿。";
+    private String continuationPrompt(
+            KnowledgeTaskConversationEntity conversation,
+            String previousDialogue,
+            String guidance
+    ) {
         return "继续已有知识整理会话。\n原始目标：" + conversation.getGoal()
-                + "\n管理员追加指导：" + guidance + "\n" + draftContext;
+                + "\n以下是之前各轮的用户消息和 Agent 最终回复，不包含过程消息或 Tool 调用。"
+                + "历史对话只用于理解指代和已讨论结论，工作文档内容与执行事实必须重新以 Tool 读取结果为准。"
+                + "\n<conversation_history>\n" + previousDialogue + "\n</conversation_history>"
+                + "\n管理员追加指导：" + guidance
+                + "\n先调用 workspace_document_list 查看多文档工作区，再对需要修改的文档调用 draft_read。"
+                + "不要假设会话只有一份合并草稿。";
+    }
+
+    private String previousDialogue(Long conversationId, String targetSkill) {
+        List<String> entries = messages.selectList(
+                        Wrappers.<KnowledgeTaskMessageEntity>lambdaQuery()
+                                .eq(KnowledgeTaskMessageEntity::getConversationId, conversationId)
+                                .orderByAsc(KnowledgeTaskMessageEntity::getCreatedAt)
+                                .orderByAsc(KnowledgeTaskMessageEntity::getId))
+                .stream()
+                .filter(message -> "USER".equals(message.getRole())
+                        || ("COORDINATOR_AGENT".equals(message.getRole())
+                                && targetSkill.equals(message.getSubjectName())))
+                .map(message -> ("USER".equals(message.getRole()) ? "用户：" : "Agent 最终回复：")
+                        + boundedHistoryMessage(message.getContent()))
+                .toList();
+        ArrayDeque<String> selected = new ArrayDeque<>();
+        int codePoints = 0;
+        for (int index = entries.size() - 1;
+                index >= 0 && selected.size() < MAX_CONTINUATION_MESSAGES;
+                index--) {
+            String entry = entries.get(index);
+            int entryCodePoints = entry.codePointCount(0, entry.length());
+            if (!selected.isEmpty() && codePoints + entryCodePoints > MAX_CONTINUATION_CODE_POINTS) {
+                break;
+            }
+            selected.addFirst(entry);
+            codePoints += entryCodePoints;
+        }
+        return selected.isEmpty() ? "（没有可用的上一轮对话）" : String.join("\n\n", selected);
+    }
+
+    private String boundedHistoryMessage(String value) {
+        String text = value == null ? "" : value.strip();
+        int codePoints = text.codePointCount(0, text.length());
+        if (codePoints <= MAX_CONTINUATION_MESSAGE_CODE_POINTS) {
+            return text;
+        }
+        return text.substring(0, text.offsetByCodePoints(0, MAX_CONTINUATION_MESSAGE_CODE_POINTS)) + "…";
     }
 
     private AgentRunEntity createRun(
@@ -368,13 +555,35 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
         }
         List<SelectedDraft> visibleInputs = selectedDraftEntities(conversation.getId()).stream()
                 .map(value -> new SelectedDraft(value.getDocumentId(), value.getTitle(),
-                        value.getDirectoryPath(), value.getOriginalFilename()))
+                        value.getDirectoryPath(), value.getOriginalFilename(),
+                        CurationStatus.valueOf(value.getCurationStatus())))
                 .toList();
+        KnowledgeDraftService.AccessContext context = visibleRuns.isEmpty() ? null
+                : new KnowledgeDraftService.AccessContext(
+                        conversation.getOperatorId(), conversation.getProjectIdentifier(), conversation.getId(),
+                        visibleRuns.getLast().runId());
+        List<KnowledgeDraftService.WorkspaceDocument> workspace = context == null
+                ? List.of() : drafts.listWorkspace(context);
+        List<KnowledgeDraftService.RunPatchSet> patchSets = context == null ? List.of() : visibleRuns.stream()
+                .map(run -> drafts.patchSet(context, run.runId()))
+                .toList();
+        List<ToolInvocation> tools = toolInvocations.list(conversation.getId()).stream()
+                .map(this::toolInvocation).toList();
         return new KnowledgeTask(
                 conversation.getId(), conversation.getProjectIdentifier(), TriggerType.valueOf(conversation.getTriggerType()),
-                conversation.getTargetSkill(), conversation.getGoal(), visibleInputs,
+                conversation.getTargetSkill(), conversation.getGoal(), taskStatus(conversation), visibleInputs,
                 conversation.getCurrentDraftId(), currentRevision,
-                visibleMessages, visibleRuns, publicEvents, conversation.getCreatedAt(), conversation.getUpdatedAt());
+                workspace, visibleMessages, visibleRuns, publicEvents, tools, patchSets,
+                taskEvents.latest(conversation.getId()), conversation.getCreatedAt(), conversation.getUpdatedAt());
+    }
+
+    private ToolInvocation toolInvocation(KnowledgeToolInvocationEntity value) {
+        return new ToolInvocation(
+                value.getId(), value.getRunId(), value.getToolCallId(), defaultInt(value.getSequence()),
+                value.getToolName(), value.getPurpose(), value.getArgumentsText(), value.getResultText(),
+                value.getResultSummary(), value.getErrorText(), ToolStatus.valueOf(value.getStatus()),
+                Boolean.TRUE.equals(value.getArgumentsTruncated()), Boolean.TRUE.equals(value.getResultTruncated()),
+                value.getStartedAt(), value.getFinishedAt(), value.getDurationMillis());
     }
 
     private KnowledgeTaskMessage message(KnowledgeTaskMessageEntity value) {
@@ -407,6 +616,74 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
                 .conversationId(conversationId).runId(runId).role(role.name()).subjectName(subject)
                 .content(content).createdAt(createdAt).build();
         messages.insert(message);
+        taskEvents.append(conversationId, runId, "MESSAGE_CREATED", message.getId(), createdAt);
+    }
+
+    private KnowledgeTask close(
+            CloseRequest request,
+            TaskStatus targetStatus,
+            CurationStatus selectedStatus,
+            boolean requireNoChanges
+    ) {
+        Long conversationId = requireId(request == null ? null : request.conversationId());
+        String operator = requireText(request.operatorId(), 128);
+        String reason = requireText(request.reason(), 1000);
+        KnowledgeTaskConversationEntity conversation = conversations.selectVisibleForUpdate(conversationId, operator);
+        if (conversation == null) {
+            throw new KnowledgeTaskRequestException(KnowledgeTaskRequestException.Code.KNOWLEDGE_TASK_NOT_FOUND);
+        }
+        if (taskStatus(conversation) != TaskStatus.PROCESSING) {
+            throw new KnowledgeTaskRequestException(KnowledgeTaskRequestException.Code.KNOWLEDGE_TASK_NOT_CLOSABLE);
+        }
+        List<AgentRunEntity> history = runEntities(conversationId);
+        if (history.isEmpty() || !RunStatus.valueOf(history.getLast().getStatus()).terminal()) {
+            throw new KnowledgeTaskRequestException(KnowledgeTaskRequestException.Code.KNOWLEDGE_TASK_NOT_CLOSABLE);
+        }
+        KnowledgeDraftService.AccessContext context = new KnowledgeDraftService.AccessContext(
+                operator, conversation.getProjectIdentifier(), conversationId, history.getLast().getId());
+        if (requireNoChanges && drafts.listWorkspace(context).stream()
+                .anyMatch(document -> document.currentRevision() > 0)) {
+            throw new KnowledgeTaskRequestException(KnowledgeTaskRequestException.Code.KNOWLEDGE_TASK_HAS_CHANGES);
+        }
+        Instant now = clock.instant();
+        conversations.update(null, Wrappers.<KnowledgeTaskConversationEntity>lambdaUpdate()
+                .set(KnowledgeTaskConversationEntity::getStatus, targetStatus.name())
+                .set(KnowledgeTaskConversationEntity::getCloseReason, reason)
+                .set(KnowledgeTaskConversationEntity::getClosedAt, now)
+                .set(KnowledgeTaskConversationEntity::getUpdatedAt, now)
+                .eq(KnowledgeTaskConversationEntity::getId, conversationId));
+        selectedDrafts.update(null, Wrappers.<KnowledgeTaskSelectedDraftEntity>lambdaUpdate()
+                .set(KnowledgeTaskSelectedDraftEntity::getCurationStatus, selectedStatus.name())
+                .eq(KnowledgeTaskSelectedDraftEntity::getConversationId, conversationId));
+        insertMessage(conversationId, null, MessageRole.SYSTEM_TRIGGER, null,
+                targetStatus == TaskStatus.ABANDONED ? "任务已放弃：" + reason : "管理员确认无需变更：" + reason, now);
+        taskEvents.append(conversationId, null, "TASK_UPDATED", conversationId, now);
+        conversation.setStatus(targetStatus.name());
+        conversation.setCloseReason(reason);
+        conversation.setClosedAt(now);
+        conversation.setUpdatedAt(now);
+        return snapshot(conversation);
+    }
+
+    private TaskStatus taskStatus(KnowledgeTaskConversationEntity conversation) {
+        return conversation.getStatus() == null
+                ? TaskStatus.PROCESSING : TaskStatus.valueOf(conversation.getStatus());
+    }
+
+    private String publication(TaskPublication value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("知识任务发布结果无法序列化", exception);
+        }
+    }
+
+    private TaskPublication publication(String value) {
+        try {
+            return objectMapper.readValue(value, TaskPublication.class);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("知识任务发布结果无法读取", exception);
+        }
     }
 
     private void touchConversation(Long conversationId, Instant updatedAt) {

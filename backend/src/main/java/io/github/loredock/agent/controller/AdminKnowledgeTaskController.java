@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -76,6 +77,15 @@ public class AdminKnowledgeTaskController {
         return tasks.requestPause(new KnowledgeTaskService.PauseRequest(runId, sessions.currentSession().username()));
     }
 
+    /** @return 已停止且保留已提交修订的运行 */
+    @PostMapping("/{conversationId}/runs/{runId}/stop")
+    public KnowledgeTaskService.KnowledgeTaskRun stop(
+            @PathVariable String identifier, @PathVariable Long conversationId, @PathVariable Long runId
+    ) {
+        detail(identifier, conversationId);
+        return tasks.stop(new KnowledgeTaskService.StopRequest(runId, sessions.currentSession().username()));
+    }
+
     /** @return 使用同一 threadId 恢复的运行 */
     @PostMapping("/{conversationId}/runs/{runId}/resume")
     public KnowledgeTaskService.KnowledgeTaskRun resume(
@@ -96,6 +106,50 @@ public class AdminKnowledgeTaskController {
         detail(identifier, conversationId);
         return tasks.continueTask(new KnowledgeTaskService.ContinueRequest(
                 conversationId, sessions.currentSession().username(), body.idempotencyKey(), body.guidance()));
+    }
+
+    /** @return REST 调试与无法建立 SSE 时使用的持久化增量事件 */
+    @GetMapping("/{conversationId}/event-log")
+    public List<KnowledgeTaskService.KnowledgeTaskEvent> events(
+            @PathVariable String identifier, @PathVariable Long conversationId,
+            @RequestParam(defaultValue = "0") long after
+    ) {
+        detail(identifier, conversationId);
+        return tasks.events(conversationId, sessions.currentSession().username(), after);
+    }
+
+    /** @return 管理员确认无变更后的只读任务 */
+    @PostMapping("/{conversationId}/close-no-change")
+    public KnowledgeTaskService.KnowledgeTask closeNoChange(
+            @PathVariable String identifier, @PathVariable Long conversationId,
+            @Valid @RequestBody CloseBody body
+    ) {
+        detail(identifier, conversationId);
+        return tasks.closeNoChange(new KnowledgeTaskService.CloseRequest(
+                conversationId, sessions.currentSession().username(), body.reason()));
+    }
+
+    /** @return 已放弃且输入恢复待整理的只读任务 */
+    @PostMapping("/{conversationId}/abandon")
+    public KnowledgeTaskService.KnowledgeTask abandon(
+            @PathVariable String identifier, @PathVariable Long conversationId,
+            @Valid @RequestBody CloseBody body
+    ) {
+        detail(identifier, conversationId);
+        return tasks.abandon(new KnowledgeTaskService.CloseRequest(
+                conversationId, sessions.currentSession().username(), body.reason()));
+    }
+
+    /** @return 全工作区文档在一个事务中的发布结果 */
+    @PostMapping("/{conversationId}/publish")
+    public KnowledgeTaskService.TaskPublication publishWorkspace(
+            @PathVariable String identifier, @PathVariable Long conversationId,
+            @Valid @RequestBody PublishWorkspaceBody body
+    ) {
+        detail(identifier, conversationId);
+        return tasks.publish(new KnowledgeTaskService.PublishTaskRequest(
+                conversationId, sessions.currentSession().username(),
+                body.idempotencyKey(), body.reviewedDrafts()));
     }
 
     /** @return 当前或指定不可变草稿修订 */
@@ -169,4 +223,15 @@ public class AdminKnowledgeTaskController {
 
     /** 明确审核修订发布参数。 */
     public record PublishBody(long reviewedRevision) { }
+
+    public record CloseBody(@NotBlank @Size(max = 1000) String reason) { }
+
+    public record PublishWorkspaceBody(
+            @NotBlank @Size(max = 128) String idempotencyKey,
+            @Size(min = 1, max = 10) List<KnowledgeDraftService.ReviewedDraft> reviewedDrafts
+    ) {
+        public PublishWorkspaceBody {
+            reviewedDrafts = reviewedDrafts == null ? List.of() : List.copyOf(reviewedDrafts);
+        }
+    }
 }

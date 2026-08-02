@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 
 class GlobalExceptionHandlerTest {
 
@@ -68,6 +69,16 @@ class GlobalExceptionHandlerTest {
     }
 
     /**
+     * 业务目的：SSE 客户端正常离开页面后不能再写错误响应，也不能落入未知异常的 ERROR 日志分支。
+     */
+    @Test
+    void disconnectedAsyncRequestIsHandledWithoutErrorResponse() throws Exception {
+        mockMvc.perform(get("/test/errors/disconnected"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(""));
+    }
+
+    /**
      * 业务目的：内置知识整理 Skill 缺失属于服务能力不可用，而不是用户操作造成的任务状态冲突；
      * 防止页面误导管理员反复调整正确的草稿勾选项。
      */
@@ -108,6 +119,11 @@ class GlobalExceptionHandlerTest {
         void unexpected() {
             throw new IllegalStateException(
                     "password=secret-value jdbc:postgresql://internal/db /Users/demo/private/file");
+        }
+
+        @GetMapping("/disconnected")
+        void disconnected() throws AsyncRequestNotUsableException {
+            throw new AsyncRequestNotUsableException("Servlet container error notification for disconnected client");
         }
 
         @GetMapping("/knowledge-definition")

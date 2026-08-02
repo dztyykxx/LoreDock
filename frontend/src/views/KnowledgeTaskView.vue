@@ -16,11 +16,6 @@
         >
           <template #actions>
             <RouterLink :to="`/projects/${identifier}/knowledge-tasks`"><AppButton variant="secondary" icon="arrowLeft">返回任务列表</AppButton></RouterLink>
-            <AppButton
-              icon="check"
-              :disabled="!diff || diff.toRevision === 0 || publicationConflict"
-              @click="publish(diff?.toRevision)"
-            >发布修订 v{{ diff?.toRevision ?? task?.currentDraftRevision ?? 0 }}</AppButton>
           </template>
         </ProjectHero>
         <ProjectTabs
@@ -35,14 +30,16 @@
         <KnowledgeTaskWorkspace
           v-else-if="task"
           :task="task"
-          :revisions="revisions"
-          :diff="diff"
+          :selected-draft-id="selectedDraftId"
+          :selected-diff="diff"
+          :diff-loading="diffLoading"
           :publication-conflict="publicationConflict"
-          :artifact-title="revision?.title"
-          @request-pause="pause"
-          @resume="resume"
+          @stop="stop"
           @continue-task="continueTask"
+          @review-document="openDiff"
+          @close-diff="closeDiff"
           @publish="publish"
+          @close-no-change="closeNoChange"
         />
       </section>
     </main>
@@ -53,7 +50,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { ApiError } from '../api/http'
-import { knowledgeTaskApi, type DraftDiff, type DraftRevision, type KnowledgeTask } from '../api/knowledgeTasks'
+import { knowledgeTaskApi, type DraftDiff, type KnowledgeTask } from '../api/knowledgeTasks'
 import type { ProjectDetail } from '../api/types'
 import { useProjectApi, useSession } from '../appContext'
 import AppButton from '../components/AppButton.vue'
@@ -72,14 +69,15 @@ const identifier = String(route.params.identifier)
 const conversationId = Number(route.params.conversationId)
 const project = ref<ProjectDetail | null>(null)
 const task = ref<KnowledgeTask | null>(null)
-const revision = ref<DraftRevision | null>(null)
-const revisions = ref<Array<{ revision: number; changeSummary: string; createdAt: string }>>([])
 const diff = ref<DraftDiff | null>(null)
+const selectedDraftId = ref<number | null>(null)
+const diffLoading = ref(false)
 const loading = ref(true)
 const error = ref('')
 const publicationConflict = ref(false)
 let pollTimer: number | undefined
 let polling = false
+let eventSource: EventSource | undefined
 
 function runIsActive(): boolean {
   const status = task.value?.runs.at(-1)?.status
@@ -95,19 +93,15 @@ function schedulePoll(): void {
     await refresh()
     polling = false
     schedulePoll()
-  }, 1200)
+  }, 5000)
 }
 
 async function load(): Promise<void> {
   task.value = await knowledgeTaskApi.detail(identifier, conversationId)
-  if (task.value.currentDraftId && task.value.currentDraftRevision !== null) {
-    revision.value = await knowledgeTaskApi.revision(identifier, conversationId, task.value.currentDraftId, task.value.currentDraftRevision)
-    revisions.value = await knowledgeTaskApi.revisions(identifier, conversationId, task.value.currentDraftId)
-    diff.value = await knowledgeTaskApi.diff(identifier, conversationId, task.value.currentDraftId, null, task.value.currentDraftRevision)
-  } else {
-    revision.value = null
-    revisions.value = []
-    diff.value = null
+  if (selectedDraftId.value) {
+    const document = task.value.workspaceDocuments.find(value => value.draftId === selectedDraftId.value)
+    if (document) await loadDiff(document.draftId, document.currentRevision)
+    else closeDiff()
   }
 }
 
@@ -115,23 +109,57 @@ async function refresh(): Promise<void> {
   try { await load() } catch { error.value = '知识任务刷新失败，请稍后重试。' }
 }
 
-async function pause(runId: number): Promise<void> { await knowledgeTaskApi.pause(identifier, conversationId, runId); await refresh() }
-async function resume(value: { runId: number; guidance: string }): Promise<void> { await knowledgeTaskApi.resume(identifier, conversationId, value.runId, value.guidance); await refresh(); schedulePoll() }
+async function stop(runId: number): Promise<void> { await knowledgeTaskApi.stop(identifier, conversationId, runId); await refresh() }
 async function continueTask(guidance: string): Promise<void> { await knowledgeTaskApi.continueTask(identifier, conversationId, guidance); await refresh(); schedulePoll() }
 
-async function publish(reviewedRevision?: number): Promise<void> {
-  if (!task.value?.currentDraftId || reviewedRevision === undefined) return
+async function publish(): Promise<void> {
+  if (!task.value) return
+  const reviewedDrafts = task.value.workspaceDocuments
+    .filter(document => document.currentRevision > 0)
+    .map(document => ({ draftId: document.draftId, reviewedRevision: document.currentRevision }))
+  if (reviewedDrafts.length === 0) return
   publicationConflict.value = false
   try {
-    await knowledgeTaskApi.publish(identifier, conversationId, task.value.currentDraftId, reviewedRevision)
+    await knowledgeTaskApi.publishWorkspace(identifier, conversationId, reviewedDrafts)
     await refresh()
   } catch (failure) {
     if (failure instanceof ApiError && failure.code === 'KNOWLEDGE_DRAFT_CONFLICT') {
       publicationConflict.value = true
       return
     }
-    error.value = '草稿发布失败，请稍后重试。'
+    error.value = '工作区发布失败；全部文档均未发布，请重新审核后重试。'
   }
+}
+
+async function closeNoChange(): Promise<void> {
+  const reason = window.prompt('请填写无需变更的结论', '已核对，现有知识无需调整')?.trim()
+  if (!reason) return
+  await knowledgeTaskApi.closeNoChange(identifier, conversationId, reason)
+  await refresh()
+}
+
+async function openDiff(draftId: number): Promise<void> {
+  selectedDraftId.value = draftId
+  const document = task.value?.workspaceDocuments.find(value => value.draftId === draftId)
+  if (document) await loadDiff(draftId, document.currentRevision)
+}
+
+async function loadDiff(draftId: number, revision: number): Promise<void> {
+  diffLoading.value = true
+  diff.value = null
+  try { diff.value = await knowledgeTaskApi.diff(identifier, conversationId, draftId, null, revision) }
+  catch { error.value = '无法读取文档 Diff。' }
+  finally { diffLoading.value = false }
+}
+
+function closeDiff(): void { selectedDraftId.value = null; diff.value = null }
+
+function openEvents(): void {
+  eventSource?.close()
+  if (!task.value || task.value.status !== 'PROCESSING') return
+  eventSource = new EventSource(knowledgeTaskApi.eventUrl(identifier, conversationId, task.value.lastEventSequence))
+  eventSource.addEventListener('task', () => { void refresh() })
+  eventSource.onerror = () => schedulePoll()
 }
 
 async function logout(): Promise<void> { await session.logout(); await router.push('/login') }
@@ -140,16 +168,17 @@ onMounted(async () => {
   try {
     const [, projectDetail] = await Promise.all([load(), projects.getProject(identifier)])
     project.value = projectDetail
+    openEvents()
     schedulePoll()
   } catch { error.value = '无法打开知识任务。' } finally { loading.value = false }
 })
 
-onBeforeUnmount(() => { if (pollTimer !== undefined) window.clearTimeout(pollTimer) })
+onBeforeUnmount(() => { if (pollTimer !== undefined) window.clearTimeout(pollTimer); eventSource?.close() })
 </script>
 
 <style scoped>
 .knowledge-task-main{min-height:960px;background:var(--surface)}
-.knowledge-task-content{width:min(1080px,calc(100% - 64px));margin:0 auto;padding:20px 0 32px}
+.knowledge-task-content{width:min(1220px,calc(100% - 64px));margin:0 auto;padding:20px 0 32px}
 .knowledge-task-content>.project-tabs{margin-top:14px}
 .knowledge-task-content>.knowledge-task-workspace{margin-top:14px}
 .task-page-state{margin:32px 0;border:1px solid var(--border);border-radius:12px;padding:24px;background:var(--neutral-soft)}

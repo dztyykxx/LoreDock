@@ -37,8 +37,8 @@ class ReactAgentCompatibilityTest {
     }
 
     /**
-     * 业务目的：证明 1.1.2.3 的 streamMessages 能输出最终消息，
-     * 防止 T7 接入阶段才发现单 Agent 只能同步执行。
+     * 业务目的：证明 1.1.2.3 的 streamMessages 能输出可见正文增量；
+     * 完整最终消息由生产路径从 AGENT_MODEL_FINISHED 聚合事件读取。
      */
     @Test
     void shouldStreamAgentMessages() throws Exception {

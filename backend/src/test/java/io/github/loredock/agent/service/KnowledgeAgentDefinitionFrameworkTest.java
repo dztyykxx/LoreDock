@@ -32,7 +32,11 @@ class KnowledgeAgentDefinitionFrameworkTest {
 
         assertThat(registry.contains("knowledge-curator")).isTrue();
         assertThat(registry.readSkillContent("knowledge-curator"))
-                .contains("selected_draft_list", "draft_update", "待处理草稿文档 ID 不能作为正式知识基线");
+                .contains("selected_draft_list", "draft_update", "待处理草稿文档 ID 不能作为正式知识基线",
+                        "不得写入“待确认事项”", "存在待人工问题时必须用自然语言直接向用户提问",
+                        "直接使用模型原生 `AssistantMessage`", "不调用额外消息 Tool",
+                        "说明准备新增或修改哪些文档，以及为什么这样归属",
+                        "必须返回一条不含 Tool Call 的完整最终回复");
         System.out.println("测试证据：场景=内置知识整理 Skill，Registry=classpath，Skill=knowledge-curator");
     }
 

@@ -1,247 +1,291 @@
 <template>
   <section class="knowledge-task-workspace">
     <header class="task-summary">
-      <div class="task-summary__identity">
+      <div>
         <div class="task-summary__title">
-          <h1>知识整理任务 #{{ task.conversationId ?? '—' }}</h1>
-          <span class="task-status" :class="`task-status--${statusTone}`">{{ statusLabel(activeRun?.status) }}</span>
+          <h1>知识整理任务 #{{ task.conversationId }}</h1>
+          <span class="status-pill" :class="`status-pill--${task.status.toLowerCase()}`">{{ taskStatusLabel(task.status) }}</span>
         </div>
-        <p>{{ triggerLabel }} · {{ task.targetSkill ?? 'knowledge-curator' }} · 当前草稿 v{{ task.currentDraftRevision ?? 0 }}</p>
+        <p>{{ triggerLabel }} · {{ task.targetSkill || 'knowledge-curator' }} · {{ task.runs.length }} 轮运行</p>
       </div>
       <div class="task-summary__metrics">
-        <strong>模型 {{ activeRun?.modelCallCount ?? 0 }} 次 · 工具 {{ activeRun?.toolCallCount ?? 0 }} 次</strong>
-        <span v-if="activeRun?.checkpointSavedAt">Checkpoint {{ formatTime(activeRun.checkpointSavedAt) }}</span>
-        <span v-else>运行 #{{ activeRun?.runId ?? '—' }}</span>
+        <strong>模型 {{ totalModelCalls }} 次 · 工具 {{ task.toolInvocations.length }} 次</strong>
+        <span>最近运行 {{ runStatusLabel(activeRun?.status) }}</span>
       </div>
     </header>
 
-    <div class="task-columns">
-      <section data-testid="knowledge-task-conversation" class="task-panel task-conversation">
-        <header class="task-panel__header">
-          <div><IconGlyph name="message" /><h2>任务对话</h2></div>
-          <span>消息、真实事件与产物变更按会话连续展示</span>
-        </header>
+    <section data-testid="workspace-review-bar" class="review-bar">
+      <div class="review-bar__count">
+        <span class="review-bar__icon"><IconGlyph name="files" /></span>
+        <span><strong>{{ changedDocuments.length }} 份待审核文档</strong><small>累计工作区 · +{{ totalAdditions }} / −{{ totalDeletions }} 行</small></span>
+      </div>
+      <div class="review-bar__documents">
+        <button v-for="document in changedDocuments.slice(0, 3)" :key="document.draftId" type="button" @click="review(document.draftId)">
+          <span>{{ document.operation === 'ADD' ? '新增' : '修改' }}</span>{{ document.title }} · v{{ document.currentRevision }}
+        </button>
+        <span v-if="changedDocuments.length > 3">另 {{ changedDocuments.length - 3 }} 份</span>
+      </div>
+      <div class="review-bar__actions">
+        <button v-if="canCloseNoChange" class="button button--ghost" type="button" @click="$emit('close-no-change')">确认无变更</button>
+        <button data-testid="review-workspace" class="button" type="button" :disabled="changedDocuments.length === 0" @click="review(changedDocuments[0]?.draftId)">审核全部变更</button>
+        <button data-testid="publish-workspace" class="button button--primary" type="button" :disabled="!canPublish" @click="$emit('publish')">原子发布</button>
+      </div>
+    </section>
 
-        <div class="task-timeline">
-          <details open data-testid="selected-draft-inputs" class="task-inputs">
-            <summary>固定输入草稿 · {{ task.selectedDrafts?.length ?? 0 }} 份</summary>
-            <ol>
-              <li v-for="draft in task.selectedDrafts ?? []" :key="draft.documentId">
-                <span class="task-inputs__index">{{ draft.documentId }}</span>
-                <span><strong>{{ draft.title }}</strong><small>{{ draft.directory || '根目录' }}<template v-if="draft.originalFilename"> · {{ draft.originalFilename }}</template></small></span>
-              </li>
-            </ol>
-          </details>
+    <main data-testid="knowledge-task-conversation" class="conversation-shell">
+      <header class="conversation-header">
+        <div><IconGlyph name="message" /><h2>任务对话</h2></div>
+        <span>只展示公开决策、工具事实和文档变更，不展示内部思维</span>
+      </header>
 
-          <ol class="message-list">
-            <li v-for="message in conversationMessages" :key="message.messageId" :class="`message-card message-card--${message.role.toLowerCase()}`">
-              <header><strong>{{ messageLabel(message.role) }}</strong><time>{{ formatTime(message.createdAt) }}</time></header>
-              <p>{{ message.content }}</p>
-              <small v-if="message.subjectName">{{ message.subjectName }}</small>
+      <div ref="timelineElement" class="timeline" @scroll="trackScroll">
+        <details data-testid="selected-draft-inputs" class="input-card">
+          <summary>固定输入 · {{ task.selectedDrafts.length }} 份草稿 <span>展开查看</span></summary>
+          <ol>
+            <li v-for="draft in task.selectedDrafts" :key="draft.documentId">
+              <span>{{ draft.documentId }}</span><div><strong>{{ draft.title }}</strong><small>{{ draft.directory || '根目录' }}<template v-if="draft.originalFilename"> · {{ draft.originalFilename }}</template></small></div>
             </li>
           </ol>
+        </details>
 
-          <details v-if="findings.length" open data-testid="knowledge-task-findings" class="task-findings">
-            <summary>整理发现 · {{ findings.length }} 项</summary>
-            <ol class="finding-list">
-              <li v-for="finding in findings" :key="finding.messageId">
-                <span class="finding-type">{{ findingLabel(finding.type) }}</span>
-                <strong>{{ finding.topic }}</strong>
-                <p>{{ finding.summary }}</p>
-                <small v-if="finding.recommendation">建议：{{ finding.recommendation }}</small>
-                <small v-if="finding.humanQuestion">待人工确认：{{ finding.humanQuestion }}</small>
-              </li>
-            </ol>
+        <article v-for="message in unassignedMessages" :key="message.messageId" :class="messageClass(message.role)">
+          <header><strong>{{ messageLabel(message.role) }}</strong><time>{{ formatTime(message.createdAt) }}</time></header>
+          <p>{{ message.content }}</p>
+        </article>
+
+        <section v-for="(run, index) in task.runs" :key="run.runId" class="run-section">
+          <div class="run-divider"><span>第 {{ index + 1 }} 轮</span><small>{{ runStatusLabel(run.status) }} · {{ formatTime(run.startedAt || run.acceptedAt) }}</small></div>
+
+          <article v-for="message in userMessagesForRun(run.runId)" :key="message.messageId" :class="messageClass(message.role)">
+            <header><strong>{{ messageLabel(message.role) }}</strong><time>{{ formatTime(message.createdAt) }}</time></header>
+            <p>{{ message.content }}</p>
+          </article>
+
+          <details v-if="processTimelineForRun(run).length" data-testid="run-process-group" class="run-process" :open="runIsInProgress(run)">
+            <summary>
+              <span><IconGlyph name="settings" /><strong>执行过程</strong><small>工具调用 {{ toolsForRun(run.runId).length }} 次</small></span>
+              <small>{{ runIsInProgress(run) ? '运行中' : '已收起' }} · 展开查看</small>
+            </summary>
+            <div class="run-process__content">
+              <template v-for="item in processTimelineForRun(run)" :key="item.key">
+                <article v-if="item.kind === 'message' && finding(item.value)" class="finding-card">
+                  <span>{{ findingLabel(finding(item.value)!.type) }}</span>
+                  <div><strong>{{ finding(item.value)!.topic }}</strong><p>{{ finding(item.value)!.summary }}</p><small v-if="finding(item.value)!.recommendation">建议：{{ finding(item.value)!.recommendation }}</small><small v-if="finding(item.value)!.humanQuestion">待确认：{{ finding(item.value)!.humanQuestion }}</small></div>
+                </article>
+                <article v-else-if="item.kind === 'message'" :class="messageClass(item.value.role)">
+                  <header><strong>{{ messageLabel(item.value.role) }}</strong><time>{{ formatTime(item.value.createdAt) }}</time></header>
+                  <p>{{ item.value.content }}</p>
+                </article>
+
+                <details v-else data-testid="tool-invocation-group" class="tool-group">
+                  <summary>
+                    <span><IconGlyph name="settings" /><strong>工具调用 {{ item.values.length }} 次</strong></span>
+                    <small>{{ toolGroupStatus(item.values) }} · 展开查看</small>
+                  </summary>
+                  <div class="tool-group__list">
+                    <details v-for="tool in item.values" :key="tool.invocationId" data-testid="tool-invocation" data-density="compact" class="tool-card">
+                      <summary>
+                        <span class="tool-card__icon"><IconGlyph name="settings" /></span>
+                        <span class="tool-card__meta"><strong>{{ tool.purpose }}</strong><small>{{ tool.toolName }} · {{ toolStatusLabel(tool.status) }}</small></span>
+                        <time>{{ duration(tool.durationMillis) }}</time>
+                      </summary>
+                      <div class="tool-card__details">
+                        <label>调用参数 <em v-if="tool.argumentsTruncated">已截断</em></label><pre>{{ tool.arguments || '无公开参数' }}</pre>
+                        <label>执行结果 <em v-if="tool.resultTruncated">已截断</em></label><pre>{{ tool.result || tool.resultSummary || '执行中' }}</pre>
+                      </div>
+                    </details>
+                  </div>
+                </details>
+              </template>
+            </div>
           </details>
 
-          <details data-testid="knowledge-task-process" class="task-process">
-            <summary><span><IconGlyph name="settings" />处理过程 · {{ task.events?.length ?? activeRun?.stepCount ?? 0 }} 项</span><span>展开查看</span></summary>
-            <ol>
-              <li v-for="event in task.events ?? []" :key="event.sequence">
-                <span class="event-icon"><IconGlyph :name="eventIcon(event.type)" /></span>
-                <span><strong>{{ event.payload?.purpose || event.payload?.name || eventLabel(event.type) }}</strong><small>{{ event.payload?.resultSummary || event.payload?.status || eventLabel(event.type) }}</small></span>
-              </li>
-            </ol>
-          </details>
+          <article v-if="finalMessageForRun(run)" data-testid="run-final-answer" :class="[messageClass(finalMessageForRun(run)!.role), 'message-card--final']">
+            <header><strong>{{ messageLabel(finalMessageForRun(run)!.role) }}</strong><time>{{ formatTime(finalMessageForRun(run)!.createdAt) }}</time></header>
+            <SafeMarkdown :source="finalMessageForRun(run)!.content" />
+            <small>{{ finalMessageForRun(run)!.subjectName }}</small>
+          </article>
 
-          <div v-if="activeRun?.status === 'FAILED'" data-testid="knowledge-task-failure" class="task-failure" role="alert">
-            <IconGlyph name="warning" />
-            <div><strong>{{ failureTitle(activeRun.errorCode) }}</strong><p>{{ failureHint(activeRun.errorCode) }}</p><small>模型 {{ activeRun.modelCallCount ?? 0 }} 次 · 工具 {{ activeRun.toolCallCount ?? 0 }} 次 · {{ activeRun.errorCode || 'AGENT_MODEL_RESPONSE_INVALID' }}</small></div>
+          <article v-if="patchSet(run.runId)?.documents.length" data-testid="run-patch-set" class="patch-card">
+            <header><div><IconGlyph name="files" /><strong>本轮文档变更</strong></div><span>+{{ patchSet(run.runId)?.additions }} / −{{ patchSet(run.runId)?.deletions }} 行</span></header>
+            <button v-for="document in patchSet(run.runId)?.documents" :key="document.draftId" type="button" @click="review(document.draftId)">
+              <span class="operation-badge">{{ document.operation === 'ADD' ? '新增' : '修改' }}</span>
+              <span><strong>{{ document.title }}</strong><small>v{{ document.fromRevision }} → v{{ document.toRevision }}</small></span>
+              <span class="line-count">+{{ document.additions }} / −{{ document.deletions }}</span>
+              <IconGlyph name="chevronRight" />
+            </button>
+          </article>
+
+          <article v-if="run.status === 'FAILED'" data-testid="knowledge-task-failure" class="failure-card">
+            <IconGlyph name="warning" /><div><strong>{{ failureTitle(run.errorCode) }}</strong><p>{{ failureHint(run.errorCode) }}</p><small>模型 {{ run.modelCallCount }} 次 · 工具 {{ run.toolCallCount }} 次 · {{ run.errorCode }}</small></div>
+          </article>
+          <article v-else-if="['CANCELLED', 'TERMINATED'].includes(run.status) && patchSet(run.runId)?.documents.length" class="failure-card">
+            <IconGlyph name="warning" /><div><strong>本轮未完成，部分修改已保留</strong><p>请开启新一轮核对并处理这些文档后再发布。</p></div>
+          </article>
+        </section>
+      </div>
+
+      <button v-if="hasUnseen" class="new-message" type="button" @click="scrollToLatest">有新消息 · 回到底部</button>
+
+      <footer class="composer">
+        <template v-if="task.status !== 'PROCESSING'">
+          <div class="readonly-notice"><IconGlyph name="lock" /><span><strong>任务已结束，只读保留</strong><small>{{ taskStatusLabel(task.status) }}</small></span></div>
+        </template>
+        <template v-else>
+          <textarea v-model="guidance" data-testid="continue-task-guidance" :disabled="runIsActive" :placeholder="runIsActive ? 'Agent 运行中，结束后可继续补充意见' : '继续说明要核对、保留或调整的内容…'" @keydown.meta.enter="continueTask" @keydown.ctrl.enter="continueTask" />
+          <div class="composer__footer">
+            <span>{{ runIsActive ? '运行中不接收新消息；停止后可继续' : 'Ctrl / ⌘ + Enter 发送并开启新一轮' }}</span>
+            <button v-if="runIsActive" data-testid="stop-task-run" class="button button--danger" type="button" @click="$emit('stop', activeRun!.runId)">停止本轮</button>
+            <button v-else data-testid="continue-task" class="button button--primary" type="button" :disabled="!guidance.trim()" @click="continueTask">发送并继续</button>
           </div>
+        </template>
+      </footer>
+    </main>
 
-          <div v-if="pauseRequested" class="task-notice">将在当前步骤完成后暂停</div>
-        </div>
-
-        <footer class="task-composer">
-          <template v-if="activeRun?.status === 'WAITING_FOR_USER'">
-            <p>最近暂停点：{{ formatTime(activeRun.checkpointSavedAt) }} · 已在安全步骤边界保存 Checkpoint，可加入指导后恢复。</p>
-            <div class="task-composer__row">
-              <textarea v-model="resumeGuidance" data-testid="resume-task-guidance" aria-label="暂停后指导" placeholder="例如：保留版本差异，并补充迁移风险" />
-              <button data-testid="resume-task" type="button" :disabled="!resumeGuidance.trim()" @click="resume">恢复</button>
-            </div>
-          </template>
-          <template v-else-if="activeRun && ['COMPLETED', 'FAILED'].includes(activeRun.status)">
-            <p v-if="activeRun.status === 'FAILED'">本轮失败，但任务对话仍可继续；输入修正意见后会在当前草稿上创建新运行。</p>
-            <p v-else>本轮已完成，但任务对话不会关闭；可继续提出修改意见并在当前草稿上创建新运行。</p>
-            <div class="task-composer__row">
-              <textarea v-model="followUp" data-testid="continue-task-guidance" aria-label="继续调整" :placeholder="activeRun.status === 'FAILED' ? '说明如何修正本轮错误' : '继续调整当前草稿'" />
-              <button data-testid="continue-task" type="button" :disabled="!followUp.trim()" @click="continueTask">{{ activeRun.status === 'FAILED' ? '修正并重试' : '发送并继续' }}</button>
-            </div>
-          </template>
-          <button
-            v-else-if="activeRun && ['ACCEPTED', 'RUNNING'].includes(activeRun.status)"
-            data-testid="request-task-pause"
-            class="secondary-action"
-            type="button"
-            @click="requestPause"
-          >请求暂停</button>
-          <p v-else>对话消息不等于草稿产物</p>
-        </footer>
-      </section>
-
-      <section data-testid="knowledge-task-artifact" class="task-panel task-artifact">
-        <header class="task-panel__header">
-          <div><IconGlyph name="lock" /><h2>待审核草稿</h2></div>
-          <span class="revision-badge">当前修订 {{ task.currentDraftRevision ?? 0 }}</span>
+    <div v-if="selectedDocument" class="drawer-layer" @click.self="$emit('close-diff')">
+      <aside data-testid="diff-drawer" class="diff-drawer">
+        <header>
+          <div><span class="operation-badge">{{ selectedDocument.operation === 'ADD' ? '新增' : '修改' }}</span><h2>{{ selectedDocument.title }}</h2><small>{{ selectedDocument.directory || '根目录' }} · v{{ selectedDocument.currentRevision }}</small></div>
+          <button aria-label="关闭 Diff" type="button" @click="$emit('close-diff')">×</button>
         </header>
-
-        <nav class="artifact-tabs" aria-label="草稿产物视图">
-          <button type="button" disabled>预览</button><button class="active" type="button">Diff</button><button type="button" disabled>来源</button><button type="button" disabled>修订记录</button>
-        </nav>
-
-        <div class="artifact-body">
-          <div class="artifact-title"><strong>{{ artifactTitle }}</strong><span>服务端生成</span></div>
-          <div class="diff-summary">
-            <span>+{{ diff?.additions ?? 0 }} 行</span><span>−{{ diff?.deletions ?? 0 }} 行</span>
-            <strong>空/正式基线 → 草稿 v{{ diff?.toRevision ?? task.currentDraftRevision ?? 0 }}</strong>
-          </div>
-          <div data-testid="draft-markdown-diff" class="draft-diff-content">
-            <span class="sr-only">+{{ diff?.additions ?? 0 }} / -{{ diff?.deletions ?? 0 }}</span>
-            <pre>{{ diff?.unifiedDiff || '尚无可审核变更' }}</pre>
-          </div>
-          <p v-if="diff?.truncated" class="task-notice">Diff 已截断，请读取完整修订后再确认</p>
-          <p v-if="publicationConflict" class="task-error">草稿已产生新修订，请重新查看 Diff</p>
-
-          <section class="revision-section">
-            <header><strong>修订记录</strong><span>发布锁定所选修订</span></header>
-            <nav data-testid="draft-revision-list" aria-label="草稿修订">
-              <button v-for="revision in revisions" :key="revision.revision" :class="{ active: revision.revision === task.currentDraftRevision }" type="button">
-                <strong>v{{ revision.revision }}</strong><small>{{ revision.changeSummary }}</small>
-              </button>
-            </nav>
-          </section>
-
-          <details class="runtime-definition">
-            <summary>本次运行定义（只读）</summary>
-            <p>Skill {{ task.targetSkill ?? 'knowledge-curator' }}</p>
-            <p>模型 {{ activeRun?.definition?.modelName ?? '服务端固定模型' }} · {{ activeRun?.definition?.toolNames?.length ?? 0 }} 个授权 Tool</p>
-          </details>
+        <div class="diff-drawer__summary"><span>+{{ selectedDiff?.additions ?? 0 }} 行</span><span>−{{ selectedDiff?.deletions ?? 0 }} 行</span><strong>{{ selectedDocument.operation === 'ADD' ? '空基线' : `正式知识 v${selectedDocument.baselineRevision}` }} → 工作区 v{{ selectedDocument.currentRevision }}</strong></div>
+        <p v-if="diffLoading" class="drawer-state">正在生成服务端 Diff…</p>
+        <div v-else-if="selectedDiff" class="diff-lines">
+          <code v-for="(line, index) in diffLines" :key="index" :class="diffLineClass(line)">{{ line || ' ' }}</code>
         </div>
-
-        <footer class="artifact-footer">
-          <span>对话消息不等于草稿产物</span>
-          <button
-            data-testid="publish-reviewed-revision"
-            type="button"
-            :disabled="!canPublish"
-            @click="$emit('publish', diff?.toRevision)"
-          >发布 v{{ diff?.toRevision ?? task.currentDraftRevision ?? 0 }}</button>
-        </footer>
-      </section>
+        <p v-else class="drawer-state">无法读取 Diff</p>
+        <footer><span v-if="selectedDiff?.truncated">Diff 已截断，请收窄文档后重新审核</span><span v-else>服务端 Unified Diff · 只读</span></footer>
+      </aside>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import type { DraftDiff, KnowledgeTask, KnowledgeTaskRun, ToolInvocation } from '../api/knowledgeTasks'
 import IconGlyph from './IconGlyph.vue'
+import SafeMarkdown from './SafeMarkdown'
 
-interface RunDefinition { modelName?: string; toolNames?: string[] }
-interface Run { runId: number; status: string; checkpointSavedAt?: string | null; stepCount?: number; modelCallCount?: number; toolCallCount?: number; errorCode?: string | null; definition?: RunDefinition }
-interface Message { messageId: number; role: string; subjectName?: string | null; content: string; createdAt?: string }
-interface Finding { messageId: number; type: string; topic: string; summary: string; recommendation?: string; humanQuestion?: string }
-interface TaskEvent { sequence: number; type: string; payload?: { purpose?: string; name?: string; resultSummary?: string; status?: string } }
-interface Task {
-  conversationId?: number
-  triggerType?: string
-  targetSkill?: string
-  goal: string
-  selectedDrafts?: Array<{ documentId: number; title: string; directory: string; originalFilename?: string | null }>
-  currentDraftRevision?: number | null
-  messages: Message[]
-  runs: Run[]
-  events?: TaskEvent[]
-}
-interface Revision { revision: number; changeSummary: string; createdAt: string }
-interface Diff { toRevision: number; unifiedDiff: string; additions: number; deletions: number; truncated: boolean }
-
-const props = withDefaults(defineProps<{ task: Task; revisions: Revision[]; diff?: Diff | null; publicationConflict?: boolean; artifactTitle?: string }>(), {
-  diff: null,
-  publicationConflict: false,
-  artifactTitle: '知识整理草稿',
+const props = withDefaults(defineProps<{ task: KnowledgeTask; selectedDraftId?: number | null; selectedDiff?: DraftDiff | null; diffLoading?: boolean; publicationConflict?: boolean }>(), {
+  selectedDraftId: null, selectedDiff: null, diffLoading: false, publicationConflict: false,
 })
-
 const emit = defineEmits<{
-  (event: 'request-pause', runId: number): void
-  (event: 'resume', value: { runId: number; guidance: string }): void
   (event: 'continue-task', guidance: string): void
-  (event: 'publish', revision?: number): void
+  (event: 'stop', runId: number): void
+  (event: 'review-document', draftId: number): void
+  (event: 'close-diff'): void
+  (event: 'publish'): void
+  (event: 'close-no-change'): void
 }>()
-const pauseRequested = ref(false)
-const resumeGuidance = ref('')
-const followUp = ref('')
+
+const guidance = ref('')
+const timelineElement = ref<HTMLElement | null>(null)
+const followsLatest = ref(true)
+const hasUnseen = ref(false)
 const activeRun = computed(() => props.task.runs.at(-1))
-const canPublish = computed(() => Boolean(props.diff && props.diff.toRevision > 0 && !props.publicationConflict))
+const runIsActive = computed(() => ['ACCEPTED', 'RUNNING', 'PAUSE_REQUESTED'].includes(activeRun.value?.status ?? ''))
+const changedDocuments = computed(() => props.task.workspaceDocuments.filter(document => document.currentRevision > 0))
+const selectedDocument = computed(() => props.task.workspaceDocuments.find(document => document.draftId === props.selectedDraftId))
+const totalModelCalls = computed(() => props.task.runs.reduce((sum, run) => sum + run.modelCallCount, 0))
+const totalAdditions = computed(() => props.task.patchSets.reduce((sum, patch) => sum + patch.additions, 0))
+const totalDeletions = computed(() => props.task.patchSets.reduce((sum, patch) => sum + patch.deletions, 0))
+const canPublish = computed(() => props.task.status === 'PROCESSING' && activeRun.value?.status === 'COMPLETED' && changedDocuments.value.length > 0 && !props.publicationConflict)
+const canCloseNoChange = computed(() => props.task.status === 'PROCESSING' && !runIsActive.value && changedDocuments.value.length === 0)
 const triggerLabel = computed(() => props.task.triggerType === 'SYSTEM' ? '系统触发' : '管理员手动触发')
-const statusTone = computed(() => ({ COMPLETED: 'success', FAILED: 'danger', WAITING_FOR_USER: 'warning', PAUSE_REQUESTED: 'warning' } as Record<string, string>)[activeRun.value?.status ?? ''] ?? 'running')
-const conversationMessages = computed(() => props.task.messages.filter(message => !message.subjectName?.startsWith('finding_record:')))
-const findings = computed<Finding[]>(() => props.task.messages.flatMap(message => {
-  if (!message.subjectName?.startsWith('finding_record:')) return []
+const unassignedMessages = computed(() => props.task.messages.filter(message => message.runId === null))
+const diffLines = computed(() => (props.selectedDiff?.unifiedDiff ?? '').split('\n'))
+
+type Message = KnowledgeTask['messages'][number]
+type TimelineItem = { key: string; kind: 'message'; at: string; value: Message } | { key: string; kind: 'tools'; at: string; values: ToolInvocation[] }
+
+function toolsForRun(runId: number): ToolInvocation[] {
+  return props.task.toolInvocations.filter(tool => tool.runId === runId)
+}
+function userMessagesForRun(runId: number): Message[] {
+  return props.task.messages.filter(message => message.runId === runId && message.role === 'USER')
+}
+function finalMessageForRun(run: KnowledgeTaskRun): Message | null {
+  return props.task.messages.filter(message => message.runId === run.runId
+      && message.role === 'COORDINATOR_AGENT' && message.subjectName === run.definition.skillName).at(-1) ?? null
+}
+function processTimelineForRun(run: KnowledgeTaskRun): TimelineItem[] {
+  const finalMessageId = finalMessageForRun(run)?.messageId
+  const messages = props.task.messages.filter(message => message.runId === run.runId
+      && message.role !== 'USER' && message.messageId !== finalMessageId)
+    .map(message => ({ key: `m-${message.messageId}`, kind: 'message' as const, at: message.createdAt, value: message }))
+  const tools = toolsForRun(run.runId)
+    .map(tool => ({ key: `t-${tool.invocationId}`, kind: 'tool' as const, at: tool.startedAt, value: tool }))
+  const ordered = [...messages, ...tools].sort((left, right) => left.at.localeCompare(right.at))
+  return ordered.reduce<TimelineItem[]>((blocks, item) => {
+    if (item.kind === 'message') return [...blocks, item]
+    const previous = blocks.at(-1)
+    if (previous?.kind === 'tools') {
+      previous.values.push(item.value)
+      return blocks
+    }
+    return [...blocks, { key: `tg-${item.value.invocationId}`, kind: 'tools', at: item.at, values: [item.value] }]
+  }, [])
+}
+function runIsInProgress(run: KnowledgeTaskRun): boolean {
+  return ['ACCEPTED', 'RUNNING', 'PAUSE_REQUESTED'].includes(run.status)
+}
+function patchSet(runId: number) { return props.task.patchSets.find(patch => patch.runId === runId) }
+function review(draftId?: number): void { if (draftId) emit('review-document', draftId) }
+function continueTask(): void { if (!runIsActive.value && guidance.value.trim()) { emit('continue-task', guidance.value.trim()); guidance.value = '' } }
+function trackScroll(): void {
+  const element = timelineElement.value
+  if (!element) return
+  followsLatest.value = element.scrollHeight - element.scrollTop - element.clientHeight < 72
+  if (followsLatest.value) hasUnseen.value = false
+}
+function scrollToLatest(): void {
+  const element = timelineElement.value
+  if (!element) return
+  if (typeof element.scrollTo === 'function') element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' })
+  else element.scrollTop = element.scrollHeight
+  followsLatest.value = true
+  hasUnseen.value = false
+}
+function messageClass(role: string): string { return `message-card message-card--${role.toLowerCase()}` }
+function messageLabel(role: string): string { return ({ SYSTEM_TRIGGER: '系统', USER: '你', COORDINATOR_AGENT: '知识整理 Agent', SUB_AGENT: '协作 Agent', TOOL: '工具结果' } as Record<string, string>)[role] ?? role }
+function finding(message: Message): { type: string; topic: string; summary: string; recommendation?: string; humanQuestion?: string } | null {
+  if (!message.subjectName?.startsWith('finding_record:')) return null
   try {
-    const value = JSON.parse(message.content) as Partial<Finding>
-    if (!value.type || !value.topic || !value.summary) return []
-    return [{ messageId: message.messageId, type: value.type, topic: value.topic, summary: value.summary, recommendation: value.recommendation, humanQuestion: value.humanQuestion }]
-  } catch { return [] }
-}))
+    const value = JSON.parse(message.content)
+    return value.type && value.topic && value.summary ? value : null
+  } catch { return null }
+}
+function findingLabel(type: string): string { return ({ DUPLICATE: '重复', CONFLICT: '冲突', STALE: '可能过期', GAP: '知识缺口' } as Record<string, string>)[type] ?? type }
+function taskStatusLabel(status: string): string { return ({ PROCESSING: '整理中', PUBLISHED: '已发布', CLOSED_NO_CHANGE: '无需变更', ABANDONED: '已放弃' } as Record<string, string>)[status] ?? status }
+function runStatusLabel(status?: string): string { return ({ ACCEPTED: '排队中', RUNNING: '运行中', PAUSE_REQUESTED: '停止中', WAITING_FOR_USER: '等待结束', COMPLETED: '已完成', FAILED: '失败', TERMINATED: '已终止', CANCELLED: '已停止' } as Record<string, string>)[status ?? ''] ?? '未运行' }
+function toolStatusLabel(status: string): string { return ({ STARTED: '执行中', COMPLETED: '已完成', FAILED: '失败' } as Record<string, string>)[status] ?? status }
+function toolGroupStatus(tools: ToolInvocation[]): string { return tools.some(tool => tool.status === 'STARTED') ? '执行中' : tools.some(tool => tool.status === 'FAILED') ? '含失败' : '已完成' }
+function duration(value: number | null): string { return value === null ? '执行中' : value < 1000 ? `${value} ms` : `${(value / 1000).toFixed(1)} s` }
+function formatTime(value?: string | null): string { return value ? new Date(value).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '—' }
+function diffLineClass(line: string): string { return line.startsWith('+') && !line.startsWith('+++') ? 'added' : line.startsWith('-') && !line.startsWith('---') ? 'deleted' : line.startsWith('@@') ? 'range' : 'context' }
+function failureTitle(code?: string | null): string { return code === 'AGENT_STEP_LIMIT_EXCEEDED' ? '工具调用达到知识整理上限' : code === 'AGENT_MODEL_CALL_LIMIT_EXCEEDED' ? '模型调用达到知识整理上限' : code === 'AGENT_RUN_TIMEOUT' ? '知识整理运行超时' : code === 'AGENT_TOOL_SCOPE_VIOLATION' ? '工作区写入范围校验失败' : '知识整理运行失败' }
+function failureHint(code?: string | null): string { return code?.includes('LIMIT') ? '已经提交的文档修订仍保留，可补充约束后开启新一轮。' : '本轮已结束，公开过程和已提交修订仍保留，可直接给出修正意见。' }
 
-watch(() => activeRun.value?.status, status => { if (status !== 'PAUSE_REQUESTED') pauseRequested.value = false })
-
-function requestPause(): void { if (activeRun.value) { pauseRequested.value = true; emit('request-pause', activeRun.value.runId) } }
-function resume(): void { if (activeRun.value && resumeGuidance.value.trim()) emit('resume', { runId: activeRun.value.runId, guidance: resumeGuidance.value.trim() }) }
-function continueTask(): void { if (followUp.value.trim()) emit('continue-task', followUp.value.trim()) }
-function messageLabel(role: string): string { return ({ SYSTEM_TRIGGER: '系统触发', USER: '你', COORDINATOR_AGENT: '知识整理 Agent', TOOL: '工具结果' } as Record<string, string>)[role] ?? role }
-function findingLabel(type: string): string { return ({ DUPLICATE: '重复内容', CONFLICT: '规则冲突', STALE: '可能过期', GAP: '知识缺口' } as Record<string, string>)[type] ?? type }
-function statusLabel(status?: string): string { return ({ ACCEPTED: '排队中', RUNNING: '运行中', PAUSE_REQUESTED: '请求暂停', WAITING_FOR_USER: '等待人工', COMPLETED: '已完成', FAILED: '失败', TERMINATED: '已终止', CANCELLED: '已取消' } as Record<string, string>)[status ?? ''] ?? '未运行' }
-function eventLabel(type: string): string { return ({ RUN_STARTED: '运行开始', TOOL_STARTED: '工具开始', TOOL_COMPLETED: '工具完成', RUN_FAILED: '运行失败', RUN_COMPLETED: '运行完成' } as Record<string, string>)[type] ?? type }
-function eventIcon(type: string): string { return type.includes('FAILED') ? 'warning' : type.includes('TOOL') ? 'settings' : type.includes('COMPLETED') ? 'circleCheck' : 'message' }
-function formatTime(value?: string | null): string { return value ? new Date(value).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '已保存' }
-function failureTitle(code?: string | null): string { return code === 'AGENT_STEP_LIMIT_EXCEEDED' ? '工具调用达到知识整理上限' : code === 'AGENT_MODEL_CALL_LIMIT_EXCEEDED' ? '模型调用达到知识整理上限' : code === 'AGENT_RUN_TIMEOUT' ? '知识整理运行超时' : code === 'AGENT_TOOL_SCOPE_VIOLATION' ? '草稿写入范围校验失败' : '知识整理运行失败' }
-function failureHint(code?: string | null): string { return code?.includes('LIMIT') ? '本轮保留了已完成的读取过程；可在下方补充约束后创建新运行。' : code === 'AGENT_TOOL_SCOPE_VIOLATION' ? 'Agent 选择了当前项目范围之外的正式知识基线，服务端已阻止写入；可在下方给出正确范围后重试。' : '已完成的输入和公开过程仍保留，可在下方说明修正方式并重试。' }
+onMounted(() => { void nextTick(scrollToLatest) })
+watch(() => props.task.lastEventSequence, async (current, previous) => {
+  if (current === previous) return
+  await nextTick()
+  if (followsLatest.value) scrollToLatest()
+  else hasUnseen.value = true
+}, { flush: 'post' })
 </script>
 
 <style scoped>
-.knowledge-task-workspace{display:flex;flex-direction:column;gap:14px;min-height:700px;color:var(--ink)}
-.task-summary{min-height:54px;display:flex;align-items:center;justify-content:space-between;gap:20px}
-.task-summary__title{display:flex;align-items:center;gap:9px}.task-summary h1{margin:0;font-size:18px;line-height:26px}.task-summary p,.task-summary__metrics span{margin:3px 0 0;color:var(--muted);font-size:11px}
-.task-summary__metrics{display:flex;flex-direction:column;align-items:flex-end;gap:2px;font-size:11px}
-.task-status,.revision-badge{border-radius:99px;padding:4px 8px;color:var(--accent);background:var(--accent-soft);font-size:11px;font-weight:650}.task-status--warning{color:var(--warning);background:var(--warning-soft)}.task-status--danger{color:var(--danger);background:var(--danger-soft)}
-.task-columns{min-height:610px;display:grid;grid-template-columns:minmax(0,1fr) 444px;gap:16px}
-.task-panel{min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--border);border-radius:12px;background:var(--surface)}
-.task-panel__header{height:48px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--border);padding:0 16px}.task-panel__header>div{display:flex;align-items:center;gap:8px}.task-panel__header .icon-glyph{width:15px;color:var(--accent)}.task-panel__header h2{margin:0;font-size:13px}.task-panel__header>span{color:var(--quiet);font-size:10px}
-.task-timeline{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:9px;padding:12px 16px}
-details{border:1px solid var(--border);border-radius:9px;background:var(--surface)}summary{cursor:pointer;list-style:none;font-size:11px;font-weight:620}summary::-webkit-details-marker{display:none}
-.task-inputs{padding:10px;background:var(--neutral-soft)}.task-inputs ol{display:grid;gap:7px;margin:9px 0 0;padding:0;list-style:none}.task-inputs li{display:flex;gap:9px;align-items:center}.task-inputs__index{width:25px;height:25px;display:grid;place-items:center;border-radius:7px;color:var(--accent);background:var(--accent-soft);font-size:10px}.task-inputs li>span:last-child{display:flex;flex-direction:column;gap:2px;font-size:11px}.task-inputs small{color:var(--quiet);font-size:10px}
-.message-list{display:flex;flex-direction:column;gap:9px;margin:0;padding:0;list-style:none}.message-card{border-radius:9px;padding:10px;background:var(--neutral-soft)}.message-card--coordinator_agent{background:var(--accent-soft)}.message-card--user{margin-left:36px}.message-card header{display:flex;justify-content:space-between;color:var(--muted);font-size:11px}.message-card time{color:var(--quiet);font-size:10px}.message-card p{margin:5px 0 0;white-space:pre-wrap;font-size:12px;line-height:1.45}.message-card>small{display:block;margin-top:5px;color:var(--accent)}
-.task-findings{padding:10px}.finding-list{display:grid;gap:8px;margin:9px 0 0;padding:0;list-style:none}.finding-list li{display:grid;grid-template-columns:auto 1fr;gap:4px 8px;border-top:1px solid var(--border);padding-top:8px}.finding-list li:first-child{border-top:0}.finding-type{grid-row:1/3;border-radius:99px;padding:3px 7px;align-self:start;color:var(--warning);background:var(--warning-soft);font-size:10px}.finding-list strong{font-size:11px}.finding-list p,.finding-list small{grid-column:2;margin:0;font-size:11px}.finding-list small{color:var(--muted)}
-.task-process{padding:2px 10px}.task-process summary{height:34px;display:flex;align-items:center;justify-content:space-between}.task-process summary>span{display:flex;align-items:center;gap:7px}.task-process summary>span:last-child{color:var(--quiet);font-size:10px;font-weight:400}.task-process .icon-glyph{width:13px}.task-process ol{margin:0;padding:0;list-style:none}.task-process li{display:flex;gap:9px;border-top:1px solid var(--border);padding:8px 0}.event-icon{width:27px;height:27px;display:grid;place-items:center;border-radius:8px;background:var(--neutral-soft)}.task-process li>span:last-child{display:flex;flex-direction:column;gap:2px}.task-process strong{font-size:11px}.task-process small{color:var(--muted);font-size:10px}
-.task-failure{display:flex;gap:10px;border-radius:9px;padding:10px;color:var(--danger);background:var(--danger-soft)}.task-failure>.icon-glyph{width:17px}.task-failure p{margin:4px 0;color:var(--ink);font-size:11px}.task-failure small{font-size:10px}
-.task-composer{border-top:1px solid var(--border);padding:10px 16px 12px}.task-composer p{margin:0 0 7px;color:var(--quiet);font-size:10px}.task-composer__row{display:flex;gap:8px}.task-composer textarea{flex:1;min-height:38px;max-height:82px;border:1px solid var(--border);border-radius:9px;padding:9px 12px;resize:vertical;font-size:12px}.task-composer button,.artifact-footer button{border:1px solid var(--ink);border-radius:8px;padding:9px 14px;color:#fff;background:var(--ink);font-size:12px;cursor:pointer}.task-composer .secondary-action{color:var(--ink);background:var(--surface)}button:disabled{opacity:.5;cursor:not-allowed}
-.artifact-tabs{height:36px;display:flex;align-items:stretch;gap:18px;border-bottom:1px solid var(--border);padding:0 14px}.artifact-tabs button{border:0;border-bottom:2px solid transparent;padding:0;color:var(--muted);background:transparent;font-size:11px}.artifact-tabs button.active{border-bottom-color:var(--accent);color:var(--accent);font-weight:650}.artifact-tabs button:disabled{opacity:1}
-.artifact-body{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:9px;padding:10px 14px}.artifact-title,.diff-summary,.revision-section>header{display:flex;align-items:center;justify-content:space-between}.artifact-title{font-size:12px}.artifact-title span,.revision-section>header span{color:var(--quiet);font-size:10px}.diff-summary{justify-content:flex-start;gap:10px;font-size:10px}.diff-summary span:first-child{color:var(--accent)}.diff-summary span:nth-child(2){color:var(--danger)}.diff-summary strong{margin-left:auto;color:var(--muted)}
-.draft-diff-content{min-height:280px;flex:1;overflow:auto;border:1px solid var(--border);border-radius:8px;background:#fafafa}.draft-diff-content pre{min-height:100%;margin:0;padding:10px;white-space:pre-wrap;color:var(--ink);font-family:"Geist Mono",monospace;font-size:11px;line-height:1.55}
-.task-notice,.task-error{margin:0;border-radius:8px;padding:9px;color:var(--warning);background:var(--warning-soft);font-size:11px}.task-error{color:var(--danger);background:var(--danger-soft)}
-.revision-section{display:flex;flex-direction:column;gap:6px}.revision-section>header{font-size:11px}.revision-section nav{display:flex;gap:6px;overflow:auto}.revision-section button{min-width:104px;display:flex;flex-direction:column;gap:2px;border:0;border-radius:7px;padding:7px;text-align:left;background:var(--neutral-soft)}.revision-section button.active{color:var(--accent);background:var(--accent-soft)}.revision-section small{max-width:95px;overflow:hidden;color:var(--muted);font-size:9px;text-overflow:ellipsis;white-space:nowrap}
-.runtime-definition{padding:9px;background:var(--neutral-soft)}.runtime-definition p{margin:5px 0 0;color:var(--muted);font-size:10px}
-.artifact-footer{height:48px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--border);padding:0 14px}.artifact-footer span{color:var(--quiet);font-size:10px}
-@media(max-width:1100px){.task-columns{grid-template-columns:minmax(0,1fr) 390px}}
+.knowledge-task-workspace{position:relative;display:flex;flex-direction:column;gap:14px;min-height:720px;color:var(--ink)}
+.task-summary,.review-bar,.conversation-header,.composer__footer,.patch-card header,.tool-card summary{display:flex;align-items:center;justify-content:space-between;gap:16px}.task-summary{min-height:54px}.task-summary__title{display:flex;align-items:center;gap:9px}.task-summary h1{margin:0;font-size:20px}.task-summary p,.task-summary__metrics span{margin:3px 0 0;color:var(--muted);font-size:11px}.task-summary__metrics{display:flex;flex-direction:column;align-items:flex-end;font-size:11px}.status-pill,.operation-badge{border-radius:99px;padding:4px 8px;color:var(--accent);background:var(--accent-soft);font-size:10px;font-weight:700}.status-pill--published{color:#087b58}.status-pill--abandoned{color:var(--danger);background:var(--danger-soft)}
+.review-bar{position:sticky;top:0;z-index:5;min-height:66px;border:1px solid color-mix(in srgb,var(--accent) 28%,var(--border));border-radius:13px;padding:10px 12px;background:color-mix(in srgb,var(--surface) 95%,var(--accent-soft));box-shadow:0 5px 18px #1b37300d}.review-bar__count,.review-bar__count>span:last-child{display:flex;align-items:center;gap:9px}.review-bar__count>span:last-child{align-items:flex-start;flex-direction:column;gap:1px}.review-bar__count small{color:var(--muted);font-size:10px}.review-bar__icon,.tool-card__icon{width:32px;height:32px;display:grid;place-items:center;border-radius:9px;color:var(--accent);background:var(--accent-soft)}.review-bar__documents{min-width:0;flex:1;display:flex;gap:6px;overflow:hidden}.review-bar__documents button{max-width:190px;overflow:hidden;border:0;background:transparent;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:10px;text-align:left;cursor:pointer}.review-bar__documents button span{margin-right:4px;color:var(--accent)}.review-bar__actions{display:flex;gap:7px}
+.button{border:1px solid var(--border);border-radius:8px;padding:8px 12px;background:var(--surface);color:var(--ink);font-size:11px;font-weight:650;cursor:pointer}.button:disabled{opacity:.42;cursor:not-allowed}.button--primary{border-color:var(--ink);background:var(--ink);color:#fff}.button--danger{border-color:var(--danger);color:var(--danger);background:var(--danger-soft)}.button--ghost{background:transparent}
+.conversation-shell{position:relative;width:min(780px,100%);height:min(760px,calc(100vh - 255px));min-height:620px;align-self:center;display:flex;flex-direction:column;border:1px solid var(--border);border-radius:14px;background:var(--surface);overflow:hidden}.conversation-header{min-height:52px;border-bottom:1px solid var(--border);padding:0 17px}.conversation-header>div{display:flex;align-items:center;gap:8px}.conversation-header .icon-glyph{width:16px;color:var(--accent)}.conversation-header h2{margin:0;font-size:14px}.conversation-header>span{color:var(--quiet);font-size:10px}.timeline{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:10px;padding:14px 18px 20px}.new-message{position:absolute;z-index:3;right:18px;bottom:112px;border:1px solid var(--accent);border-radius:99px;padding:7px 11px;color:var(--accent);background:var(--surface);box-shadow:0 4px 12px #13211d1a;font-size:10px;cursor:pointer}.input-card,.tool-card{border:1px solid var(--border);border-radius:10px;background:var(--neutral-soft)}.input-card{padding:11px}.input-card summary,.tool-card summary{cursor:pointer;list-style:none;font-size:11px;font-weight:650}.input-card summary span{float:right;color:var(--quiet);font-weight:400}.input-card ol{display:grid;gap:7px;margin:10px 0 0;padding:0;list-style:none}.input-card li{display:flex;align-items:center;gap:9px}.input-card li>span{width:27px;height:27px;display:grid;place-items:center;border-radius:8px;color:var(--accent);background:var(--accent-soft);font-size:10px}.input-card li div{display:flex;flex-direction:column;font-size:11px}.input-card small{color:var(--quiet)}
+.run-section{display:flex;flex-direction:column;gap:9px}.run-divider{display:flex;align-items:center;gap:9px;margin:5px 0;color:var(--quiet);font-size:10px}.run-divider::before,.run-divider::after{content:"";height:1px;flex:1;background:var(--border)}.run-divider span{color:var(--muted);font-weight:700}.message-card{border-radius:10px;padding:11px 12px;background:var(--neutral-soft)}.message-card--coordinator_agent,.message-card--sub_agent{margin-right:42px;border-left:2px solid var(--accent);background:var(--accent-soft)}.message-card--user{margin-left:72px}.message-card--final{margin-right:0}.message-card header{display:flex;justify-content:space-between;color:var(--muted);font-size:10px}.message-card time{color:var(--quiet)}.message-card p{margin:5px 0 0;white-space:pre-wrap;font-size:12px;line-height:1.55}.message-card>small{display:block;margin-top:5px;color:var(--accent);font-size:10px}.finding-card{display:flex;align-items:flex-start;gap:9px;border:1px solid color-mix(in srgb,var(--warning) 32%,var(--border));border-radius:10px;padding:10px;background:var(--warning-soft)}.finding-card>span{border-radius:99px;padding:3px 7px;color:var(--warning);background:var(--surface);font-size:10px;font-weight:700}.finding-card>div{display:flex;flex-direction:column;gap:3px}.finding-card strong{font-size:11px}.finding-card p{margin:0;font-size:11px}.finding-card small{color:var(--muted);font-size:10px}
+.run-process{overflow:hidden;border:1px solid var(--border);border-radius:10px;background:var(--neutral-soft)}.run-process>summary{min-height:36px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;cursor:pointer;list-style:none}.run-process>summary>span{display:flex;align-items:center;gap:7px;font-size:10px}.run-process>summary .icon-glyph{width:12px;color:var(--accent)}.run-process>summary small{color:var(--quiet);font-size:9px}.run-process__content{display:flex;flex-direction:column;gap:7px;border-top:1px solid var(--border);padding:8px}.run-process__content>.message-card{margin-left:0;margin-right:0}.message-card--final :deep(.markdown-preview){margin-top:6px;font-size:12px;line-height:1.62}.message-card--final :deep(.markdown-preview)>:first-child{margin-top:0}.message-card--final :deep(.markdown-preview)>:last-child{margin-bottom:0}.message-card--final :deep(.markdown-preview p),.message-card--final :deep(.markdown-preview ul),.message-card--final :deep(.markdown-preview ol),.message-card--final :deep(.markdown-preview blockquote),.message-card--final :deep(.markdown-preview pre){margin:7px 0}.message-card--final :deep(.markdown-preview ul),.message-card--final :deep(.markdown-preview ol){padding-left:20px}.message-card--final :deep(.markdown-preview h1),.message-card--final :deep(.markdown-preview h2),.message-card--final :deep(.markdown-preview h3),.message-card--final :deep(.markdown-preview h4),.message-card--final :deep(.markdown-preview h5),.message-card--final :deep(.markdown-preview h6){margin:12px 0 5px;line-height:1.35}.message-card--final :deep(.markdown-preview h1){font-size:17px}.message-card--final :deep(.markdown-preview h2){font-size:15px}.message-card--final :deep(.markdown-preview h3){font-size:13px}.message-card--final :deep(.markdown-preview code){border-radius:4px;padding:1px 4px;background:color-mix(in srgb,var(--surface) 72%,var(--border));font:10px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}.message-card--final :deep(.markdown-preview pre){overflow:auto;border-radius:8px;padding:9px;background:var(--surface)}.message-card--final :deep(.markdown-preview pre code){padding:0;background:transparent}.message-card--final :deep(.markdown-preview blockquote){border-left:2px solid var(--accent);padding-left:9px;color:var(--muted)}.message-card--final :deep(.markdown-preview a){color:var(--accent)}
+.tool-group{border:1px solid var(--border);border-radius:8px;padding:0 8px;background:var(--neutral-soft)}.tool-group>summary{min-height:32px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;list-style:none}.tool-group>summary>span{display:flex;align-items:center;gap:6px;font-size:10px}.tool-group>summary .icon-glyph{width:12px;color:var(--accent)}.tool-group>summary small{color:var(--quiet);font-size:9px}.tool-group__list{display:grid;gap:4px;border-top:1px solid var(--border);padding:5px 0 7px}.tool-card{padding:0 8px;border-radius:8px;background:var(--surface)}.tool-card summary{min-height:34px;gap:7px}.tool-card__icon{width:22px;height:22px;border-radius:6px}.tool-card__icon>.icon-glyph{width:12px}.tool-card__meta{min-width:0;flex:1;display:flex;align-items:baseline;gap:6px;white-space:nowrap}.tool-card__meta strong{overflow:hidden;text-overflow:ellipsis;font-size:10px}.tool-card summary small,.tool-card time{flex:none;color:var(--quiet);font-size:9px}.tool-card__details{display:grid;gap:6px;border-top:1px solid var(--border);padding:8px 0}.tool-card__details label{color:var(--muted);font-size:10px;font-weight:700}.tool-card__details em{color:var(--warning)}.tool-card pre{max-height:190px;overflow:auto;margin:0;border-radius:8px;padding:9px;background:var(--neutral-soft);white-space:pre-wrap;font-size:10px}
+.patch-card{overflow:hidden;border:1px solid color-mix(in srgb,var(--accent) 32%,var(--border));border-radius:11px;background:var(--surface)}.patch-card header{padding:10px 12px;background:var(--accent-soft);font-size:11px}.patch-card header>div{display:flex;align-items:center;gap:7px}.patch-card header .icon-glyph{width:14px;color:var(--accent)}.patch-card header>span{color:var(--accent)}.patch-card button{width:100%;display:grid;grid-template-columns:auto 1fr auto 16px;align-items:center;gap:10px;border:0;border-top:1px solid var(--border);padding:10px 12px;background:transparent;text-align:left;cursor:pointer}.patch-card button>span:nth-child(2){display:flex;flex-direction:column;gap:2px}.patch-card button small{color:var(--quiet);font-size:10px}.line-count{color:var(--muted);font-size:10px}.patch-card button>.icon-glyph{width:14px;color:var(--quiet)}.failure-card{display:flex;gap:9px;border-radius:10px;padding:11px;color:var(--danger);background:var(--danger-soft)}.failure-card>.icon-glyph{width:17px}.failure-card p{margin:3px 0;color:var(--ink);font-size:11px}.failure-card small{font-size:10px}
+.composer{position:sticky;bottom:0;border-top:1px solid var(--border);padding:12px 16px;background:var(--surface)}.composer textarea{width:100%;min-height:62px;box-sizing:border-box;border:1px solid var(--border);border-radius:10px;padding:11px 12px;resize:vertical;font:inherit;font-size:12px}.composer textarea:disabled{background:var(--neutral-soft)}.composer__footer{margin-top:7px}.composer__footer>span{color:var(--quiet);font-size:10px}.readonly-notice{display:flex;align-items:center;gap:9px;color:var(--muted)}.readonly-notice>.icon-glyph{width:17px}.readonly-notice span{display:flex;flex-direction:column;font-size:11px}.readonly-notice small{color:var(--quiet)}
+.drawer-layer{position:fixed;z-index:40;inset:0;background:#13211d24}.diff-drawer{position:absolute;top:0;right:0;width:min(620px,46vw);height:100%;display:flex;flex-direction:column;background:var(--surface);box-shadow:-14px 0 36px #14211d26}.diff-drawer>header{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--border);padding:18px}.diff-drawer>header>div{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:5px 8px}.diff-drawer h2{margin:0;font-size:15px}.diff-drawer header small{grid-column:2;color:var(--muted);font-size:10px}.diff-drawer header button{border:0;background:transparent;font-size:24px;cursor:pointer}.diff-drawer__summary{display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border);padding:10px 18px;font-size:10px}.diff-drawer__summary span:first-child{color:#087b58}.diff-drawer__summary span:nth-child(2){color:var(--danger)}.diff-drawer__summary strong{margin-left:auto}.diff-lines{flex:1;overflow:auto;padding:14px 0;background:#fbfcfb;font:11px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}.diff-lines code{display:block;min-height:17px;padding:0 18px;white-space:pre-wrap}.diff-lines .added{color:#087b58;background:#eaf8f1}.diff-lines .deleted{color:#a93232;background:#fff0f0}.diff-lines .range{color:#5668a8;background:#f1f3fb}.diff-drawer>footer{border-top:1px solid var(--border);padding:11px 18px;color:var(--muted);font-size:10px}.drawer-state{margin:auto;color:var(--muted)}
+@media(max-width:1100px){.review-bar__documents{display:none}.diff-drawer{width:min(680px,72vw)}}
 </style>

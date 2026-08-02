@@ -16,7 +16,9 @@ public interface KnowledgeDraftMapper extends BaseMapper<KnowledgeDraftEntity> {
     @Select("""
             select id, conversation_id as "conversationId", operator_id as "operatorId",
                    project_id as "projectId", project_identifier as "projectIdentifier", title,
-                   baseline_document_id as "baselineDocumentId", current_revision as "currentRevision",
+                   operation, baseline_document_id as "baselineDocumentId",
+                   baseline_revision as "baselineRevision", directory_path as "directoryPath",
+                   current_revision as "currentRevision",
                    create_run_id as "createRunId", create_idempotency_key as "createIdempotencyKey",
                    create_request_hash as "createRequestHash", published_document_id as "publishedDocumentId",
                    published_revision as "publishedRevision", created_at as "createdAt", updated_at as "updatedAt"

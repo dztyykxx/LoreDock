@@ -14,8 +14,6 @@ import io.github.loredock.agent.model.entity.AgentRunEntity;
 import io.github.loredock.agent.model.entity.KnowledgeTaskSelectedDraftEntity;
 import io.github.loredock.knowledge.api.KnowledgeDraftService;
 import io.github.loredock.knowledge.api.KnowledgeDocumentAccessService;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import java.time.Clock;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -48,7 +46,7 @@ class KnowledgeCurationToolsTest {
         KnowledgeCurationTools tools = new KnowledgeCurationTools(
                 mock(ProjectQaToolService.class), mock(AgentEvidenceService.class), mock(ObjectProvider.class),
                 runs, mock(KnowledgeTaskMessageMapper.class), selected,
-                mock(KnowledgeDocumentAccessService.class), new ObjectMapper(), Clock.systemUTC());
+                mock(KnowledgeDocumentAccessService.class));
         ToolContext context = new ToolContext(Map.of(
                 "operatorId", "admin", "projectIdentifier", "atlas", "conversationId", 41L, "runId", 61L));
 
@@ -72,9 +70,10 @@ class KnowledgeCurationToolsTest {
                 .map(value -> value.getToolDefinition().name()).toList();
 
         assertThat(names).containsExactly(
-                "draft_create", "draft_diff", "draft_read", "draft_update", "finding_record",
+                "draft_create", "draft_diff", "draft_read", "draft_update",
                 "knowledge_directory_list", "knowledge_document_list", "knowledge_document_read",
-                "knowledge_grep", "knowledge_search", "selected_draft_list", "selected_draft_read");
+                "knowledge_grep", "knowledge_search", "selected_draft_list", "selected_draft_read",
+                "workspace_document_list");
         assertThat(callbacks).allSatisfy(callback -> assertThat(callback).isInstanceOf(MethodToolCallback.class));
         assertThat(names).doesNotContain("publish", "shell", "http", "write_file");
         System.out.printf("测试证据：场景=知识Tool允许集，Tool数=%d，发布/Shell/HTTP/文件写=0%n", names.size());
@@ -86,8 +85,12 @@ class KnowledgeCurationToolsTest {
      */
     @Test
     void annotatedMethodToolKeepsFlatSchemaAndHidesToolContext() {
-        ToolCallback search = callbacks(mock(AgentRunMapper.class), mock(ProjectQaToolService.class)).stream()
+        List<ToolCallback> callbacks = callbacks(mock(AgentRunMapper.class), mock(ProjectQaToolService.class));
+        ToolCallback search = callbacks.stream()
                 .filter(value -> value.getToolDefinition().name().equals("knowledge_search"))
+                .findFirst().orElseThrow();
+        ToolCallback update = callbacks.stream()
+                .filter(value -> value.getToolDefinition().name().equals("draft_update"))
                 .findFirst().orElseThrow();
 
         String schema = search.getToolDefinition().inputSchema();
@@ -95,6 +98,8 @@ class KnowledgeCurationToolsTest {
         assertThat(schema).contains(
                         "\"query\"", "\"limit\"", "要检索的项目知识问题", "期望返回数量")
                 .doesNotContain("\"input\"", "ToolContext", "runId", "operatorId");
+        assertThat(update.getToolDefinition().description())
+                .contains("可直接发布", "禁止把待确认问题、警告或执行过程写入文档");
         System.out.println("测试证据：场景=注解Tool参数Schema，平坦参数=query+limit，服务端上下文字段=0");
     }
 
@@ -140,7 +145,7 @@ class KnowledgeCurationToolsTest {
         when(selected.selectList(org.mockito.ArgumentMatchers.any())).thenReturn(List.of());
         KnowledgeCurationTools tools = new KnowledgeCurationTools(
                 mock(ProjectQaToolService.class), evidence, provider, runs, messages, selected,
-                mock(KnowledgeDocumentAccessService.class), new ObjectMapper(), Clock.systemUTC());
+                mock(KnowledgeDocumentAccessService.class));
         ToolCallback update = List.of(MethodToolCallbackProvider.builder().toolObjects(tools).build()
                         .getToolCallbacks()).stream()
                 .filter(value -> value.getToolDefinition().name().equals("draft_update"))
@@ -177,7 +182,7 @@ class KnowledgeCurationToolsTest {
         KnowledgeCurationTools tools = new KnowledgeCurationTools(
                 mock(ProjectQaToolService.class), mock(AgentEvidenceService.class), provider, runs,
                 mock(KnowledgeTaskMessageMapper.class), mock(KnowledgeTaskSelectedDraftMapper.class),
-                mock(KnowledgeDocumentAccessService.class), new ObjectMapper(), Clock.systemUTC());
+                mock(KnowledgeDocumentAccessService.class));
         ToolContext context = new ToolContext(Map.of(
                 "operatorId", "admin", "projectIdentifier", "atlas", "conversationId", 41L, "runId", 61L));
 
@@ -195,8 +200,7 @@ class KnowledgeCurationToolsTest {
         when(selected.selectList(org.mockito.ArgumentMatchers.any())).thenReturn(List.of());
         KnowledgeCurationTools tools = new KnowledgeCurationTools(
                 knowledge, mock(AgentEvidenceService.class), drafts, runs,
-                mock(KnowledgeTaskMessageMapper.class), selected, mock(KnowledgeDocumentAccessService.class),
-                new ObjectMapper(), Clock.systemUTC());
+                mock(KnowledgeTaskMessageMapper.class), selected, mock(KnowledgeDocumentAccessService.class));
         return List.of(MethodToolCallbackProvider.builder().toolObjects(tools).build().getToolCallbacks())
                 .stream().sorted(java.util.Comparator.comparing(value -> value.getToolDefinition().name())).toList();
     }

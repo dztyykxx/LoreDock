@@ -38,6 +38,12 @@ public interface KnowledgeDraftService {
      */
     List<DraftRevision> list(ReadRequest request);
 
+    /** @return 当前会话全部工作文档；包含空 v0 供 Agent 恢复，但页面可按 currentRevision 过滤 */
+    List<WorkspaceDocument> listWorkspace(AccessContext context);
+
+    /** @return 指定 run 对多份工作文档产生的净变化 */
+    RunPatchSet patchSet(AccessContext context, Long runId);
+
     /**
      * 基于当前修订原子应用有界区块操作。
      *
@@ -65,6 +71,9 @@ public interface KnowledgeDraftService {
      */
     Publication publish(PublishRequest request);
 
+    /** 原子发布当前会话全部有变更的工作文档；任一冲突时整体回滚。 */
+    WorkspacePublication publishWorkspace(WorkspacePublishRequest request);
+
     /**
      * @param operatorId 已认证管理员
      * @param projectIdentifier 服务端解析并固定的项目标识
@@ -84,8 +93,12 @@ public interface KnowledgeDraftService {
             AccessContext context,
             String idempotencyKey,
             String title,
+            String directory,
             Long baselineDocumentId
     ) {
+        public CreateRequest(AccessContext context, String idempotencyKey, String title, Long baselineDocumentId) {
+            this(context, idempotencyKey, title, null, baselineDocumentId);
+        }
     }
 
     /**
@@ -130,6 +143,7 @@ public interface KnowledgeDraftService {
             List<SourceRef> sourceRefs
     ) {
         public UpdateOperation {
+            targetBlockId = targetBlockId == null || targetBlockId.isBlank() ? null : targetBlockId;
             sourceRefs = sourceRefs == null ? List.of() : List.copyOf(sourceRefs);
         }
     }
@@ -158,6 +172,14 @@ public interface KnowledgeDraftService {
     record PublishRequest(AccessContext context, Long draftId, long reviewedRevision) {
     }
 
+    record WorkspacePublishRequest(AccessContext context, List<ReviewedDraft> reviewedDrafts) {
+        public WorkspacePublishRequest {
+            reviewedDrafts = reviewedDrafts == null ? List.of() : List.copyOf(reviewedDrafts);
+        }
+    }
+
+    record ReviewedDraft(Long draftId, long reviewedRevision) { }
+
     /**
      * @param draftId 草稿标识
      * @param revision 单调递增修订号，初始空/正式基线为 0
@@ -173,8 +195,11 @@ public interface KnowledgeDraftService {
     record DraftRevision(
             Long draftId,
             long revision,
+            WorkspaceOperation operation,
             Long baselineDocumentId,
+            Long baselineRevision,
             String title,
+            String directory,
             String markdown,
             List<DraftBlock> blocks,
             List<SourceRef> sources,
@@ -185,6 +210,36 @@ public interface KnowledgeDraftService {
         public DraftRevision {
             blocks = blocks == null ? List.of() : List.copyOf(blocks);
             sources = sources == null ? List.of() : List.copyOf(sources);
+        }
+    }
+
+    /** 工作区文档摘要，不返回正文。 */
+    record WorkspaceDocument(
+            Long draftId,
+            WorkspaceOperation operation,
+            Long baselineDocumentId,
+            Long baselineRevision,
+            String title,
+            String directory,
+            long currentRevision,
+            Long lastChangedRunId
+    ) { }
+
+    /** 一轮对单份工作文档的起止修订和净变化。 */
+    record RunDocumentChange(
+            Long draftId,
+            WorkspaceOperation operation,
+            String title,
+            long fromRevision,
+            long toRevision,
+            int additions,
+            int deletions
+    ) { }
+
+    /** 一轮可见 Patch Set；不单独持久化。 */
+    record RunPatchSet(Long runId, List<RunDocumentChange> documents, int additions, int deletions) {
+        public RunPatchSet {
+            documents = documents == null ? List.of() : List.copyOf(documents);
         }
     }
 
@@ -224,8 +279,17 @@ public interface KnowledgeDraftService {
     record Publication(Long draftId, long revision, Long documentId, Instant publishedAt) {
     }
 
+    record WorkspacePublication(List<Publication> documents, Instant publishedAt) {
+        public WorkspacePublication {
+            documents = documents == null ? List.of() : List.copyOf(documents);
+        }
+    }
+
     /** 允许 Agent 使用的结构化 Markdown 区块操作。 */
     enum OperationType { INSERT_AFTER, REPLACE_BLOCK, DELETE_BLOCK }
+
+    /** 工作文档相对正式知识的操作。 */
+    enum WorkspaceOperation { ADD, MODIFY }
 
     /** 草稿来源只允许当前 run 证据、当前会话用户消息或固定输入草稿。 */
     enum SourceType { EVIDENCE, USER_MESSAGE, SELECTED_DRAFT }

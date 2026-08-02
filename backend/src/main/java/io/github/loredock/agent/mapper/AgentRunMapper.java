@@ -72,6 +72,20 @@ public interface AgentRunMapper extends BaseMapper<AgentRunEntity> {
             @Param("updatedAt") Instant updatedAt
     );
 
+    /** @return 非终态知识运行成功停止的行数 */
+    @Update("""
+            update agent_run set status = 'CANCELLED', error_code = 'AGENT_RUN_CANCELLED',
+                   finished_at = #{finishedAt}, updated_at = #{finishedAt}
+            where id = #{runId} and operator_id = #{operatorId}
+              and task_type = 'knowledge_curation'
+              and status in ('ACCEPTED', 'RUNNING', 'PAUSE_REQUESTED', 'WAITING_FOR_USER')
+            """)
+    int cancelKnowledge(
+            @Param("runId") Long runId,
+            @Param("operatorId") String operatorId,
+            @Param("finishedAt") Instant finishedAt
+    );
+
     /** @return 已有可靠 Checkpoint 的等待运行成功恢复为 RUNNING 的行数 */
     @Update("""
             update agent_run set status = 'RUNNING', started_at = coalesce(started_at, #{updatedAt}),

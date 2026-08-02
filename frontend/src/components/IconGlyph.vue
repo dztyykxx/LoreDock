@@ -28,6 +28,7 @@ const iconPaths: Record<string, string[]> = {
   chevronRight: ['m9 18 6-6-6-6'],
   circleCheck: ['M22 11.1V12a10 10 0 1 1-5.9-9.1', 'm9 11 3 3L22 4'],
   file: ['M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z', 'M14 2v6h6', 'M8 13h8', 'M8 17h8'],
+  files: ['M15 2H6a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h9a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2Z', 'M8 22h10a2 2 0 0 0 2-2V7', 'M8 7h5', 'M8 11h5'],
   folder: ['M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z'],
   lock: ['M6 10V8a6 6 0 0 1 12 0v2', 'M5 10h14v11H5Z'],
   logout: ['M10 17l5-5-5-5', 'M15 12H3', 'M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4'],

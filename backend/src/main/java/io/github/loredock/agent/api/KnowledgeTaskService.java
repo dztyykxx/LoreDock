@@ -1,5 +1,6 @@
 package io.github.loredock.agent.api;
 
+import io.github.loredock.knowledge.api.KnowledgeDraftService;
 import java.time.Instant;
 import java.util.List;
 
@@ -40,6 +41,18 @@ public interface KnowledgeTaskService {
      */
     List<KnowledgeTaskSummary> list(String projectIdentifier, String operatorId);
 
+    /** 按持久化游标读取任务页面增量事实。 */
+    List<KnowledgeTaskEvent> events(Long conversationId, String operatorId, long after);
+
+    /** 管理员确认当前任务无需产生知识变更。 */
+    KnowledgeTask closeNoChange(CloseRequest request);
+
+    /** 管理员放弃任务并让固定输入重新回到待整理。 */
+    KnowledgeTask abandon(CloseRequest request);
+
+    /** 管理员以完整审核修订集合原子发布任务工作区。 */
+    TaskPublication publish(PublishTaskRequest request);
+
     /**
      * 请求在当前模型或 Tool 步骤安全结束后暂停。
      *
@@ -48,6 +61,9 @@ public interface KnowledgeTaskService {
      * @throws KnowledgeTaskRequestException 运行不存在、越权或当前状态不可暂停
      */
     KnowledgeTaskRun requestPause(PauseRequest request);
+
+    /** 停止当前运行；已提交的工作文档修订保留。 */
+    KnowledgeTaskRun stop(StopRequest request);
 
     /**
      * 在真实等待状态提交指导并恢复同一个 run/threadId。
@@ -99,6 +115,8 @@ public interface KnowledgeTaskService {
     record PauseRequest(Long runId, String operatorId) {
     }
 
+    record StopRequest(Long runId, String operatorId) { }
+
     /**
      * @param runId 等待人工的运行标识
      * @param operatorId 已认证管理员
@@ -114,6 +132,30 @@ public interface KnowledgeTaskService {
      * @param guidance 基于当前草稿继续调整的意见
      */
     record ContinueRequest(Long conversationId, String operatorId, String idempotencyKey, String guidance) {
+    }
+
+    record CloseRequest(Long conversationId, String operatorId, String reason) {
+    }
+
+    record PublishTaskRequest(
+            Long conversationId,
+            String operatorId,
+            String idempotencyKey,
+            List<KnowledgeDraftService.ReviewedDraft> reviewedDrafts
+    ) {
+        public PublishTaskRequest {
+            reviewedDrafts = reviewedDrafts == null ? List.of() : List.copyOf(reviewedDrafts);
+        }
+    }
+
+    record TaskPublication(
+            Long conversationId,
+            List<KnowledgeDraftService.Publication> documents,
+            Instant publishedAt
+    ) {
+        public TaskPublication {
+            documents = documents == null ? List.of() : List.copyOf(documents);
+        }
     }
 
     /**
@@ -137,20 +179,28 @@ public interface KnowledgeTaskService {
             TriggerType triggerType,
             String targetSkill,
             String goal,
+            TaskStatus status,
             List<SelectedDraft> selectedDrafts,
             Long currentDraftId,
             Long currentDraftRevision,
+            List<KnowledgeDraftService.WorkspaceDocument> workspaceDocuments,
             List<KnowledgeTaskMessage> messages,
             List<KnowledgeTaskRun> runs,
             List<AgentEvent> events,
+            List<ToolInvocation> toolInvocations,
+            List<KnowledgeDraftService.RunPatchSet> patchSets,
+            long lastEventSequence,
             Instant createdAt,
             Instant updatedAt
     ) {
         public KnowledgeTask {
             selectedDrafts = selectedDrafts == null ? List.of() : List.copyOf(selectedDrafts);
+            workspaceDocuments = workspaceDocuments == null ? List.of() : List.copyOf(workspaceDocuments);
             messages = messages == null ? List.of() : List.copyOf(messages);
             runs = runs == null ? List.of() : List.copyOf(runs);
             events = events == null ? List.of() : List.copyOf(events);
+            toolInvocations = toolInvocations == null ? List.of() : List.copyOf(toolInvocations);
+            patchSets = patchSets == null ? List.of() : List.copyOf(patchSets);
         }
     }
 
@@ -173,8 +223,10 @@ public interface KnowledgeTaskService {
             String projectIdentifier,
             TriggerType triggerType,
             String goal,
+            TaskStatus status,
             int selectedDraftCount,
             Long currentDraftId,
+            int workspaceDocumentCount,
             int runCount,
             Long latestRunId,
             RunStatus latestRunStatus,
@@ -189,7 +241,9 @@ public interface KnowledgeTaskService {
      * @param directory 逻辑目录
      * @param originalFilename 原始文件名；非上传草稿可为空
      */
-    record SelectedDraft(Long documentId, String title, String directory, String originalFilename) { }
+    record SelectedDraft(
+            Long documentId, String title, String directory, String originalFilename, CurationStatus curationStatus
+    ) { }
 
     /**
      * @param messageId 消息标识
@@ -208,6 +262,29 @@ public interface KnowledgeTaskService {
             Instant createdAt
     ) {
     }
+
+    record ToolInvocation(
+            Long invocationId,
+            Long runId,
+            String toolCallId,
+            int sequence,
+            String toolName,
+            String purpose,
+            String arguments,
+            String result,
+            String resultSummary,
+            String error,
+            ToolStatus status,
+            boolean argumentsTruncated,
+            boolean resultTruncated,
+            Instant startedAt,
+            Instant finishedAt,
+            Long durationMillis
+    ) { }
+
+    record KnowledgeTaskEvent(
+            long sequence, Long runId, String type, Long subjectId, Instant occurredAt
+    ) { }
 
     /**
      * @param runId 运行标识
@@ -262,6 +339,12 @@ public interface KnowledgeTaskService {
 
     /** 知识任务首次触发来源。 */
     enum TriggerType { MANUAL, SYSTEM }
+
+    enum TaskStatus { PROCESSING, PUBLISHED, CLOSED_NO_CHANGE, ABANDONED }
+
+    enum CurationStatus { PENDING, PROCESSING, CURATED }
+
+    enum ToolStatus { STARTED, COMPLETED, FAILED }
 
     /** 可进入对话时间线的公开主体；Tool 原始返回仍只能作为安全运行事件保存。 */
     enum MessageRole { SYSTEM_TRIGGER, USER, COORDINATOR_AGENT, SUB_AGENT, TOOL }

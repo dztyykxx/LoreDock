@@ -11,19 +11,16 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
-/** 知识合并会话启动时固定的待处理草稿关系。 */
+/** 知识任务原子发布的幂等请求与已提交结果。 */
 @Getter @Setter @Builder @NoArgsConstructor @AllArgsConstructor
-@TableName("knowledge_task_selected_draft")
-public class KnowledgeTaskSelectedDraftEntity {
+@TableName("knowledge_task_publication")
+public class KnowledgeTaskPublicationEntity {
     @TableId(value = "id", type = IdType.AUTO) private Long id;
     @TableField("conversation_id") private Long conversationId;
-    @TableField("document_id") private Long documentId;
-    @TableField("document_revision") private Long documentRevision;
-    @TableField("title") private String title;
-    @TableField("directory_path") private String directoryPath;
-    @TableField("markdown") private String markdown;
-    @TableField("original_filename") private String originalFilename;
-    @TableField("ordinal") private Integer ordinal;
-    @TableField("curation_status") private String curationStatus;
+    @TableField("operator_id") private String operatorId;
+    @TableField("idempotency_key") private String idempotencyKey;
+    @TableField("request_hash") private String requestHash;
+    @TableField("result_json") private String resultJson;
     @TableField("created_at") private Instant createdAt;
+    @TableField("completed_at") private Instant completedAt;
 }

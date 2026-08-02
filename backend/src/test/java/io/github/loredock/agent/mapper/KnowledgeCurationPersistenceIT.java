@@ -455,6 +455,14 @@ class KnowledgeCurationPersistenceIT {
         assertThat(first.messages()).isNotEmpty();
         assertThat(first.messages().getFirst().role()).isEqualTo(KnowledgeTaskService.MessageRole.SYSTEM_TRIGGER);
         jdbc.update("update agent_run set status = 'COMPLETED', finished_at = now() where id = ?", firstRun.runId());
+        jdbc.update("insert into knowledge_task_message(conversation_id, run_id, role, subject_name, content, created_at) "
+                        + "values (?, ?, 'USER', null, ?, now()), (?, ?, 'COORDINATOR_AGENT', '公开行动摘要', ?, now()), "
+                        + "(?, ?, 'TOOL', 'finding_record:legacy', ?, now()), "
+                        + "(?, ?, 'COORDINATOR_AGENT', 'knowledge-curator', ?, now())",
+                first.conversationId(), firstRun.runId(), "上一轮请先判断目录归属",
+                first.conversationId(), firstRun.runId(), "过程消息：正在检索目录",
+                first.conversationId(), firstRun.runId(), "旧工具消息：目录存在冲突",
+                first.conversationId(), firstRun.runId(), "上一轮最终结论：应归入现有流程目录");
 
         KnowledgeTaskService.KnowledgeTaskRun continued = tasks.continueTask(
                 new KnowledgeTaskService.ContinueRequest(
@@ -467,7 +475,11 @@ class KnowledgeCurationPersistenceIT {
         assertThat(snapshot.messages()).extracting(KnowledgeTaskService.KnowledgeTaskMessage::role)
                 .contains(KnowledgeTaskService.MessageRole.SYSTEM_TRIGGER, KnowledgeTaskService.MessageRole.USER);
         verify(executor).start(argThat(run -> run.getId().equals(continued.runId())),
-                argThat(prompt -> prompt.contains("删除没有双来源支持的建议")), any());
+                argThat(prompt -> prompt.contains("上一轮请先判断目录归属")
+                        && prompt.contains("上一轮最终结论：应归入现有流程目录")
+                        && prompt.contains("删除没有双来源支持的建议")
+                        && !prompt.contains("过程消息：正在检索目录")
+                        && !prompt.contains("旧工具消息：目录存在冲突")), any());
         System.out.printf("测试证据：场景=完成后继续，会话=%s，旧run=%s，新run=%s，历史run=2%n",
                 first.conversationId(), firstRun.runId(), continued.runId());
     }

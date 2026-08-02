@@ -25,6 +25,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
@@ -173,6 +174,15 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleMalformedInput(Exception exception) {
         LOGGER.warn("request_validation_failure traceId={} classification=malformed_input", traceId());
         return response(ErrorCode.INVALID_REQUEST, List.of());
+    }
+
+    /**
+     * 浏览器关闭 SSE 或下载连接后，Servlet 容器会用该异常通知异步请求已不可写。
+     * 连接已经断开，不能再尝试写错误响应，也不应把正常离开页面记录为服务端故障。
+     */
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleDisconnectedAsyncRequest(AsyncRequestNotUsableException exception) {
+        LOGGER.debug("async_client_disconnected traceId={} classification=client_disconnect", traceId());
     }
 
     /**

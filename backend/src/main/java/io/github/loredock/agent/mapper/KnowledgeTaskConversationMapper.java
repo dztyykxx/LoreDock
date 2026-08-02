@@ -14,11 +14,12 @@ public interface KnowledgeTaskConversationMapper extends BaseMapper<KnowledgeTas
     @Select("""
             insert into knowledge_task_conversation(
                 operator_id, idempotency_key, request_hash, project_id, project_identifier,
-                trigger_type, trigger_reason, target_skill, goal, created_at, updated_at
+                trigger_type, trigger_reason, target_skill, goal, status, created_at, updated_at
             ) values (
                 #{value.operatorId}, #{value.idempotencyKey}, #{value.requestHash},
                 #{value.projectId}, #{value.projectIdentifier}, #{value.triggerType},
                 #{value.triggerReason}, #{value.targetSkill}, #{value.goal},
+                #{value.status},
                 #{value.createdAt}, #{value.updatedAt}
             ) on conflict (operator_id, idempotency_key) do nothing
             returning id
@@ -31,7 +32,9 @@ public interface KnowledgeTaskConversationMapper extends BaseMapper<KnowledgeTas
                    request_hash as "requestHash", project_id as "projectId",
                    project_identifier as "projectIdentifier", trigger_type as "triggerType",
                    trigger_reason as "triggerReason", target_skill as "targetSkill", goal,
-                   current_draft_id as "currentDraftId", created_at as "createdAt", updated_at as "updatedAt"
+                   current_draft_id as "currentDraftId", status,
+                   close_reason as "closeReason", closed_at as "closedAt",
+                   created_at as "createdAt", updated_at as "updatedAt"
             from knowledge_task_conversation
             where id = #{conversationId} and operator_id = #{operatorId}
             for update

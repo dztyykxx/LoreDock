@@ -26,6 +26,9 @@ public class KnowledgeTaskConversationEntity {
     @TableField("target_skill") private String targetSkill;
     @TableField("goal") private String goal;
     @TableField("current_draft_id") private Long currentDraftId;
+    @TableField("status") private String status;
+    @TableField("close_reason") private String closeReason;
+    @TableField("closed_at") private Instant closedAt;
     @TableField("created_at") private Instant createdAt;
     @TableField("updated_at") private Instant updatedAt;
 }

@@ -28,7 +28,7 @@
         <PageHeader
           breadcrumb="项目 / 知识任务"
           title="知识任务"
-          description="查看已保存的整理会话和每轮运行状态；进入原会话后可以恢复等待中的任务，或在已完成任务上继续调整。"
+          description="查看任务生命周期、最近运行和累计待审核文档；每轮结束后可继续调整，发布或关闭后的任务只读保留。"
         />
 
         <div v-if="loading" class="task-list-state">正在加载知识任务…</div>
