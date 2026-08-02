@@ -1,0 +1,4 @@
+interface:
+  display_name: "需求实现文档提炼"
+  short_description: "整理已完成需求的业务流程、关键代码、SQL配置、踩坑经验与复用步骤"
+  default_prompt: "Use $change-documenter to document how the completed requirement was implemented and what future similar work should reuse."
