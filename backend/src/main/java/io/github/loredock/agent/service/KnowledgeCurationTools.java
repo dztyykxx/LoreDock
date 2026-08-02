@@ -171,16 +171,19 @@ public class KnowledgeCurationTools {
      * @param context 服务端运行范围
      * @return 初始草稿修订
      */
-    @Tool(name = "draft_create", description = "创建空基线或绑定正式文档的版本化待审核草稿")
+    @Tool(name = "draft_create", description = "创建空基线或绑定正式文档的版本化待审核草稿；没有正式基线时省略 baselineDocumentId 或传 0")
     public KnowledgeDraftService.DraftRevision draftCreate(
             @ToolParam(description = "本次创建调用的幂等键") String idempotencyKey,
             @ToolParam(description = "草稿标题") String title,
-            @ToolParam(description = "可选的正式知识基线文档 ID") Long baselineDocumentId,
+            @ToolParam(description = "可选的已发布正式知识文档 ID；新主题传 0，不能传待处理草稿 ID") Long baselineDocumentId,
             ToolContext context
     ) {
         ToolScope scope = scope(context);
+        // 部分模型会用 0 表达可选 ID 为空；只在 Agent Tool 边界归一化，不放宽草稿核心契约。
+        Long normalizedBaselineId = baselineDocumentId != null && baselineDocumentId == 0
+                ? null : baselineDocumentId;
         return draftService().create(new KnowledgeDraftService.CreateRequest(
-                scope.access(), idempotencyKey, title, baselineDocumentId));
+                scope.access(), idempotencyKey, title, normalizedBaselineId));
     }
 
     /**
@@ -212,7 +215,7 @@ public class KnowledgeCurationTools {
      * @param context 服务端运行范围
      * @return 新草稿修订
      */
-    @Tool(name = "draft_update", description = "基于已读取修订原子应用有界区块操作；不支持全文覆盖")
+    @Tool(name = "draft_update", description = "基于已读取修订原子应用有界区块操作；空草稿首次写入必须用 INSERT_AFTER 且 targetBlockId 为空；不支持全文覆盖")
     public KnowledgeDraftService.DraftRevision draftUpdate(
             @ToolParam(description = "草稿 ID") Long draftId,
             @ToolParam(description = "更新所基于的修订号") long baseRevision,

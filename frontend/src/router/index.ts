@@ -7,6 +7,7 @@ import KnowledgeWorkspaceView from '../views/KnowledgeWorkspaceView.vue'
 import KnowledgeEditorView from '../views/KnowledgeEditorView.vue'
 import ProjectQaView from '../views/ProjectQaView.vue'
 import KnowledgeTaskView from '../views/KnowledgeTaskView.vue'
+import KnowledgeTaskListView from '../views/KnowledgeTaskListView.vue'
 
 export function createLoreDockRouter(session: SessionController): Router {
   const router = createRouter({
@@ -72,6 +73,12 @@ export function createLoreDockRouter(session: SessionController): Router {
         path: '/projects/:identifier/drafts/:documentId',
         name: 'project-draft-detail',
         component: KnowledgeWorkspaceView,
+        meta: { requiresAuth: true, adminOnly: true, memberFallback: 'project-knowledge' },
+      },
+      {
+        path: '/projects/:identifier/knowledge-tasks',
+        name: 'project-knowledge-tasks',
+        component: KnowledgeTaskListView,
         meta: { requiresAuth: true, adminOnly: true, memberFallback: 'project-knowledge' },
       },
       {

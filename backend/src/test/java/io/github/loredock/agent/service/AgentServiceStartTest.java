@@ -252,7 +252,7 @@ class AgentServiceStartTest {
                         Duration.ofSeconds(5), Duration.ofSeconds(60), 0),
                 new AgentProperties.Policy("project-qa-v1"),
                 new AgentProperties.Limits(
-                        8, 8, Duration.ofSeconds(90), 10, 2000, 24000, 8000, 200, 0.1),
+                        8, 8, 48, 24, Duration.ofSeconds(90), 10, 2000, 24000, 8000, 200, 0.1),
                 new AgentProperties.Executor(1, 1, 1, Duration.ofSeconds(1)));
     }
 

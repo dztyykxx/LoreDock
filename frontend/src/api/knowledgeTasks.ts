@@ -1,19 +1,30 @@
 import { requestJson } from './http'
 
+export type KnowledgeTaskRunStatus = 'ACCEPTED' | 'RUNNING' | 'PAUSE_REQUESTED' | 'WAITING_FOR_USER' | 'COMPLETED' | 'FAILED' | 'TERMINATED' | 'CANCELLED'
+
 export interface KnowledgeTaskRun {
   runId: number
   conversationId: number
   threadId: string
-  status: 'ACCEPTED' | 'RUNNING' | 'PAUSE_REQUESTED' | 'WAITING_FOR_USER' | 'COMPLETED' | 'FAILED' | 'TERMINATED' | 'CANCELLED'
+  status: KnowledgeTaskRunStatus
   checkpointSavedAt: string | null
   stepCount: number
   modelCallCount: number
   toolCallCount: number
+  errorCode: string | null
+  definition: {
+    skillName: string
+    skillDigest: string
+    agentSpecDigest: string
+    modelName: string
+    toolNames: string[]
+  }
 }
 
 export interface KnowledgeTask {
   conversationId: number
   projectIdentifier: string
+  triggerType: 'MANUAL' | 'SYSTEM'
   goal: string
   selectedDrafts: Array<{ documentId: number; title: string; directory: string; originalFilename: string | null }>
   currentDraftId: number | null
@@ -21,6 +32,21 @@ export interface KnowledgeTask {
   messages: Array<{ messageId: number; runId: number | null; role: string; subjectName: string | null; content: string; createdAt: string }>
   runs: KnowledgeTaskRun[]
   events: Array<{ sequence: number; type: string; payload: { name?: string; purpose?: string; resultSummary?: string; status?: string } }>
+}
+
+export interface KnowledgeTaskSummary {
+  conversationId: number
+  projectIdentifier: string
+  triggerType: 'MANUAL' | 'SYSTEM'
+  goal: string
+  selectedDraftCount: number
+  currentDraftId: number | null
+  runCount: number
+  latestRunId: number
+  latestRunStatus: KnowledgeTaskRunStatus
+  latestErrorCode: string | null
+  createdAt: string
+  updatedAt: string
 }
 
 export interface DraftRevision {
@@ -47,6 +73,8 @@ function base(identifier: string, conversationId: number): string {
 }
 
 export const knowledgeTaskApi = {
+  list: (identifier: string) => requestJson<KnowledgeTaskSummary[]>(
+    `/api/admin/projects/${encodeURIComponent(identifier)}/knowledge-tasks`),
   start: (identifier: string, selectedDraftIds: number[], goal: string) => requestJson<KnowledgeTask>(
     `/api/admin/projects/${encodeURIComponent(identifier)}/knowledge-tasks`, {
       method: 'POST',

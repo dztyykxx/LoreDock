@@ -27,6 +27,8 @@ class AgentPropertiesTest {
                     "loredock.agent.policy.limit-policy-version=project-qa-policy-v1",
                     "loredock.agent.limits.max-steps=8",
                     "loredock.agent.limits.max-model-calls=8",
+                    "loredock.agent.limits.curation-max-tool-calls=48",
+                    "loredock.agent.limits.curation-max-model-calls=24",
                     "loredock.agent.limits.total-timeout=90s",
                     "loredock.agent.limits.max-results-per-tool=10",
                     "loredock.agent.limits.max-snippet-characters=2000",
@@ -50,7 +52,10 @@ class AgentPropertiesTest {
             assertThat(properties.enabled()).isFalse();
             assertThat(properties.model().configured()).isFalse();
             assertThat(properties.limits().runtimeLimits().maxSteps()).isEqualTo(8);
-            System.out.println("测试证据：场景=Agent默认关闭且无secret，配置绑定=成功，模型可用=false");
+            assertThat(properties.limits().curationMaxToolCalls()).isEqualTo(48);
+            assertThat(properties.limits().curationMaxModelCalls()).isEqualTo(24);
+            System.out.println("测试证据：场景=Agent默认关闭且无secret，配置绑定=成功，"
+                    + "短问答步骤上限=8，知识整理Tool上限=48，知识整理模型上限=24");
         });
     }
 
@@ -60,6 +65,8 @@ class AgentPropertiesTest {
     @Test
     void configurationBeyondServerCapsFailsStartup() {
         contextRunner.withPropertyValues("loredock.agent.limits.max-steps=21")
+                .run(context -> assertThat(context).hasFailed());
+        contextRunner.withPropertyValues("loredock.agent.limits.curation-max-tool-calls=65")
                 .run(context -> assertThat(context).hasFailed());
         contextRunner.withPropertyValues("loredock.agent.limits.max-events=99")
                 .run(context -> assertThat(context).hasFailed());

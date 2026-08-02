@@ -47,6 +47,12 @@ public class AdminKnowledgeTaskController {
                 body.triggerReason(), "knowledge-curator", body.goal()));
     }
 
+    /** @return 当前管理员在项目内最近更新的知识任务摘要 */
+    @GetMapping
+    public List<KnowledgeTaskService.KnowledgeTaskSummary> list(@PathVariable String identifier) {
+        return tasks.list(identifier, sessions.currentSession().username());
+    }
+
     /** @return 当前管理员在项目内可见的任务、消息、运行与公开事件 */
     @GetMapping("/{conversationId}")
     public KnowledgeTaskService.KnowledgeTask detail(

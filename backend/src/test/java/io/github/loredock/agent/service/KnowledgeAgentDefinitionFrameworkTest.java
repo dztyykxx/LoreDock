@@ -32,7 +32,7 @@ class KnowledgeAgentDefinitionFrameworkTest {
 
         assertThat(registry.contains("knowledge-curator")).isTrue();
         assertThat(registry.readSkillContent("knowledge-curator"))
-                .contains("selected_draft_list", "draft_update");
+                .contains("selected_draft_list", "draft_update", "待处理草稿文档 ID 不能作为正式知识基线");
         System.out.println("测试证据：场景=内置知识整理 Skill，Registry=classpath，Skill=knowledge-curator");
     }
 

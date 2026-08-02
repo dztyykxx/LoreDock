@@ -99,6 +99,7 @@ describe('design components', () => {
         { path: '/projects/:identifier', name: 'project-knowledge', component: { template: '<div />' } },
         { path: '/projects/:identifier/qa', name: 'project-qa', component: { template: '<div />' } },
         { path: '/projects/:identifier/drafts', name: 'project-drafts', component: { template: '<div />' } },
+        { path: '/projects/:identifier/knowledge-tasks', name: 'project-knowledge-tasks', component: { template: '<div />' } },
         { path: '/projects/:projectId/settings', name: 'project-settings', component: { template: '<div />' } },
       ],
     })
@@ -114,6 +115,7 @@ describe('design components', () => {
 
     expect(wrapper.get('[data-tab="knowledge"]').attributes('href')).toBe('/projects/api-project')
     expect(wrapper.get('[data-tab="drafts"]').attributes('href')).toBe('/projects/api-project/drafts')
+    expect(wrapper.get('[data-tab="tasks"]').attributes('href')).toBe('/projects/api-project/knowledge-tasks')
     expect(wrapper.get('[data-tab="settings"]').attributes('href')).toBe(`/projects/${project.id}/settings`)
     expect(wrapper.find('[data-tab="changes"]').exists()).toBe(false)
     expect(wrapper.find('[data-tab="reports"]').exists()).toBe(false)

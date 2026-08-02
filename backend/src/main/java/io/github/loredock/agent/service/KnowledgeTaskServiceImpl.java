@@ -26,9 +26,11 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -167,6 +169,46 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public List<KnowledgeTaskSummary> list(String projectIdentifier, String operatorId) {
+        String project = requireText(projectIdentifier, 64);
+        String operator = requireText(operatorId, 128);
+        List<KnowledgeTaskConversationEntity> visible = conversations.selectList(
+                Wrappers.<KnowledgeTaskConversationEntity>lambdaQuery()
+                        .eq(KnowledgeTaskConversationEntity::getProjectIdentifier, project)
+                        .eq(KnowledgeTaskConversationEntity::getOperatorId, operator)
+                        .orderByDesc(KnowledgeTaskConversationEntity::getUpdatedAt)
+                        .orderByDesc(KnowledgeTaskConversationEntity::getId)
+                        .last("limit 50"));
+        if (visible.isEmpty()) {
+            return List.of();
+        }
+        List<Long> conversationIds = visible.stream().map(KnowledgeTaskConversationEntity::getId).toList();
+        Map<Long, List<AgentRunEntity>> runHistory = runs.selectList(
+                        Wrappers.<AgentRunEntity>lambdaQuery()
+                                .in(AgentRunEntity::getKnowledgeTaskConversationId, conversationIds)
+                                .orderByAsc(AgentRunEntity::getAcceptedAt)
+                                .orderByAsc(AgentRunEntity::getId))
+                .stream().collect(Collectors.groupingBy(AgentRunEntity::getKnowledgeTaskConversationId));
+        Map<Long, Long> inputCounts = selectedDrafts.selectList(
+                        Wrappers.<KnowledgeTaskSelectedDraftEntity>lambdaQuery()
+                                .in(KnowledgeTaskSelectedDraftEntity::getConversationId, conversationIds))
+                .stream().collect(Collectors.groupingBy(
+                        KnowledgeTaskSelectedDraftEntity::getConversationId, Collectors.counting()));
+        return visible.stream().map(conversation -> {
+            List<AgentRunEntity> history = runHistory.getOrDefault(conversation.getId(), List.of());
+            AgentRunEntity latest = history.getLast();
+            return new KnowledgeTaskSummary(
+                    conversation.getId(), conversation.getProjectIdentifier(),
+                    TriggerType.valueOf(conversation.getTriggerType()), conversation.getGoal(),
+                    inputCounts.getOrDefault(conversation.getId(), 0L).intValue(),
+                    conversation.getCurrentDraftId(), history.size(), latest.getId(),
+                    RunStatus.valueOf(latest.getStatus()), latest.getErrorCode(),
+                    conversation.getCreatedAt(), conversation.getUpdatedAt());
+        }).toList();
+    }
+
+    @Override
     @Transactional
     public KnowledgeTaskRun requestPause(PauseRequest request) {
         Long runId = requireId(request == null ? null : request.runId());
@@ -239,7 +281,8 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
             return run(replay);
         }
         List<AgentRunEntity> history = runEntities(conversationId);
-        if (history.isEmpty() || !RunStatus.COMPLETED.name().equals(history.getLast().getStatus())) {
+        if (history.isEmpty() || !List.of(RunStatus.COMPLETED.name(), RunStatus.FAILED.name())
+                .contains(history.getLast().getStatus())) {
             throw new KnowledgeTaskRequestException(
                     KnowledgeTaskRequestException.Code.KNOWLEDGE_TASK_NOT_CONTINUABLE);
         }
@@ -249,7 +292,8 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
         insertMessage(conversationId, null, MessageRole.USER, null, guidance, now);
         ProjectScope scope = projects.resolveEnabledScope(conversation.getProjectIdentifier(), null);
         AgentRunEntity created = createRun(conversation, scope, key, definition, now);
-        afterCommit(() -> executor.start(created, conversation.getGoal(), loaded));
+        String continuationPrompt = continuationPrompt(conversation, guidance);
+        afterCommit(() -> executor.start(created, continuationPrompt, loaded));
         // 用户消息在 run 创建前落库以保持入口原子性，随后回填本轮 run 便于审计。
         messages.update(null, Wrappers.<KnowledgeTaskMessageEntity>lambdaUpdate()
                 .set(KnowledgeTaskMessageEntity::getRunId, created.getId())
@@ -261,6 +305,15 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
         log.info("knowledge_task continued conversationId={} previousRunId={} newRunId={} threadId={}",
                 conversationId, history.getLast().getId(), created.getId(), created.getThreadId());
         return run(created);
+    }
+
+    private String continuationPrompt(KnowledgeTaskConversationEntity conversation, String guidance) {
+        String draftContext = conversation.getCurrentDraftId() == null
+                ? "当前会话尚未创建合并草稿；完成核对后只创建一份。"
+                : "继续修改当前合并草稿，draftId=" + conversation.getCurrentDraftId()
+                        + "；先调用 draft_read 取得最新修订，不要创建第二份草稿。";
+        return "继续已有知识整理会话。\n原始目标：" + conversation.getGoal()
+                + "\n管理员追加指导：" + guidance + "\n" + draftContext;
     }
 
     private AgentRunEntity createRun(

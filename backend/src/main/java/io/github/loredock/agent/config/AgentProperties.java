@@ -97,6 +97,8 @@ public record AgentProperties(
     public record Limits(
             @Min(1) @Max(20) int maxSteps,
             @Min(1) @Max(20) int maxModelCalls,
+            @Min(24) @Max(64) int curationMaxToolCalls,
+            @Min(12) @Max(32) int curationMaxModelCalls,
             @NotNull Duration totalTimeout,
             @Min(1) @Max(20) int maxResultsPerTool,
             @Min(100) @Max(4_000) int maxSnippetCharacters,

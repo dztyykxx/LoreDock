@@ -32,6 +32,15 @@ public interface KnowledgeTaskService {
     KnowledgeTask get(Long conversationId, String operatorId);
 
     /**
+     * 列出当前操作者在项目内最近更新的知识任务。
+     *
+     * @param projectIdentifier 项目标识
+     * @param operatorId 当前已认证操作者
+     * @return 最近更新的有限任务摘要，不加载完整消息、事件或草稿正文
+     */
+    List<KnowledgeTaskSummary> list(String projectIdentifier, String operatorId);
+
+    /**
      * 请求在当前模型或 Tool 步骤安全结束后暂停。
      *
      * @param request 当前运行和操作者
@@ -50,11 +59,11 @@ public interface KnowledgeTaskService {
     KnowledgeTaskRun resume(ResumeRequest request);
 
     /**
-     * 在一轮正常完成后追加意见，并从当前草稿修订创建新的 run。
+     * 在一轮完成或失败后追加意见，并从当前草稿修订创建新的 run。
      *
      * @param request 会话、用户意见和幂等键
      * @return 新创建或幂等复用的独立运行
-     * @throws KnowledgeTaskRequestException 会话不可继续、越权或幂等请求冲突
+     * @throws KnowledgeTaskRequestException 最近运行尚未结束、越权或幂等请求冲突
      */
     KnowledgeTaskRun continueTask(ContinueRequest request);
 
@@ -144,6 +153,35 @@ public interface KnowledgeTaskService {
             events = events == null ? List.of() : List.copyOf(events);
         }
     }
+
+    /**
+     * @param conversationId 会话标识
+     * @param projectIdentifier 固定项目范围
+     * @param triggerType 首次触发来源
+     * @param goal 任务目标
+     * @param selectedDraftCount 固定输入草稿数量
+     * @param currentDraftId 当前合并输出草稿；尚未创建时为空
+     * @param runCount 已创建运行数量
+     * @param latestRunId 最近运行标识
+     * @param latestRunStatus 最近运行状态
+     * @param latestErrorCode 最近运行失败码；非失败时为空
+     * @param createdAt 会话创建时间
+     * @param updatedAt 最近可见变化时间
+     */
+    record KnowledgeTaskSummary(
+            Long conversationId,
+            String projectIdentifier,
+            TriggerType triggerType,
+            String goal,
+            int selectedDraftCount,
+            Long currentDraftId,
+            int runCount,
+            Long latestRunId,
+            RunStatus latestRunStatus,
+            String latestErrorCode,
+            Instant createdAt,
+            Instant updatedAt
+    ) { }
 
     /**
      * @param documentId 勾选草稿文档标识

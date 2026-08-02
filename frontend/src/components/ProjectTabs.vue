@@ -23,6 +23,13 @@
       :aria-current="active === 'drafts' ? 'page' : undefined"
     >草稿 <span v-if="draftCount !== null" class="tab-count--warning">{{ draftCount }}</span></RouterLink>
     <RouterLink
+      v-if="role === 'ADMIN' && projectIdentifier"
+      data-tab="tasks"
+      :to="`/projects/${projectIdentifier}/knowledge-tasks`"
+      :class="{ 'project-tabs__item--active': active === 'tasks' }"
+      :aria-current="active === 'tasks' ? 'page' : undefined"
+    >知识任务 <span v-if="taskCount !== null">{{ taskCount }}</span></RouterLink>
+    <RouterLink
       v-if="role === 'ADMIN' && projectId"
       data-tab="settings"
       :to="`/projects/${projectId}/settings`"
@@ -43,12 +50,14 @@ const props = withDefaults(defineProps<{
   projectId?: number
   knowledgeCount?: number | null
   draftCount?: number | null
+  taskCount?: number | null
 }>(), {
   role: 'MEMBER',
   projectIdentifier: '',
   projectId: 0,
   knowledgeCount: null,
   draftCount: null,
+  taskCount: null,
 })
 
 const knowledgeTarget = props.projectIdentifier ? `/projects/${props.projectIdentifier}` : '/knowledge'

@@ -19,6 +19,7 @@ import { computed } from 'vue'
 const props = defineProps<{ name: string }>()
 
 const iconPaths: Record<string, string[]> = {
+  arrowLeft: ['M19 12H5', 'm11 18-6-6 6-6'],
   arrowRight: ['M5 12h14', 'm13 6 6 6-6 6'],
   book: ['M4 19.5A2.5 2.5 0 0 1 6.5 17H20', 'M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2Z'],
   branch: ['M6 3v12', 'M18 9a6 6 0 0 1-6 6H6', 'M15 6l3 3 3-3', 'M3 18l3-3 3 3'],

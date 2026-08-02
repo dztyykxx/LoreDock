@@ -64,6 +64,8 @@ describe('KnowledgeTaskWorkspace', () => {
   it('separates conversation events from the versioned draft artifact', async () => {
     const wrapper = await mountWorkspace()
 
+    expect(wrapper.get('[data-testid="knowledge-task-conversation"] h2').text()).toBe('任务对话')
+    expect(wrapper.get('[data-testid="knowledge-task-artifact"] h2').text()).toBe('待审核草稿')
     expect(wrapper.get('[data-testid="knowledge-task-conversation"]').text()).toContain('每周整理触发')
     expect(wrapper.get('[data-testid="knowledge-task-artifact"]').text()).toContain('当前修订 3')
     expect(wrapper.get('[data-testid="knowledge-task-process"]').attributes('open')).toBeUndefined()
@@ -72,6 +74,39 @@ describe('KnowledgeTaskWorkspace', () => {
     expect(wrapper.get('[data-testid="knowledge-task-findings"]').text()).toContain('规则冲突')
     expect(wrapper.get('[data-testid="knowledge-task-findings"]').text()).toContain('保留人工审核')
     expect(wrapper.text()).toContain('对话消息不等于草稿产物')
+  })
+
+  /**
+   * 业务目的：知识整理失败时页面必须把稳定错误码翻译为可行动原因，同时保留真实调用计数；
+   * 防止用户只能看到笼统 FAILED，无法判断是模型、Tool 还是运行限额问题。
+   */
+  it('explains a failed run with actionable limits and actual usage', async () => {
+    const failed = {
+      ...task,
+      runs: [{
+        ...task.runs[0], status: 'FAILED', errorCode: 'AGENT_STEP_LIMIT_EXCEEDED',
+        stepCount: 17, modelCallCount: 9, toolCallCount: 8,
+      }],
+    }
+    const wrapper = await mountWorkspace({ task: failed })
+
+    expect(wrapper.get('[data-testid="knowledge-task-failure"]').text()).toContain('工具调用达到知识整理上限')
+    expect(wrapper.get('[data-testid="knowledge-task-failure"]').text()).toContain('模型 9 次 · 工具 8 次')
+  })
+
+  /**
+   * 业务目的：草稿范围校验失败必须指出是服务端阻止了越界写入；
+   * 防止管理员按模型服务故障方向排查实际的 Tool 参数问题。
+   */
+  it('explains a rejected draft scope without blaming the model service', async () => {
+    const failed = {
+      ...task,
+      runs: [{ ...task.runs[0], status: 'FAILED', errorCode: 'AGENT_TOOL_SCOPE_VIOLATION' }],
+    }
+    const wrapper = await mountWorkspace({ task: failed })
+
+    expect(wrapper.get('[data-testid="knowledge-task-failure"]').text()).toContain('草稿写入范围校验失败')
+    expect(wrapper.get('[data-testid="knowledge-task-failure"]').text()).toContain('服务端已阻止写入')
   })
 
   /**
@@ -118,18 +153,46 @@ describe('KnowledgeTaskWorkspace', () => {
   })
 
   /**
+   * 业务目的：单轮失败不能关闭整个任务会话，管理员必须能在原对话中给出修正意见并重试；
+   * 防止失败态只提示返回草稿列表，丢失已经形成的发现和草稿上下文。
+   */
+  it('keeps human guidance available after a failed run', async () => {
+    const failed = { ...task, runs: [{ ...task.runs[0], status: 'FAILED', errorCode: 'AGENT_MODEL_RESPONSE_INVALID' }] }
+    const wrapper = await mountWorkspace({ task: failed })
+
+    await wrapper.get('[data-testid="continue-task-guidance"]').setValue('重新读取当前草稿并修正区块操作')
+    await wrapper.get('[data-testid="continue-task"]').trigger('click')
+
+    expect(wrapper.text()).toContain('本轮失败，但任务对话仍可继续')
+    expect(wrapper.emitted('continue-task')).toEqual([['重新读取当前草稿并修正区块操作']])
+  })
+
+  /**
    * 业务目的：审批必须展示服务端修订间 Markdown Diff、截断状态和明确修订；
    * 发布前若当前修订变化，页面必须阻止继续确认并要求重新审核。
    */
   it('renders revision diff and blocks publication after a revision conflict', async () => {
     const wrapper = await mountWorkspace({ publicationConflict: true })
 
-    expect(wrapper.get('[data-testid="draft-revision-list"]').text()).toContain('修订 1')
-    expect(wrapper.get('[data-testid="draft-revision-list"]').text()).toContain('修订 3')
+    expect(wrapper.get('[data-testid="draft-revision-list"]').text()).toContain('v1')
+    expect(wrapper.get('[data-testid="draft-revision-list"]').text()).toContain('v3')
     expect(wrapper.get('[data-testid="draft-markdown-diff"]').text()).toContain('+2')
     expect(wrapper.get('[data-testid="draft-markdown-diff"]').text()).toContain('# Atlas 约束')
     expect(wrapper.text()).toContain('Diff 已截断')
     expect(wrapper.text()).toContain('草稿已产生新修订，请重新查看 Diff')
     expect(wrapper.get('[data-testid="publish-reviewed-revision"]').attributes('disabled')).toBeDefined()
+  })
+
+  /**
+   * 业务目的：仅创建但尚未写入正文的 v0 不是可审核产物；
+   * 防止 Agent 失败后管理员误将空基线发布为正式知识。
+   */
+  it('blocks publication of an empty baseline revision', async () => {
+    const emptyTask = { ...task, currentDraftRevision: 0 }
+    const emptyDiff = { ...diff, toRevision: 0, unifiedDiff: '', additions: 0, deletions: 0, truncated: false }
+    const wrapper = await mountWorkspace({ task: emptyTask, revisions: [{ revision: 0, changeSummary: '初始基线', createdAt: '2026-08-02T00:00:00Z' }], diff: emptyDiff })
+
+    expect(wrapper.get('[data-testid="publish-reviewed-revision"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('尚无可审核变更')
   })
 })

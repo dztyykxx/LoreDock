@@ -46,7 +46,7 @@ class BoundedAgentRunSchedulerTest {
                 new AgentProperties.Model("openai-compatible", "deepseek-v4-flash", "https://api.deepseek.com",
                         "process-only", Duration.ofSeconds(2), Duration.ofSeconds(10), 0),
                 new AgentProperties.Policy("project-qa-v1"),
-                new AgentProperties.Limits(8, 8, Duration.ofSeconds(30), 10, 2000, 24000, 8000, 200, 0.1),
+                new AgentProperties.Limits(8, 8, 48, 24, Duration.ofSeconds(30), 10, 2000, 24000, 8000, 200, 0.1),
                 new AgentProperties.Executor(1, 1, 0, Duration.ofSeconds(2)));
     }
 

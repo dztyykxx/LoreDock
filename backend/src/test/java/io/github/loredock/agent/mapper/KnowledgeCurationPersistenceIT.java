@@ -2,6 +2,9 @@ package io.github.loredock.agent.mapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.verify;
 
 import io.github.loredock.agent.api.KnowledgeTaskRequestException;
 import io.github.loredock.agent.api.KnowledgeTaskService;
@@ -58,6 +61,9 @@ class KnowledgeCurationPersistenceIT {
 
     @Autowired
     private AgentEventService agentEvents;
+
+    @Autowired
+    private AgentRunMapper agentRuns;
 
     @Autowired
     private JdbcTemplate jdbc;
@@ -229,6 +235,34 @@ class KnowledgeCurationPersistenceIT {
     }
 
     /**
+     * 业务目的：管理员必须能按项目查看最近知识任务并重新进入原会话；
+     * 防止历史任务只能依赖详情 URL 找回，或把其他项目、其他操作者的任务混入列表。
+     */
+    @Test
+    void listsRecentProjectTasksWithoutCrossingOperatorOrProjectScope() {
+        KnowledgeTaskService.KnowledgeTask first = tasks.start(start(
+                "history-atlas-1", "admin", "atlas", KnowledgeTaskService.TriggerType.MANUAL));
+        KnowledgeTaskService.KnowledgeTask second = tasks.start(start(
+                "history-atlas-2", "admin", "atlas", KnowledgeTaskService.TriggerType.MANUAL));
+        tasks.start(start("history-borealis", "member", "borealis", KnowledgeTaskService.TriggerType.MANUAL));
+
+        List<KnowledgeTaskService.KnowledgeTaskSummary> summaries = tasks.list("atlas", "admin");
+
+        assertThat(summaries).extracting(KnowledgeTaskService.KnowledgeTaskSummary::conversationId)
+                .containsExactly(second.conversationId(), first.conversationId());
+        assertThat(summaries).allSatisfy(summary -> {
+            assertThat(summary.projectIdentifier()).isEqualTo("atlas");
+            assertThat(summary.selectedDraftCount()).isEqualTo(1);
+            assertThat(summary.runCount()).isEqualTo(1);
+            assertThat(summary.latestRunStatus()).isEqualTo(KnowledgeTaskService.RunStatus.ACCEPTED);
+        });
+        assertThat(tasks.list("atlas", "member")).isEmpty();
+        assertThat(tasks.list("borealis", "admin")).isEmpty();
+        System.out.printf("测试证据：场景=知识任务历史，项目=atlas，管理员任务=%d，跨操作者/项目任务=0，最近会话=%s%n",
+                summaries.size(), summaries.getFirst().conversationId());
+    }
+
+    /**
      * 业务目的：草稿成功更新必须只增加一个修订，使用过期基础修订的并发写入必须原子失败，
      * 防止 Agent 静默覆盖管理员或另一轮运行的新内容。
      */
@@ -381,6 +415,33 @@ class KnowledgeCurationPersistenceIT {
     }
 
     /**
+     * 业务目的：知识整理因限额失败时必须保存已经真实发生的模型和 Tool 调用数；
+     * 防止任务页显示 0 次调用，让管理员误判为 Agent 尚未启动。
+     */
+    @Test
+    void failedKnowledgeRunPersistsActualModelAndToolCounts() {
+        KnowledgeTaskService.KnowledgeTask started = tasks.start(start(
+                "failed-usage", "admin", "atlas", KnowledgeTaskService.TriggerType.MANUAL));
+        Long runId = started.runs().getFirst().runId();
+        java.time.Instant startedAt = started.runs().getFirst().acceptedAt().plusMillis(1);
+        assertThat(agentRuns.markKnowledgeRunning(runId, startedAt)).isEqualTo(1);
+
+        assertThat(agentRuns.failKnowledge(
+                runId, "AGENT_STEP_LIMIT_EXCEEDED", 17, 9, 8, 10_466,
+                startedAt.plusMillis(10_466))).isEqualTo(1);
+
+        KnowledgeTaskService.KnowledgeTaskRun failed = tasks.get(started.conversationId(), "admin")
+                .runs().getFirst();
+        assertThat(failed.status()).isEqualTo(KnowledgeTaskService.RunStatus.FAILED);
+        assertThat(failed.errorCode()).isEqualTo("AGENT_STEP_LIMIT_EXCEEDED");
+        assertThat(failed.stepCount()).isEqualTo(17);
+        assertThat(failed.modelCallCount()).isEqualTo(9);
+        assertThat(failed.toolCallCount()).isEqualTo(8);
+        System.out.printf("测试证据：场景=知识整理限额失败，run=%s，状态=%s，模型调用=%d，Tool调用=%d%n",
+                runId, failed.status(), failed.modelCallCount(), failed.toolCallCount());
+    }
+
+    /**
      * 业务目的：系统首轮必须先保存可见触发消息；一轮正常完成后的追加指导必须创建独立新 run，
      * 防止覆盖上一轮审计、资源统计或 Checkpoint。
      */
@@ -405,8 +466,38 @@ class KnowledgeCurationPersistenceIT {
         assertThat(snapshot.runs()).hasSize(2);
         assertThat(snapshot.messages()).extracting(KnowledgeTaskService.KnowledgeTaskMessage::role)
                 .contains(KnowledgeTaskService.MessageRole.SYSTEM_TRIGGER, KnowledgeTaskService.MessageRole.USER);
+        verify(executor).start(argThat(run -> run.getId().equals(continued.runId())),
+                argThat(prompt -> prompt.contains("删除没有双来源支持的建议")), any());
         System.out.printf("测试证据：场景=完成后继续，会话=%s，旧run=%s，新run=%s，历史run=2%n",
                 first.conversationId(), firstRun.runId(), continued.runId());
+    }
+
+    /**
+     * 业务目的：一次运行失败不能关闭整个任务会话，管理员应能追加修正意见并创建新运行；
+     * 防止可恢复错误迫使管理员返回草稿列表重建上下文，或新运行看不到人工指导。
+     */
+    @Test
+    void failedRunCanRetryInSameConversationWithHumanGuidance() {
+        KnowledgeTaskService.KnowledgeTask first = tasks.start(start(
+                "failed-follow-up", "admin", "atlas", KnowledgeTaskService.TriggerType.MANUAL));
+        KnowledgeTaskService.KnowledgeTaskRun failed = first.runs().getFirst();
+        jdbc.update("update agent_run set status = 'FAILED', error_code = 'AGENT_MODEL_RESPONSE_INVALID', "
+                + "finished_at = now() where id = ?", failed.runId());
+
+        KnowledgeTaskService.KnowledgeTaskRun retried = tasks.continueTask(
+                new KnowledgeTaskService.ContinueRequest(
+                        first.conversationId(), "admin", "retry-1", "重新读取草稿，使用空 targetBlockId 首次插入"));
+        KnowledgeTaskService.KnowledgeTask snapshot = tasks.get(first.conversationId(), "admin");
+
+        assertThat(retried.runId()).isNotEqualTo(failed.runId());
+        assertThat(snapshot.runs()).extracting(KnowledgeTaskService.KnowledgeTaskRun::status)
+                .containsExactly(KnowledgeTaskService.RunStatus.FAILED, KnowledgeTaskService.RunStatus.ACCEPTED);
+        assertThat(snapshot.messages()).extracting(KnowledgeTaskService.KnowledgeTaskMessage::content)
+                .contains("重新读取草稿，使用空 targetBlockId 首次插入");
+        verify(executor).start(argThat(run -> run.getId().equals(retried.runId())),
+                argThat(prompt -> prompt.contains("重新读取草稿，使用空 targetBlockId 首次插入")), any());
+        System.out.printf("测试证据：场景=失败后会话内重试，会话=%s，失败run=%s，新run=%s，人工指导=已传入%n",
+                first.conversationId(), failed.runId(), retried.runId());
     }
 
     /**

@@ -3,6 +3,7 @@ package io.github.loredock.agent.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -157,6 +158,34 @@ class KnowledgeCurationToolsTest {
                 .hasRootCauseMessage("草稿修订引用了当前 run 或会话之外的来源");
         verifyNoInteractions(drafts);
         System.out.println("测试证据：场景=草稿来源归属，run=61，越界evidence=999，草稿写入=0");
+    }
+
+    /**
+     * 业务目的：模型用 0 表示“没有正式知识基线”时必须创建空基线草稿；
+     * 防止可选 ID 的占位值被当作文档标识查询并终止整轮知识整理。
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void draftCreateTreatsZeroBaselineAsAbsent() {
+        AgentRunMapper runs = mock(AgentRunMapper.class);
+        ObjectProvider<KnowledgeDraftService> provider = mock(ObjectProvider.class);
+        KnowledgeDraftService drafts = mock(KnowledgeDraftService.class);
+        when(runs.selectById(61L)).thenReturn(AgentRunEntity.builder()
+                .id(61L).operatorId("admin").projectIdentifier("atlas")
+                .knowledgeTaskConversationId(41L).taskType("knowledge_curation").status("RUNNING").build());
+        when(provider.getIfAvailable(org.mockito.ArgumentMatchers.any())).thenReturn(drafts);
+        KnowledgeCurationTools tools = new KnowledgeCurationTools(
+                mock(ProjectQaToolService.class), mock(AgentEvidenceService.class), provider, runs,
+                mock(KnowledgeTaskMessageMapper.class), mock(KnowledgeTaskSelectedDraftMapper.class),
+                mock(KnowledgeDocumentAccessService.class), new ObjectMapper(), Clock.systemUTC());
+        ToolContext context = new ToolContext(Map.of(
+                "operatorId", "admin", "projectIdentifier", "atlas", "conversationId", 41L, "runId", 61L));
+
+        tools.draftCreate("create-gap-1", "新的业务知识", 0L, context);
+
+        verify(drafts).create(org.mockito.ArgumentMatchers.argThat(request ->
+                request.baselineDocumentId() == null && request.context().projectIdentifier().equals("atlas")));
+        System.out.println("测试证据：场景=空基线草稿，模型baseline=0，服务端baseline=null，项目=atlas");
     }
 
     @SuppressWarnings("unchecked")

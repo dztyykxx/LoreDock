@@ -17,14 +17,19 @@ import com.alibaba.cloud.ai.graph.agent.interceptor.ToolCallRequest;
 import com.alibaba.cloud.ai.graph.agent.interceptor.ToolCallResponse;
 import com.alibaba.cloud.ai.graph.agent.interceptor.ToolInterceptor;
 import com.alibaba.cloud.ai.graph.checkpoint.savers.postgresql.PostgresSaver;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import io.github.loredock.agent.api.AgentEvent;
+import io.github.loredock.agent.api.AgentRun;
 import io.github.loredock.agent.config.AgentProperties;
 import io.github.loredock.agent.mapper.AgentRunMapper;
+import io.github.loredock.agent.mapper.KnowledgeTaskConversationMapper;
 import io.github.loredock.agent.mapper.KnowledgeTaskMessageMapper;
 import io.github.loredock.agent.model.entity.AgentRunEntity;
+import io.github.loredock.agent.model.entity.KnowledgeTaskConversationEntity;
 import io.github.loredock.agent.model.entity.KnowledgeTaskMessageEntity;
 import io.github.loredock.agent.model.enums.AgentEventType;
 import io.github.loredock.agent.scheduler.BoundedAgentRunScheduler;
+import io.github.loredock.knowledge.api.KnowledgeDraftException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -34,9 +39,10 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.ai.tool.execution.DefaultToolExecutionExceptionProcessor;
+import org.springframework.ai.tool.execution.ToolExecutionExceptionProcessor;
 import org.springframework.ai.tool.resolution.ToolCallbackResolver;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -47,14 +53,17 @@ import reactor.core.publisher.Flux;
  * 只负责既有 run 的状态和公开消息投影，不实现模型/Tool 循环、子 Agent 调度或 Checkpoint。
  */
 @Service
+@Slf4j
 public class KnowledgeCurationRunExecutor {
 
     private static final int MAX_FINAL_CODE_POINTS = 8000;
+    private static final int MAX_PUBLIC_PROGRESS_CODE_POINTS = 1000;
     private final ObjectProvider<ChatModel> models;
     private final AgentProperties properties;
     private final ToolCallbackResolver toolResolver;
     private final PostgresSaver checkpoints;
     private final AgentRunMapper runs;
+    private final KnowledgeTaskConversationMapper conversations;
     private final KnowledgeTaskMessageMapper messages;
     private final AgentEventService events;
     private final KnowledgeTaskRunProjectionService projection;
@@ -69,6 +78,7 @@ public class KnowledgeCurationRunExecutor {
             ToolCallbackResolver toolResolver,
             PostgresSaver checkpoints,
             AgentRunMapper runs,
+            KnowledgeTaskConversationMapper conversations,
             KnowledgeTaskMessageMapper messages,
             AgentEventService events,
             KnowledgeTaskRunProjectionService projection,
@@ -80,6 +90,7 @@ public class KnowledgeCurationRunExecutor {
         this.toolResolver = toolResolver;
         this.checkpoints = checkpoints;
         this.runs = runs;
+        this.conversations = conversations;
         this.messages = messages;
         this.events = events;
         this.projection = projection;
@@ -95,11 +106,11 @@ public class KnowledgeCurationRunExecutor {
     /** 提交新 run 到项目既有 Agent 有界执行器。 */
     public void start(AgentRunEntity run, String goal, KnowledgeAgentDefinitionService.LoadedDefinition definition) {
         if (!available()) {
-            fail(run.getId(), run.getAcceptedAt(), "AGENT_MODEL_UNAVAILABLE");
+            fail(run.getId(), run.getAcceptedAt(), "AGENT_MODEL_UNAVAILABLE", 0, 0);
             return;
         }
         if (!scheduler.schedule(run.getId(), () -> execute(run, goal, null, definition))) {
-            fail(run.getId(), run.getAcceptedAt(), "AGENT_EXECUTOR_SATURATED");
+            fail(run.getId(), run.getAcceptedAt(), "AGENT_EXECUTOR_SATURATED", 0, 0);
         }
     }
 
@@ -119,11 +130,11 @@ public class KnowledgeCurationRunExecutor {
             KnowledgeAgentDefinitionService.LoadedDefinition definition
     ) {
         if (!available()) {
-            fail(run.getId(), run.getAcceptedAt(), "AGENT_MODEL_UNAVAILABLE");
+            fail(run.getId(), run.getAcceptedAt(), "AGENT_MODEL_UNAVAILABLE", 0, 0);
             return;
         }
         if (!scheduler.schedule(run.getId(), () -> execute(run, goal, guidance, definition))) {
-            fail(run.getId(), run.getAcceptedAt(), "AGENT_EXECUTOR_SATURATED");
+            fail(run.getId(), run.getAcceptedAt(), "AGENT_EXECUTOR_SATURATED", 0, 0);
         }
     }
 
@@ -154,6 +165,7 @@ public class KnowledgeCurationRunExecutor {
                 stream = agent.streamMessages(goal, config);
             }
             AssistantMessage result = stream.ofType(AssistantMessage.class)
+                    .doOnNext(message -> persistPublicProgress(run, message))
                     .filter(message -> !message.hasToolCalls())
                     .timeout(properties.totalTimeout())
                     .last(new AssistantMessage(""))
@@ -181,7 +193,13 @@ public class KnowledgeCurationRunExecutor {
                 return;
             }
             active.remove(run.getId(), running);
-            fail(run.getId(), started, errorCode(exception));
+            String code = errorCode(exception);
+            events.append(run.getId(), AgentEventType.RUN_FAILED, AgentEvent.SubjectType.AGENT,
+                    failurePayload(run.getAgentName(), code), clock.instant());
+            fail(run.getId(), started, code, metrics.modelCalls(), metrics.toolCalls());
+            log.warn("knowledge_task failed conversationId={} runId={} errorCode={} modelCalls={} toolCalls={}",
+                    run.getKnowledgeTaskConversationId(), run.getId(), code,
+                    metrics.modelCalls(), metrics.toolCalls(), exception);
         }
     }
 
@@ -192,18 +210,19 @@ public class KnowledgeCurationRunExecutor {
     ) {
         RunMetrics metrics = new RunMetrics(run.getId());
         ModelCallLimitHook modelLimit = ModelCallLimitHook.builder()
-                .runLimit(properties.runtimeLimits().maxModelCalls())
+                .runLimit(properties.limits().curationMaxModelCalls())
                 .exitBehavior(ModelCallLimitHook.ExitBehavior.ERROR)
                 .build();
         ToolCallLimitHook toolLimit = ToolCallLimitHook.builder()
-                .runLimit(properties.runtimeLimits().maxSteps())
+                .runLimit(properties.limits().curationMaxToolCalls())
                 .exitBehavior(ToolCallLimitHook.ExitBehavior.ERROR)
                 .build();
         SkillsAgentHook skillHook = definition.createSkillHook(toolResolver);
         ReactAgent agent = ReactAgent.builder()
                 .name("knowledge-curation-" + run.getId())
                 .instruction("目标：" + goal + "。先用 read_skill 激活 " + definition.runtime().skillName()
-                        + " Skill；修改草稿必须先读后改，正式发布由管理员完成。")
+                        + " Skill；修改草稿必须先读后改，正式发布由管理员完成。"
+                        + "Tool 调用前如需说明，只输出简短的公开行动摘要，不输出内部推理。")
                 .model(Objects.requireNonNull(models.getIfAvailable(), "知识整理模型不可用"))
                 .tools(List.of())
                 .toolContext(Map.of(
@@ -213,8 +232,7 @@ public class KnowledgeCurationRunExecutor {
                         "runId", run.getId()))
                 .hooks(skillHook, InterruptionHook.builder().build(), modelLimit, toolLimit)
                 .interceptors(metrics, metrics.toolInterceptor())
-                .toolExecutionExceptionProcessor(DefaultToolExecutionExceptionProcessor.builder()
-                        .alwaysThrow(true).build())
+                .toolExecutionExceptionProcessor(toolExceptionProcessor())
                 .saver(checkpoints)
                 .releaseThread(false)
                 .parallelToolExecution(false)
@@ -222,9 +240,58 @@ public class KnowledgeCurationRunExecutor {
         return new RunningAgent(agent, metrics);
     }
 
-    private String errorCode(Exception exception) {
+    private void persistPublicProgress(AgentRunEntity run, AssistantMessage message) {
+        String progress = publicProgressText(message);
+        if (progress == null) {
+            return;
+        }
+        Instant now = clock.instant();
+        messages.insert(KnowledgeTaskMessageEntity.builder()
+                .conversationId(run.getKnowledgeTaskConversationId()).runId(run.getId())
+                .role("COORDINATOR_AGENT").subjectName("公开行动摘要")
+                .content(progress).createdAt(now).build());
+        conversations.update(null, Wrappers.<KnowledgeTaskConversationEntity>lambdaUpdate()
+                .set(KnowledgeTaskConversationEntity::getUpdatedAt, now)
+                .eq(KnowledgeTaskConversationEntity::getId, run.getKnowledgeTaskConversationId()));
+    }
+
+    static String publicProgressText(AssistantMessage message) {
+        if (message == null || !message.hasToolCalls() || message.getText() == null
+                || message.getText().isBlank()) {
+            return null;
+        }
+        String text = message.getText().strip();
+        int count = text.codePointCount(0, text.length());
+        return count <= MAX_PUBLIC_PROGRESS_CODE_POINTS ? text
+                : text.substring(0, text.offsetByCodePoints(0, MAX_PUBLIC_PROGRESS_CODE_POINTS));
+    }
+
+    /**
+     * 把可修正的业务 Tool 参数错误返回给模型继续推理，但范围越界仍立即终止运行。
+     * Spring AI 默认支持此类自纠；这里只补充 LoreDock 的范围安全边界。
+     */
+    static ToolExecutionExceptionProcessor toolExceptionProcessor() {
+        return exception -> {
+            Throwable cause = exception.getCause();
+            if (cause instanceof KnowledgeDraftException draftFailure
+                    && draftFailure.code() == KnowledgeDraftException.Code.DRAFT_SCOPE_VIOLATION) {
+                throw draftFailure;
+            }
+            if (!(cause instanceof RuntimeException)) {
+                throw exception;
+            }
+            String message = cause.getMessage();
+            return "TOOL_ERROR: " + (message == null || message.isBlank() ? "TOOL_EXECUTION_FAILED" : message);
+        };
+    }
+
+    static String errorCode(Exception exception) {
         Throwable failure = reactor.core.Exceptions.unwrap(exception);
         while (failure != null) {
+            if (failure instanceof KnowledgeDraftException draftFailure
+                    && draftFailure.code() == KnowledgeDraftException.Code.DRAFT_SCOPE_VIOLATION) {
+                return "AGENT_TOOL_SCOPE_VIOLATION";
+            }
             if (failure instanceof TimeoutException) {
                 return "AGENT_RUN_TIMEOUT";
             }
@@ -274,10 +341,12 @@ public class KnowledgeCurationRunExecutor {
                     try {
                         ToolCallResponse response = handler.call(request);
                         long durationMillis = Duration.between(started, clock.instant()).toMillis();
+                        boolean failed = response.isError() || (response.getResult() != null
+                                && response.getResult().startsWith("TOOL_ERROR: "));
                         String preview = preview(response.getResult());
                         events.append(runId, AgentEventType.TOOL_COMPLETED, AgentEvent.SubjectType.TOOL,
-                                toolPayload(toolName, purpose, safeResultSummary(toolName, response.isError()),
-                                        durationMillis, response.isError() ? "FAILED" : "COMPLETED", false),
+                                toolPayload(toolName, purpose, safeResultSummary(toolName, failed),
+                                        durationMillis, failed ? "FAILED" : "COMPLETED", false),
                                 clock.instant());
                         System.out.println("知识整理工具调用：tool=" + toolName + "，结果预览=" + preview);
                         return response;
@@ -377,6 +446,11 @@ public class KnowledgeCurationRunExecutor {
                 List.of(), null, null, null, null, false, false);
     }
 
+    private AgentEvent.Payload failurePayload(String name, String errorCode) {
+        return new AgentEvent.Payload("FAILED", name, null, null, null, null, null, "FAILED",
+                List.of(), null, null, null, AgentRun.ErrorCode.valueOf(errorCode), false, false);
+    }
+
     private String bounded(String value) {
         String text = value == null || value.isBlank() ? "知识整理运行已完成" : value.strip();
         int count = text.codePointCount(0, text.length());
@@ -384,8 +458,9 @@ public class KnowledgeCurationRunExecutor {
                 : text.substring(0, text.offsetByCodePoints(0, MAX_FINAL_CODE_POINTS));
     }
 
-    private void fail(Long runId, Instant started, String code) {
+    private void fail(Long runId, Instant started, String code, int modelCalls, int toolCalls) {
         Instant finished = clock.instant();
-        runs.failKnowledge(runId, code, Math.max(0, Duration.between(started, finished).toMillis()), finished);
+        runs.failKnowledge(runId, code, modelCalls + toolCalls, modelCalls, toolCalls,
+                Math.max(0, Duration.between(started, finished).toMillis()), finished);
     }
 }

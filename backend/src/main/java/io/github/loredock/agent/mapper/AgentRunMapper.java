@@ -121,7 +121,9 @@ public interface AgentRunMapper extends BaseMapper<AgentRunEntity> {
 
     /** @return 非终态知识任务成功保存真实失败终态的行数 */
     @Update("""
-            update agent_run set status = 'FAILED', error_code = #{errorCode}, elapsed_millis = #{elapsedMillis},
+            update agent_run set status = 'FAILED', error_code = #{errorCode},
+                   step_count = #{stepCount}, model_call_count = #{modelCallCount},
+                   tool_call_count = #{toolCallCount}, elapsed_millis = #{elapsedMillis},
                    finished_at = #{finishedAt}, updated_at = #{finishedAt}
             where id = #{runId} and task_type = 'knowledge_curation'
               and status in ('ACCEPTED', 'RUNNING', 'PAUSE_REQUESTED')
@@ -129,6 +131,9 @@ public interface AgentRunMapper extends BaseMapper<AgentRunEntity> {
     int failKnowledge(
             @Param("runId") Long runId,
             @Param("errorCode") String errorCode,
+            @Param("stepCount") int stepCount,
+            @Param("modelCallCount") int modelCallCount,
+            @Param("toolCallCount") int toolCallCount,
             @Param("elapsedMillis") long elapsedMillis,
             @Param("finishedAt") Instant finishedAt
     );
