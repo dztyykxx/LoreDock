@@ -1,7 +1,42 @@
 ## MODIFIED Requirements
 
+### Requirement: 知识整理必须复用 Spring AI Alibaba 原生 Agent 运行时
+系统 SHALL 直接使用项目锁定版本的 Spring AI Alibaba Agent Framework 承载通用单 Agent 模型/Tool 循环：使用 `ClasspathSkillRegistry` 和每个 run 独立的 `SkillsAgentHook` 加载随应用发布的稳定 Skill，使用 `ToolCallbackProvider`/`ToolCallbackResolver` 暴露 LoreDock 业务 Tool，并使用框架 Hook/Interceptor 提供真实调用限制和统计。LoreDock MUST 只实现业务 Tool、范围和权限、幂等、业务持久化、事件投影与必要的安全预检，不得自建通用 Runtime、Registry/Loader、Tool Registry 或模型/Tool 循环。当前知识整理 MUST NOT 加载 Agent Spec、Task/Agent Tool、子 Agent 或 Human-in-the-Loop；模型需要人工信息时 SHALL 返回最终 AssistantMessage 并结束当前 run。
+
+#### Scenario: 需求确定时框架已覆盖运行能力
+- **WHEN** 知识整理需求涉及 Skill 加载、模型/Tool 循环、调用限制或 Tool 解析
+- **THEN** 规格明确映射到项目锁定版本的框架组件，实施任务只保留框架配置、薄适配、LoreDock 业务 Tool 和安全约束，不产生对应的自研运行时任务
+
+#### Scenario: 本地 Skill 或 Agent Spec 修改后开始新运行
+- **WHEN** 部署者修改随应用发布的知识整理 Skill，随后启动新的知识整理 run
+- **THEN** 系统通过框架加载机制取得新 Skill 并创建 run，正在执行的 run 不被中途替换；当前产品不加载 Agent Spec
+
+#### Scenario: 读取 Skill 后获得业务 Tool
+- **WHEN** 知识整理 Agent 激活 `knowledge-curator` Skill
+- **THEN** 框架只提供服务端批准的知识搜索、来源读取、工作区草稿和 Diff Tool，且不加入 Shell、任意 HTTP、文件系统、数据库管理、警告记录或正式发布 Tool
+
+#### Scenario: 未读取 Skill 时请求业务 Tool
+- **WHEN** Agent 尚未激活知识整理 Skill
+- **THEN** 业务 Tool 不在模型可调用集合中，模型不能绕过 Skill 直接修改工作草稿
+
+#### Scenario: Agent Spec 声明未知 Tool
+- **WHEN** 外部输入尝试通过 Agent Spec、未知名称或未批准分组扩大 Tool 集合
+- **THEN** LoreDock 在启动 run 前明确拒绝且不创建运行；当前知识整理不加载 Agent Spec，也不另建一套 Tool Registry
+
+#### Scenario: 运行达到框架限制
+- **WHEN** 知识整理运行将超过固定模型调用、Tool 调用或总时间限制
+- **THEN** 框架停止后续调用，业务运行记录保存对应稳定错误和已经发生的真实调用数量，不写入占位统计
+
 ### Requirement: 知识整理必须以系统或人工触发的长期会话运行
 系统 SHALL 为每次手动或定时知识整理创建项目范围内的知识任务，并 SHALL 把触发类型、目标 Skill、固定候选输入和整理目标作为首轮上下文。知识任务与单次 Agent run MUST 分离：任务 SHALL 使用 `PROCESSING/PUBLISHED/CLOSED_NO_CHANGE/ABANDONED` 表达业务生命周期，一个任务 SHALL 关联一个或多个顺序运行的 run、可见消息、Tool Invocation 和最多 10 份有效工作文档。单个 run 完成、失败或取消 MUST NOT 自动关闭任务。
+
+#### Scenario: 定时任务触发知识整理
+- **WHEN** 每周调度器为一个已启用项目触发 `knowledge-curator`
+- **THEN** 系统创建以 `SYSTEM_TRIGGER` 开头的可查看任务和独立 run，用户能观察与手动任务相同的 Agent、Tool 和来源过程
+
+#### Scenario: 相同调度幂等重试
+- **WHEN** 调度器因响应不确定以相同项目、计划窗口和幂等键重试
+- **THEN** 系统返回原任务和 run，不重复启动 Agent 或创建第二套工作区
 
 #### Scenario: 首轮任务成功后继续指导
 - **WHEN** 管理员选择合法候选输入创建任务且首轮 run 完成
@@ -15,8 +50,20 @@
 - **WHEN** 管理员尝试向 `PUBLISHED`、`CLOSED_NO_CHANGE` 或 `ABANDONED` 任务追加消息
 - **THEN** 服务端拒绝请求且不创建 run，后续修改必须创建新任务
 
-### Requirement: Agent 必须通过版本化 Tool 增量修改多文档工作区
+### Requirement: Agent 必须通过版本化 Tool 增量修改草稿
 每个 `PROCESSING` 知识任务 SHALL 以 `conversation_id` 下的工作草稿集合构成逻辑工作区，MUST NOT 依赖单一 `current_draft_id`。工作文档 SHALL 只支持 `ADD` 与 `MODIFY`，每次有效更新 SHALL 基于当前修订并生成不可变新修订。MODIFY 创建时 MUST 固定正式 `baseline_document_id` 与 `baseline_revision`，且只允许修改正文；ADD MUST 提供标题和已有目录。Agent 每轮 SHALL 先调用 `workspace_document_list` 恢复工作区，再按需调用 `draft_read` 与 `draft_update`；系统 MUST NOT 建设会话级临时索引作为工作区事实来源。
+
+#### Scenario: 分区块生成初始草稿
+- **WHEN** Agent 为一份空的 ADD 工作草稿生成多个长期知识区块
+- **THEN** Agent 读取空基线后通过结构化操作写入区块，服务端形成新修订；最终消息只总结已提交修改而不作为草稿正文
+
+#### Scenario: 使用过期基础修订更新
+- **WHEN** Agent 基于修订 3 准备更新，但当前工作修订已经变为 4
+- **THEN** `draft_update` 返回 `DRAFT_REVISION_CONFLICT` 且不写入任何操作，Agent 必须重新读取后再决定如何修改
+
+#### Scenario: Checkpoint 后重复 Tool 调用
+- **WHEN** 模型或客户端重试以相同幂等键提交已经成功的 `draft_update`
+- **THEN** Tool 返回原修订，不创建重复修订或重复来源关系；当前产品不依赖 Checkpoint 恢复触发该重试
 
 #### Scenario: 第二轮恢复多文档工作区
 - **WHEN** 第一轮已经新增文档 A 并修改文档 B，管理员提交第二轮指导
@@ -38,8 +85,16 @@
 - **WHEN** `draft_read` 返回 `blocks=[]`，模型使用 `INSERT_AFTER` 且把可选 `targetBlockId` 输出为 JSON `null` 或空白字符串
 - **THEN** 服务端统一按无目标区块处理并追加首个区块；Skill 与 Tool Schema 示例仍要求优先使用 JSON `null`
 
-### Requirement: 草稿审批必须同时表达每轮与累计服务端 Diff
+### Requirement: 草稿审批必须基于服务端修订 Diff
 系统 SHALL 从不可变修订事实计算每个 run 对每份工作文档的起止修订与净变化，并 SHALL 计算当前全部有效工作文档相对正式/空基线的累计变化。前端 SHALL 在每轮后展示本轮多文档变更卡，在顶部展示累计待发布审核条；点击历史卡 MUST 查看该轮起止修订 Diff，点击累计入口 MUST 查看正式/空基线到当前修订 Diff。Diff MUST 由服务端生成。
+
+#### Scenario: 审核知识更新
+- **WHEN** 管理员打开一份工作文档从正式/空基线到当前修订的累计审核视图
+- **THEN** 页面展示服务端生成的增删 Diff、来源和变更摘要，发布请求只能提交管理员已经审核的当前修订
+
+#### Scenario: 审核期间草稿变化
+- **WHEN** 管理员正在审核修订 5，但 Agent 随后产生修订 6
+- **THEN** 发布修订 5 的请求被明确拒绝并要求重新确认，系统不得静默发布未查看的修订 6
 
 #### Scenario: 同一轮多次更新同一文档
 - **WHEN** 一个 run 对同一工作文档生成多个中间修订
@@ -55,6 +110,14 @@
 
 ### Requirement: Agent 完成后任务会话必须允许继续调整
 在任务仍为 `PROCESSING` 时，系统 SHALL 在任何 run 完成、失败或取消后允许管理员提交下一条用户消息，并 SHALL 创建新的 run。运行中 MUST 禁止提交新消息；用户 MAY 请求停止当前 run，停止在安全边界后把 run 标记为 `CANCELLED`，已经提交的工作修订继续保留，后续消息 MUST 创建新 run而非恢复旧 run。
+
+#### Scenario: 完成后要求缩小结论
+- **WHEN** 首轮整理完成后管理员追加“删除没有双来源支持的建议”
+- **THEN** 系统创建新 run，注入有界历史问答，Agent 读取当前工作区并通过 Tool 形成下一修订，页面保留首轮过程并展示新的 Diff
+
+#### Scenario: 完成后无需修改
+- **WHEN** 新 run 复核后认为当前工作区已满足指导且没有必要更新
+- **THEN** Agent 可以只提交最终公开结论而不调用 `draft_update`，系统不制造空修订或伪造文档变化
 
 #### Scenario: 运行中提交消息
 - **WHEN** 当前 run 仍为 ACCEPTED 或 RUNNING

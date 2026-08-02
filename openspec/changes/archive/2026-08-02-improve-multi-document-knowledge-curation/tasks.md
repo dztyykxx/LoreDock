@@ -21,8 +21,8 @@
 - [x] 3.1 定义并实现任务聚合 REST 快照和持久化 SSE 游标接口
 - [x] 3.2 实现前端按实体 ID 合并 message/tool/run/patch/task 事件，刷新与断线不产生重复卡片
 - [x] 3.3 将浏览器主动关闭 SSE 识别为正常客户端断连，避免异步心跳 Broken pipe 落入全局 ERROR
-- [x] 3.3 实现 PROCESSING/PUBLISHED/CLOSED_NO_CHANGE/ABANDONED 与候选 PENDING/PROCESSING/CURATED 转换
-- [x] 3.4 隐藏旧暂停恢复入口，实现停止本轮后 CANCELLED 且后续新建 run
+- [x] 3.4 实现 PROCESSING/PUBLISHED/CLOSED_NO_CHANGE/ABANDONED 与候选 PENDING/PROCESSING/CURATED 转换
+- [x] 3.5 隐藏旧暂停恢复入口，实现停止本轮后 CANCELLED 且后续新建 run
 
 ## 4. Pencil 与前端页面
 
@@ -45,5 +45,5 @@
 
 - [x] 6.1 运行受影响后端单元与 PostgreSQL 集成测试、前端 Vitest 和构建
 - [x] 6.2 运行 OpenSpec 严格校验并核对需求、Pencil、API 与实现一致
-- [ ] 6.3 使用真实模型完成两份输入、一份 MODIFY、一份 ADD、第二轮修改、原子发布和单索引任务烟测
+- [x] 6.3 使用真实模型完成两份输入、一份 MODIFY、一份 ADD、第二轮修改、原子发布和单索引任务烟测（2026-08-02 用户实测通过）
 - [x] 6.4 检查 ToolContext、原始推理、完整敏感正文和内部错误未进入公开存储或页面
