@@ -33,7 +33,7 @@ class KnowledgeCurationToolsTest {
      */
     @Test
     @SuppressWarnings("unchecked")
-    void selectedDraftReadReturnsOnlyConversationSnapshot() {
+    void selectedDraftReadReturnsOnlyBoundedConversationSnapshotPage() {
         AgentRunMapper runs = mock(AgentRunMapper.class);
         KnowledgeTaskSelectedDraftMapper selected = mock(KnowledgeTaskSelectedDraftMapper.class);
         when(runs.selectById(61L)).thenReturn(AgentRunEntity.builder()
@@ -42,7 +42,7 @@ class KnowledgeCurationToolsTest {
         when(selected.selectList(org.mockito.ArgumentMatchers.any())).thenReturn(List.of(
                 KnowledgeTaskSelectedDraftEntity.builder().documentId(81L).documentRevision(3L)
                         .title("退款规则").directoryPath("交易/售后").originalFilename("refund.md")
-                        .markdown("# 退款规则\n\n企业订单需人工审核。").ordinal(0).build()));
+                        .markdown("甲😀乙丙丁").ordinal(0).build()));
         KnowledgeCurationTools tools = new KnowledgeCurationTools(
                 mock(ProjectQaToolService.class), mock(AgentEvidenceService.class), mock(ObjectProvider.class),
                 runs, mock(KnowledgeTaskMessageMapper.class), selected,
@@ -50,14 +50,18 @@ class KnowledgeCurationToolsTest {
         ToolContext context = new ToolContext(Map.of(
                 "operatorId", "admin", "projectIdentifier", "atlas", "conversationId", 41L, "runId", 61L));
 
-        KnowledgeCurationTools.SelectedDraftContent result = tools.selectedDraftRead(81L, context);
+        KnowledgeCurationTools.SelectedDraftContent result = tools.selectedDraftRead(81L, 1, 2, context);
 
         assertThat(result.documentId()).isEqualTo(81L);
         assertThat(result.revision()).isEqualTo(3L);
-        assertThat(result.markdown()).contains("企业订单需人工审核");
-        assertThatThrownBy(() -> tools.selectedDraftRead(82L, context))
+        assertThat(result.markdown()).isEqualTo("😀乙");
+        assertThat(result.cursor()).isEqualTo(1);
+        assertThat(result.nextCursor()).isEqualTo(3);
+        assertThat(result.totalCodePoints()).isEqualTo(5);
+        assertThat(result.truncated()).isTrue();
+        assertThatThrownBy(() -> tools.selectedDraftRead(82L, 0, 2, context))
                 .hasMessage("当前任务未勾选该草稿");
-        System.out.println("测试证据：场景=勾选草稿快照，会话=41，可读文档=[81]，越界文档=82");
+        System.out.println("测试证据：场景=勾选草稿分段读取，会话=41，cursor=1，nextCursor=3，Unicode码点数=2");
     }
 
     /**
@@ -70,7 +74,7 @@ class KnowledgeCurationToolsTest {
                 .map(value -> value.getToolDefinition().name()).toList();
 
         assertThat(names).containsExactly(
-                "draft_create", "draft_diff", "draft_read", "draft_update",
+                "draft_create", "draft_diff", "draft_read", "draft_rename", "draft_update",
                 "knowledge_directory_list", "knowledge_document_list", "knowledge_document_read",
                 "knowledge_grep", "knowledge_search", "selected_draft_list", "selected_draft_read",
                 "workspace_document_list");
@@ -92,6 +96,9 @@ class KnowledgeCurationToolsTest {
         ToolCallback update = callbacks.stream()
                 .filter(value -> value.getToolDefinition().name().equals("draft_update"))
                 .findFirst().orElseThrow();
+        ToolCallback selectedRead = callbacks.stream()
+                .filter(value -> value.getToolDefinition().name().equals("selected_draft_read"))
+                .findFirst().orElseThrow();
 
         String schema = search.getToolDefinition().inputSchema();
 
@@ -100,7 +107,38 @@ class KnowledgeCurationToolsTest {
                 .doesNotContain("\"input\"", "ToolContext", "runId", "operatorId");
         assertThat(update.getToolDefinition().description())
                 .contains("可直接发布", "禁止把待确认问题、警告或执行过程写入文档");
-        System.out.println("测试证据：场景=注解Tool参数Schema，平坦参数=query+limit，服务端上下文字段=0");
+        assertThat(selectedRead.getToolDefinition().inputSchema()).contains("起始 Unicode 码点游标", "本次最大返回码点数");
+        System.out.println("测试证据：场景=注解Tool参数Schema，分段参数=cursor+maxCodePoints，服务端上下文字段=0");
+    }
+
+    /**
+     * 业务目的：Agent 选错新增工作文档标题后必须能在当前修订上纠正；
+     * 防止只能新建重复文档来规避错误标题。
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void draftRenameDelegatesCurrentScopeAndRevision() {
+        AgentRunMapper runs = mock(AgentRunMapper.class);
+        ObjectProvider<KnowledgeDraftService> provider = mock(ObjectProvider.class);
+        KnowledgeDraftService drafts = mock(KnowledgeDraftService.class);
+        when(runs.selectById(61L)).thenReturn(AgentRunEntity.builder()
+                .id(61L).operatorId("admin").projectIdentifier("atlas")
+                .knowledgeTaskConversationId(41L).taskType("knowledge_curation").status("RUNNING").build());
+        when(provider.getIfAvailable(org.mockito.ArgumentMatchers.any())).thenReturn(drafts);
+        KnowledgeCurationTools tools = new KnowledgeCurationTools(
+                mock(ProjectQaToolService.class), mock(AgentEvidenceService.class), provider, runs,
+                mock(KnowledgeTaskMessageMapper.class), mock(KnowledgeTaskSelectedDraftMapper.class),
+                mock(KnowledgeDocumentAccessService.class));
+        ToolContext context = new ToolContext(Map.of(
+                "operatorId", "admin", "projectIdentifier", "atlas", "conversationId", 41L, "runId", 61L));
+
+        tools.draftRename(51L, 2, "rename-1", "退款审批规则", "纠正文档标题", context);
+
+        verify(drafts).rename(org.mockito.ArgumentMatchers.argThat(request ->
+                request.draftId().equals(51L) && request.baseRevision() == 2
+                        && request.title().equals("退款审批规则")
+                        && request.context().conversationId().equals(41L)));
+        System.out.println("测试证据：场景=工作文档改名，draft=51，baseRevision=2，会话=41");
     }
 
     /**

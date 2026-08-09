@@ -69,14 +69,16 @@ public class KnowledgeMcpController {
         return documents.listPublishedDocuments(project, directory, bounded(limit, 50, 100));
     }
 
-    /** @return 已发布文档完整 Markdown 正文 */
-    @McpTool(name = "knowledge_document_read", description = "读取一篇已发布知识文档的完整 Markdown 正文",
+    /** @return 已发布文档的有界 Markdown 分段 */
+    @McpTool(name = "knowledge_document_read", description = "按 Unicode 码点游标分段读取已发布知识文档",
             annotations = @McpTool.McpAnnotations(readOnlyHint = true, destructiveHint = false, openWorldHint = false))
-    public KnowledgeDocumentAccessService.DocumentContent readDocument(
+    public KnowledgeDocumentAccessService.DocumentPage readDocument(
             @McpToolParam(description = "项目标识") String project,
-            @McpToolParam(description = "文档 ID") Long documentId
+            @McpToolParam(description = "文档 ID") Long documentId,
+            @McpToolParam(required = false, description = "起始 Unicode 码点游标，默认 0") Integer cursor,
+            @McpToolParam(required = false, description = "本次最大返回码点数，默认 8000，最大 12000") Integer maxCodePoints
     ) {
-        return documents.readPublished(project, documentId);
+        return documents.readPublishedPage(project, documentId, cursor, maxCodePoints);
     }
 
     /** @return 已发布知识的关键词匹配 */

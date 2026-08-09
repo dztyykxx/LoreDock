@@ -129,6 +129,49 @@ class KnowledgeDraftWorkspacePublicationTest {
         verify(indexJobs, never()).submit();
     }
 
+    /**
+     * 业务目的：新增工作文档的错误标题必须以幂等且可审核的新修订纠正；
+     * 防止直接改元数据导致当前修订、Diff 和发布审核指针失配。
+     */
+    @Test
+    void renamesAdditionAndAdvancesRevisionWithoutChangingMarkdown() {
+        KnowledgeDraftEntity addition = draft(51L, "ADD", null, null, 2L, "退款规则", "团队协作");
+        KnowledgeDraftRevisionEntity base = revision(51L, 2L, "# 退款规则\n正文");
+        when(drafts.selectVisibleForUpdate(eq(51L), any(), any(), any())).thenReturn(addition);
+        when(revisions.selectOne(any())).thenReturn(null, base);
+        when(drafts.renameAndAdvance(51L, 2L, 3L, "退款审批规则", NOW)).thenReturn(1);
+
+        KnowledgeDraftService.DraftRevision renamed = service.rename(new KnowledgeDraftService.RenameRequest(
+                context(), 51L, 2L, "rename-1", "退款审批规则", "纠正标题"));
+
+        ArgumentCaptor<KnowledgeDraftRevisionEntity> created =
+                ArgumentCaptor.forClass(KnowledgeDraftRevisionEntity.class);
+        verify(revisions).insert(created.capture());
+        assertThat(created.getValue().getRevision()).isEqualTo(3L);
+        assertThat(created.getValue().getMarkdown()).isEqualTo(base.getMarkdown());
+        assertThat(renamed.title()).isEqualTo("退款审批规则");
+        assertThat(renamed.revision()).isEqualTo(3L);
+        System.out.println("测试证据：场景=ADD草稿改名，draft=51，修订=2->3，正文保持=true");
+    }
+
+    /** 业务目的：纯标题改名产生的同正文修订必须显示为零行变更，防止审核页误报整篇重写。 */
+    @Test
+    void reportsNoContentDiffForRenameOnlyRevision() {
+        KnowledgeDraftEntity addition = draft(51L, "ADD", null, null, 3L, "退款审批规则", "团队协作");
+        String markdown = "# 退款规则\n正文";
+        when(drafts.selectOne(any())).thenReturn(addition);
+        when(revisions.selectOne(any())).thenReturn(
+                revision(51L, 2L, markdown), revision(51L, 3L, markdown));
+
+        KnowledgeDraftService.DraftDiff diff = service.diff(new KnowledgeDraftService.DiffRequest(
+                context(), 51L, 2L, 3L));
+
+        assertThat(diff.additions()).isZero();
+        assertThat(diff.deletions()).isZero();
+        assertThat(diff.unifiedDiff()).doesNotContain("-# 退款规则", "+# 退款规则");
+        System.out.println("测试证据：场景=纯改名Diff，draft=51，正文变更=+0/-0");
+    }
+
     private KnowledgeDraftService.AccessContext context() {
         return new KnowledgeDraftService.AccessContext("admin", "atlas", 41L, 61L);
     }

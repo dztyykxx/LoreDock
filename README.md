@@ -66,7 +66,7 @@ flowchart LR
 - `knowledge_search`：检索业务知识；
 - `knowledge_directory_list`：浏览项目及通用知识目录；
 - `knowledge_document_list`：列出目录下文档；
-- `knowledge_document_read`：读取指定知识文档全文；
+- `knowledge_document_read`：按 Unicode 码点游标分段读取指定知识文档；
 - `knowledge_grep`：在已发布 Markdown 中匹配关键词；
 - `knowledge_draft_submit`：使用写 Token 向项目待处理草稿池追加 Markdown。
 

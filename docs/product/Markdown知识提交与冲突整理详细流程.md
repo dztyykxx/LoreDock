@@ -93,7 +93,7 @@ Skill 可以根据实际命中结果调整搜索次数和顺序。Java 不应写
 | Tool | 模型输入 | 输出 | 服务端约束 |
 |---|---|---|---|
 | `selected_draft_list` | 无 | 草稿 ID、文件名、标题、长度和来源说明摘要 | 只列出启动任务时固定的勾选草稿 |
-| `selected_draft_read` | `documentId`、可选分页/分段参数 | Markdown 内容、范围和截断标记 | 只读当前任务固定的不可变输入 |
+| `selected_draft_read` | `documentId`、`cursor`、`maxCodePoints` | Markdown 分段、起止范围、`nextCursor`、总码点数和截断标记 | 只读当前任务固定的不可变输入；单次最多 12000 码点 |
 
 ### 5.2 平台知识目录与读取
 
@@ -101,7 +101,7 @@ Skill 可以根据实际命中结果调整搜索次数和顺序。Java 不应写
 |---|---|---|---|
 | `knowledge_directory_list` | 可选目录前缀 | 目录树、文档计数 | 只返回当前项目和允许的通用知识 |
 | `knowledge_document_list` | 目录、页码和上限 | 文档 ID、标题、目录、更新时间 | 只列出已发布文档 |
-| `knowledge_document_read` | `documentId`、可选分页/分段参数 | 完整 Markdown 或明确分页内容、来源与截断标记 | 不接受任意文件路径，按文档 ID 校验范围 |
+| `knowledge_document_read` | `documentId`、`cursor`、`maxCodePoints` | Markdown 分段、`nextCursor`、总码点数、来源与截断标记 | 不接受任意文件路径，按文档 ID 校验范围；单次最多 12000 码点 |
 
 ### 5.3 检索与匹配
 
@@ -123,6 +123,7 @@ Skill 可以根据实际命中结果调整搜索次数和顺序。Java 不应写
 | `draft_create` | 标题、可选已发布基线文档 ID、幂等键 | 草稿 ID、修订 `0`、基线 Markdown 和稳定区块 ID |
 | `draft_read` | 草稿 ID、可选修订号 | Markdown、区块、来源和修订摘要 |
 | `draft_update` | 草稿 ID、基础修订号、幂等键、结构化区块操作、来源引用和变更摘要 | 新的不可变修订 |
+| `draft_rename` | ADD 草稿 ID、基础修订号、幂等键、新标题和变更摘要 | 正文不变且标题已更正的新修订 |
 | `draft_diff` | 草稿 ID、起始修订/正式基线、目标修订 | 服务端计算的 Markdown Diff、新增/删除统计和截断标记 |
 
 新文档的 Diff 基线为空文档；如果 Agent 认为候选知识应整合进现有文档，必须创建绑定该已发布文档的草稿，Diff 基线为该正式文档。Agent 不直接修改正式文档。
