@@ -12,7 +12,7 @@
       <RouterLink data-testid="sidebar-qa-link" :to="qaTarget"><IconGlyph name="message" />问答</RouterLink>
       <RouterLink to="/projects"><IconGlyph name="folder" />项目</RouterLink>
       <RouterLink data-testid="global-knowledge-link" to="/knowledge"><IconGlyph name="book" />通用业务知识</RouterLink>
-      <button type="button" disabled><IconGlyph name="search" />全局搜索</button>
+      <RouterLink data-testid="global-search-link" to="/search"><IconGlyph name="search" />全局搜索</RouterLink>
     </nav>
 
     <div v-if="currentProject" class="sidebar-project">
