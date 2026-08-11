@@ -72,6 +72,8 @@ flowchart LR
 
 MCP 查询不调用模型；草稿提交不创建 conversation/run、不启动 AI，也不提供发布工具。后续仍由管理员在 Web 勾选草稿并启动合并整理。
 
+Token 生成、Claude Code 接入与验证步骤见 [`docs/architecture/MCP配置与使用说明.md`](docs/architecture/MCP配置与使用说明.md)。
+
 ## 技术方向
 
 | 层次 | 计划采用的技术 |
