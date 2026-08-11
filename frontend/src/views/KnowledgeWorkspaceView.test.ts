@@ -217,7 +217,7 @@ describe('KnowledgeWorkspaceView', () => {
     expect(wrapper.text()).toContain('草稿')
     expect(wrapper.get('[data-testid="new-knowledge"]').text()).toContain('新建知识')
     expect(wrapper.get('[data-testid="import-knowledge"]').text()).toContain('导入资料')
-    expect(wrapper.get('[data-testid="reindex-knowledge"]').text()).toContain('重新索引')
+    expect(wrapper.get('[data-testid="reindex-knowledge"]').text()).toContain('刷新索引')
   })
 
   /**

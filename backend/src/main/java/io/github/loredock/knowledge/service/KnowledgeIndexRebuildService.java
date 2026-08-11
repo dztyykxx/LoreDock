@@ -18,6 +18,7 @@ import io.github.loredock.knowledge.model.enums.KnowledgeScopeType;
 import io.github.loredock.knowledge.model.request.KnowledgeEmbeddingInput;
 import io.github.loredock.knowledge.model.result.AnalyzedKnowledgeText;
 import io.github.loredock.knowledge.model.result.KnowledgeChunk;
+import io.github.loredock.knowledge.model.result.ActiveKnowledgeSearchGeneration;
 import io.github.loredock.knowledge.model.result.KnowledgeEmbeddingModelDescriptor;
 import io.github.loredock.knowledge.model.result.KnowledgeEmbeddingVector;
 import io.github.loredock.knowledge.model.result.KnowledgeIndexRebuildResult;
@@ -40,11 +41,15 @@ import org.springframework.transaction.support.DefaultTransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * PostgreSQL 知识搜索分阶段重建器。
+ * PostgreSQL 知识搜索索引重建器，提供全量重建与增量刷新两条路径。
  *
- * <p>第一阶段只在短 {@code REPEATABLE READ} 事务中冻结 PUBLISHED 文档快照；分块、分析和
- * Embedding 全部在事务外执行并分批短事务写入。只有计数、序号、关键词与向量完整性通过后，
- * 才在另一个短事务中退休旧 ACTIVE 并激活新 generation。</p>
+ * <p>全量重建（{@link #rebuild(Long, Progress)}）在短 {@code REPEATABLE READ} 事务中冻结
+ * PUBLISHED 文档快照；分块、分析和 Embedding 全部在事务外执行并分批短事务写入。只有计数、
+ * 序号、关键词与向量完整性通过后，才在另一个短事务中退休旧 ACTIVE 并激活新 generation。</p>
+ *
+ * <p>增量刷新（{@link #refresh(Long, Progress)}）不创建新代次，只对修订变化的文档重新分块、
+ * Embedding 并逐文档原子替换分块，供发布自动触发；模型指纹不一致或无 ACTIVE 时自动降级到
+ * 全量重建。</p>
  */
 @Service
 public class KnowledgeIndexRebuildService {
@@ -167,6 +172,150 @@ public class KnowledgeIndexRebuildService {
                     elapsedMillis(startedAt));
             throw exception;
         }
+    }
+
+    /**
+     * 增量刷新发布变更文档的检索分块，不创建新 generation。
+     *
+     * <p>以 ACTIVE generation 的分块修订与事实表当前修订做 diff：对修订变化的文档重新切块、
+     * Embedding 并逐文档原子替换分块，对失去发布资格的文档删除分块，最后重算代次计数。
+     * 无 ACTIVE generation（首次部署）或当前模型指纹与 ACTIVE 不一致（向量空间不兼容）时
+     * 降级为全量重建，保证索引最终可用。</p>
+     *
+     * @param jobId 当前后台任务标识
+     * @param progress 重建过程进度与心跳回调
+     * @return 刷新或降级重建后生效的 generation 与文档数
+     */
+    public KnowledgeIndexRebuildResult refresh(Long jobId, KnowledgeIndexRebuildService.Progress progress) {
+        if (jobId == null || progress == null) {
+            throw new IllegalArgumentException("knowledge refresh context is required");
+        }
+        long startedAt = System.nanoTime();
+        LOGGER.info("knowledge_search_refresh started jobId={}", jobId);
+        try {
+            KnowledgeEmbeddingModelDescriptor model = describeModel();
+            progress.update(10);
+            progress.heartbeat();
+
+            ActiveKnowledgeSearchGeneration active = searchIndex.findActive().orElse(null);
+            if (active == null) {
+                LOGGER.info("knowledge_search_refresh fallback jobId={} reason=no_active_generation", jobId);
+                return rebuild(jobId, progress);
+            }
+            if (!modelFingerprintMatches(model, active)) {
+                LOGGER.info("knowledge_search_refresh fallback jobId={} reason=model_fingerprint_mismatch", jobId);
+                return rebuild(jobId, progress);
+            }
+            progress.update(20);
+            progress.heartbeat();
+
+            Long generationId = active.generationId();
+            List<Long> toRefresh = searchChunks.selectDocumentIdsNeedingRefresh(generationId);
+            List<Long> toRemove = searchChunks.selectDocumentIdsToRemove(generationId);
+            LOGGER.info("knowledge_search_refresh_diff completed jobId={} generationId={} refreshCount={} "
+                            + "removeCount={}",
+                    jobId, generationId, toRefresh.size(), toRemove.size());
+            progress.update(25);
+            progress.heartbeat();
+
+            // 先移除失去资格文档的分块，再逐文档原子替换变更内容，两个集合天然不相交。
+            if (!toRemove.isEmpty()) {
+                searchIndex.deleteDocumentChunks(generationId, toRemove);
+            }
+            if (!toRefresh.isEmpty()) {
+                refreshDocuments(generationId, toRefresh, progress);
+                validateRefreshedDocuments(generationId, toRefresh);
+            }
+            long documentCount = searchIndex.updateCounts(generationId);
+            progress.update(95);
+            progress.heartbeat();
+
+            LOGGER.info("knowledge_search_refresh completed jobId={} generationId={} refreshCount={} "
+                            + "removeCount={} documentCount={} modelId={} modelChecksum={} chunkVersion={} "
+                            + "fusionVersion={} elapsedMs={}",
+                    jobId, generationId, toRefresh.size(), toRemove.size(), documentCount, model.modelId(),
+                    checksumPrefix(model.checksum()), chunker.version(), ReciprocalRankFusion.CONFIG_VERSION,
+                    elapsedMillis(startedAt));
+            return new KnowledgeIndexRebuildResult(generationId, documentCount);
+        } catch (RuntimeException exception) {
+            LOGGER.error("knowledge_search_refresh failed jobId={} errorCode={} errorType={} elapsedMs={}",
+                    jobId, errorCode(exception), exception.getClass().getSimpleName(), elapsedMillis(startedAt));
+            throw exception;
+        }
+    }
+
+    /** @return 当前模型与 ACTIVE generation 的指纹是否一致；不一致时旧向量无法与新模型混合使用 */
+    private boolean modelFingerprintMatches(
+            KnowledgeEmbeddingModelDescriptor model,
+            ActiveKnowledgeSearchGeneration active
+    ) {
+        return active.modelId().equals(model.modelId())
+                && active.modelChecksum().equalsIgnoreCase(model.checksum())
+                && active.vectorDimension() == model.dimension();
+    }
+
+    /** 分批加载需要刷新的文档，逐文档切块、Embedding 后原子替换其在 ACTIVE generation 中的分块。 */
+    private void refreshDocuments(
+            Long generationId,
+            List<Long> documentIds,
+            KnowledgeIndexRebuildService.Progress progress
+    ) {
+        int processed = 0;
+        for (int start = 0; start < documentIds.size(); start += SNAPSHOT_BATCH_SIZE) {
+            List<Long> batchIds = documentIds.subList(
+                    start, Math.min(start + SNAPSHOT_BATCH_SIZE, documentIds.size()));
+            List<KnowledgeDocumentEntity> batch = sourceDocuments.selectBatchIds(batchIds);
+            if (batch.size() != batchIds.size()) {
+                throw new IllegalStateException("knowledge refresh document batch is incomplete");
+            }
+            for (KnowledgeDocumentEntity document : batch) {
+                // 文档名用于测试时实时确认当前正在重算哪篇文档，不包含正文内容。
+                LOGGER.info("knowledge_search_refresh_document started generationId={} documentId={} "
+                                + "documentTitle={} sourceRevision={}",
+                        generationId, document.getId(), document.getTitle(), document.getRevision());
+                replaceDocumentChunks(generationId, document);
+                processed++;
+                int percentage = 25 + Math.toIntExact((long) processed * 55 / documentIds.size());
+                progress.update(Math.min(85, percentage));
+                progress.heartbeat();
+            }
+        }
+    }
+
+    /** 对单个文档切块、Embedding 并原子替换其分块；失败时旧修订分块保留，不产生半截文档。 */
+    private void replaceDocumentChunks(Long generationId, KnowledgeDocumentEntity document) {
+        SourceDocument source = snapshotDocument(document);
+        List<PlannedChunk> planned = planChunks(generationId, List.of(source));
+        List<KnowledgeSearchChunkWrite> writes = new ArrayList<>(planned.size());
+        for (int start = 0; start < planned.size(); start += EMBEDDING_BATCH_SIZE) {
+            int end = Math.min(start + EMBEDDING_BATCH_SIZE, planned.size());
+            List<PlannedChunk> batch = planned.subList(start, end);
+            List<KnowledgeEmbeddingVector> vectors = embedding.embedDocuments(
+                    batch.stream().map(PlannedChunk::embeddingInput).toList());
+            if (vectors == null || vectors.size() != batch.size()) {
+                throw new KnowledgeEmbeddingUnavailableException(
+                        new IllegalStateException("embedding batch size mismatch"));
+            }
+            for (int index = 0; index < batch.size(); index++) {
+                writes.add(batch.get(index).toWrite(vectors.get(index)));
+            }
+        }
+        searchIndex.replaceDocumentChunks(generationId, source.documentId(), writes);
+        // 标题用于测试时确认本次刷新实际重算了哪些文档，不包含正文内容。
+        LOGGER.info("knowledge_search_refresh_document completed generationId={} documentId={} "
+                        + "documentTitle={} sourceRevision={} chunkCount={}",
+                generationId, source.documentId(), source.title(), source.sourceRevision(), writes.size());
+    }
+
+    /** 校验本次刷新涉及的文档分块完整性，任一文档非法即终止本次刷新。 */
+    private void validateRefreshedDocuments(Long generationId, List<Long> documentIds) {
+        long invalidDocuments = searchChunks.countInvalidDocumentsByGenerationAndDocuments(generationId, documentIds);
+        if (invalidDocuments != 0) {
+            throw new IllegalStateException("knowledge search refresh validation failed");
+        }
+        LOGGER.info("knowledge_search_refresh_validation completed generationId={} documentCount={} "
+                        + "invalidDocumentCount={}",
+                generationId, documentIds.size(), invalidDocuments);
     }
 
     private Snapshot freezeSnapshot(Long jobId, KnowledgeEmbeddingModelDescriptor model) {

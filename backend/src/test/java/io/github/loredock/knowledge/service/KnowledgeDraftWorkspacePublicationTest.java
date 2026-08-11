@@ -3,6 +3,7 @@ package io.github.loredock.knowledge.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -12,6 +13,7 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.loredock.knowledge.api.KnowledgeDraftException;
 import io.github.loredock.knowledge.api.KnowledgeDraftService;
+import io.github.loredock.knowledge.config.KnowledgeIndexJobTypes;
 import io.github.loredock.knowledge.mapper.KnowledgeDraftMapper;
 import io.github.loredock.knowledge.mapper.KnowledgeDraftRevisionMapper;
 import io.github.loredock.knowledge.mapper.KnowledgeDraftRevisionSourceMapper;
@@ -108,7 +110,8 @@ class KnowledgeDraftWorkspacePublicationTest {
         assertThat(modified.fields().body().value()).contains("修改后的正文");
         assertThat(result.documents()).extracting(KnowledgeDraftService.Publication::documentId)
                 .containsExactly(200L, 100L);
-        verify(indexJobs).submit();
+        // 工作区发布必须提交增量刷新模式，避免每篇发布都触发全量重建索引。
+        verify(indexJobs).submit(KnowledgeIndexJobTypes.REINDEX_MODE_REFRESH);
     }
 
     /** 业务目的：审核集合中的任一 revision 不是当前值时，正式知识和索引任务都不得产生副作用。 */
@@ -127,7 +130,7 @@ class KnowledgeDraftWorkspacePublicationTest {
 
         verify(documents, never()).insertDraft(any(), any());
         verify(documents, never()).update(any(), any());
-        verify(indexJobs, never()).submit();
+        verify(indexJobs, never()).submit(anyString());
     }
 
     /**

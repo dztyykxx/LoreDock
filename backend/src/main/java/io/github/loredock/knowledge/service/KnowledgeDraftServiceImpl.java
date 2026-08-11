@@ -6,6 +6,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.loredock.knowledge.api.KnowledgeDraftException;
 import io.github.loredock.knowledge.api.KnowledgeDraftService;
+import io.github.loredock.knowledge.config.KnowledgeIndexJobTypes;
 import io.github.loredock.knowledge.mapper.KnowledgeDraftMapper;
 import io.github.loredock.knowledge.mapper.KnowledgeDraftRevisionMapper;
 import io.github.loredock.knowledge.mapper.KnowledgeDraftRevisionSourceMapper;
@@ -400,9 +401,9 @@ public class KnowledgeDraftServiceImpl implements KnowledgeDraftService {
         if (drafts.markPublished(draft.getId(), request.reviewedRevision(), published.id(), publishedAt) != 1) {
             throw failure(KnowledgeDraftException.Code.DRAFT_PUBLICATION_CONFLICT);
         }
-        // 合并草稿的人工发布是闭环的最后一步；直接提交 single-flight 索引更新，
-        // 避免演示时还需管理员返回文档页手动触发。
-        indexJobs.submit();
+        // 合并草稿的人工发布是闭环的最后一步；直接提交 single-flight 索引增量刷新，
+        // 避免演示时还需管理员返回文档页手动触发，也避免每篇发布都全量重建索引。
+        indexJobs.submit(KnowledgeIndexJobTypes.REINDEX_MODE_REFRESH);
         log.info("knowledge_draft published draftId={} conversationId={} operatorId={} revision={} documentId={} "
                         + "baselineDocumentId={}",
                 draft.getId(), context.conversationId(), context.operatorId(), request.reviewedRevision(),
@@ -484,7 +485,7 @@ public class KnowledgeDraftServiceImpl implements KnowledgeDraftService {
             }
             publications.add(new Publication(draft.getId(), revision, published.id(), publishedAt));
         }
-        indexJobs.submit();
+        indexJobs.submit(KnowledgeIndexJobTypes.REINDEX_MODE_REFRESH);
         log.info("knowledge_workspace published conversationId={} operatorId={} documentCount={}",
                 context.conversationId(), context.operatorId(), publications.size());
         return new WorkspacePublication(publications, now);

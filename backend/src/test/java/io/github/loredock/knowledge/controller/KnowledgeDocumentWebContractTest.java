@@ -2,6 +2,7 @@ package io.github.loredock.knowledge.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
@@ -26,6 +27,7 @@ import io.github.loredock.auth.controller.AuthController;
 import io.github.loredock.auth.service.AccountService;
 import io.github.loredock.auth.service.SessionService;
 import io.github.loredock.job.api.JobService;
+import io.github.loredock.knowledge.config.KnowledgeIndexJobTypes;
 import io.github.loredock.knowledge.converter.KnowledgeDocumentImportHttpContract;
 import io.github.loredock.knowledge.converter.KnowledgeIndexJobHttpContract;
 import io.github.loredock.knowledge.exception.DocumentReplacementConflictException;
@@ -513,7 +515,8 @@ class KnowledgeDocumentWebContractTest {
         Long jobId = 3349842972707284583L;
         KnowledgeIndexJobView pending = new KnowledgeIndexJobView(
                 jobId, JobService.Status.PENDING, 0, null, null, null);
-        when(indexJobs.submit()).thenReturn(pending);
+        // 管理员手动入口提交增量刷新模式，全量重建只由刷新内部在必要时降级触发。
+        when(indexJobs.submit(KnowledgeIndexJobTypes.REINDEX_MODE_REFRESH)).thenReturn(pending);
 
         Cookie admin = loginCookie("admin");
         mockMvc.perform(post(KnowledgeIndexJobHttpContract.BASE_PATH).cookie(admin))
@@ -560,7 +563,7 @@ class KnowledgeDocumentWebContractTest {
         mockMvc.perform(post(KnowledgeIndexJobHttpContract.BASE_PATH).cookie(loginCookie("member")))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.code").value("AUTH_FORBIDDEN"));
-        verify(indexJobs, never()).submit();
+        verify(indexJobs, never()).submit(anyString());
 
         when(indexJobs.get(jobId)).thenThrow(new io.github.loredock.knowledge.exception.KnowledgeIndexJobNotFoundException());
         mockMvc.perform(get(KnowledgeIndexJobHttpContract.BASE_PATH + "/{jobId}", jobId)

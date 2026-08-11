@@ -1,5 +1,6 @@
 package io.github.loredock.knowledge.controller;
 
+import io.github.loredock.knowledge.config.KnowledgeIndexJobTypes;
 import io.github.loredock.knowledge.converter.KnowledgeIndexJobHttpContract;
 import io.github.loredock.knowledge.model.response.KnowledgeIndexJobResponse;
 import io.github.loredock.knowledge.model.result.KnowledgeIndexJobView;
@@ -24,11 +25,11 @@ public class KnowledgeIndexJobController {
         this.jobs = jobs;
     }
 
-    /** @return 新建或复用活动任务的当前视图 */
+    /** @return 新建或复用活动任务的当前视图；管理员手动入口执行增量刷新，必要降级由刷新内部处理 */
     @PostMapping
     @ResponseStatus(HttpStatus.ACCEPTED)
     public KnowledgeIndexJobResponse submit() {
-        return response(jobs.submit());
+        return response(jobs.submit(KnowledgeIndexJobTypes.REINDEX_MODE_REFRESH));
     }
 
     /** @return 指定知识任务当前持久状态 */

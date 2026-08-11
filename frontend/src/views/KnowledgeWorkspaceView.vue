@@ -60,9 +60,9 @@
             variant="secondary"
             icon="settings"
             :busy="reindexBusy"
-            busy-label="正在重建…"
+            busy-label="正在刷新…"
             @click="startReindex"
-          >重新索引</AppButton>
+          >刷新索引</AppButton>
         </div>
         <section v-if="indexJob" data-testid="index-job-panel" class="knowledge-index-job" aria-live="polite">
           <div>
@@ -251,11 +251,11 @@ const selectedDocumentId = computed(() => typeof route.params.documentId === 'st
 const newTarget = computed(() => project.value ? `/projects/${project.value.identifier}/knowledge/new` : '/knowledge/new')
 const importTarget = computed(() => project.value ? `/projects/${project.value.identifier}/knowledge/import` : '/knowledge/import')
 const indexJobLabel = computed(() => ({
-  PENDING: '重新索引已排队',
-  RUNNING: '正在重新索引',
-  SUCCEEDED: '重新索引完成',
-  FAILED: '重新索引失败，浏览继续使用上一个成功索引',
-} as Record<string, string>)[indexJob.value?.status ?? ''] ?? '重新索引任务')
+  PENDING: '索引刷新已排队',
+  RUNNING: '正在刷新索引',
+  SUCCEEDED: '索引刷新完成',
+  FAILED: '索引刷新失败，浏览继续使用已有索引',
+} as Record<string, string>)[indexJob.value?.status ?? ''] ?? '索引刷新任务')
 const draftsOnPage = computed(() => documents.value.filter(document => document.status === 'DRAFT'))
 const allDraftsSelected = computed(() => draftsOnPage.value.length > 0
   && draftsOnPage.value.every(document => selectedDocumentIds.value.includes(document.id)))

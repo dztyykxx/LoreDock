@@ -2,6 +2,8 @@ package io.github.loredock.knowledge.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import io.github.loredock.knowledge.model.entity.KnowledgeSearchChunkEntity;
+import java.util.List;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Insert;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -106,4 +108,82 @@ public interface KnowledgeSearchChunkMapper extends BaseMapper<KnowledgeSearchCh
             """)
     java.util.List<KnowledgeSearchChunkEntity> selectActiveRevisions(
             @Param("documentIds") java.util.Collection<Long> documentIds);
+
+    /**
+     * @param generationId 目标 generation
+     * @return 需要增量刷新索引的文档：当前 PUBLISHED 但该 generation 中没有同修订分块的文档
+     */
+    @Select("""
+            select distinct d.id
+            from knowledge_document d
+            where d.status = 'PUBLISHED'
+              and not exists (
+                  select 1
+                  from knowledge_search_chunk c
+                  where c.generation_id = #{generationId}
+                    and c.document_id = d.id
+                    and c.source_revision = d.revision)
+            order by d.id
+            """)
+    List<Long> selectDocumentIdsNeedingRefresh(@Param("generationId") Long generationId);
+
+    /**
+     * @param generationId 目标 generation
+     * @return 需要从索引移除的文档：该 generation 有分块但当前已不是 PUBLISHED 的文档
+     */
+    @Select("""
+            select distinct c.document_id
+            from knowledge_search_chunk c
+            where c.generation_id = #{generationId}
+              and not exists (
+                  select 1
+                  from knowledge_document d
+                  where d.id = c.document_id
+                    and d.status = 'PUBLISHED')
+            order by c.document_id
+            """)
+    List<Long> selectDocumentIdsToRemove(@Param("generationId") Long generationId);
+
+    /** @param generationId 目标 generation @param documentIds 文档标识集合 @return 实际删除的分块数 */
+    @Delete("""
+            <script>
+            delete from knowledge_search_chunk
+            where generation_id = #{generationId}
+              and document_id in
+              <foreach collection='documentIds' item='documentId' open='(' separator=',' close=')'>
+                  #{documentId}
+              </foreach>
+            </script>
+            """)
+    int deleteChunksByGenerationAndDocuments(
+            @Param("generationId") Long generationId,
+            @Param("documentIds") List<Long> documentIds);
+
+    /**
+     * @param generationId 目标 generation
+     * @param documentIds 本次刷新涉及的文档标识集合
+     * @return 其中分块序号不连续、空关键词向量、维度错误或 offset 非法的文档数量
+     */
+    @Select("""
+            <script>
+            select count(*) from (
+                select document_id
+                from knowledge_search_chunk
+                where generation_id = #{generationId}
+                  and document_id in
+                  <foreach collection='documentIds' item='documentId' open='(' separator=',' close=')'>
+                      #{documentId}
+                  </foreach>
+                group by document_id
+                having min(chunk_no) &lt;&gt; 0
+                    or max(chunk_no) + 1 &lt;&gt; count(*)
+                    or bool_or(search_vector = ''::tsvector)
+                    or bool_or(vector_dims(embedding) &lt;&gt; 512)
+                    or bool_or(start_offset &lt; 0 or end_offset &lt;= start_offset)
+            ) invalid_document
+            </script>
+            """)
+    long countInvalidDocumentsByGenerationAndDocuments(
+            @Param("generationId") Long generationId,
+            @Param("documentIds") List<Long> documentIds);
 }

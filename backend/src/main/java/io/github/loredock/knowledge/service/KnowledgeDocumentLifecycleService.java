@@ -1,6 +1,7 @@
 package io.github.loredock.knowledge.service;
 
 import io.github.loredock.knowledge.converter.KnowledgeDocumentViewFactory;
+import io.github.loredock.knowledge.config.KnowledgeIndexJobTypes;
 import io.github.loredock.knowledge.exception.DocumentReplacementConflictException;
 import io.github.loredock.knowledge.exception.DocumentStateConflictException;
 import io.github.loredock.knowledge.exception.KnowledgeDocumentNotFoundException;
@@ -39,29 +40,42 @@ public class KnowledgeDocumentLifecycleService {
     private final KnowledgeDocumentDataService documents;
     private final AuditMetadataFactory auditFactory;
     private final KnowledgeDocumentViewFactory views;
+    private final KnowledgeIndexJobService indexJobs;
     private final ReplacementPublicationPlanner replacementPlanner = new ReplacementPublicationPlanner();
 
     /**
      * @param documents 支持条件更新和稳定锁行的文档仓储
      * @param auditFactory 可信生命周期审计工厂
      * @param views 应用视图工厂
+     * @param indexJobs 发布或归档后的知识索引增量刷新任务
      */
     public KnowledgeDocumentLifecycleService(
             KnowledgeDocumentDataService documents,
             AuditMetadataFactory auditFactory,
-            KnowledgeDocumentViewFactory views
+            KnowledgeDocumentViewFactory views,
+            KnowledgeIndexJobService indexJobs
     ) {
         this.documents = documents;
         this.auditFactory = auditFactory;
         this.views = views;
+        this.indexJobs = indexJobs;
     }
 
     @Transactional
     public KnowledgeDocumentView publish(PublishKnowledgeDocumentCommand command) {
-        if (command.replacesDocumentId() == null) {
-            return publishSingle(command.documentId());
-        }
-        return publishReplacement(command.documentId(), command.replacesDocumentId());
+        KnowledgeDocumentView published = command.replacesDocumentId() == null
+                ? publishSingle(command.documentId())
+                : publishReplacement(command.documentId(), command.replacesDocumentId());
+        refreshIndex();
+        return published;
+    }
+
+    /**
+     * 提交增量刷新任务，只重算本次发布或归档涉及的文档，避免管理员每次操作都全量重建索引。
+     * 与草稿发布共用 single-flight 任务，重复提交会复用进行中任务。
+     */
+    private void refreshIndex() {
+        indexJobs.submit(KnowledgeIndexJobTypes.REINDEX_MODE_REFRESH);
     }
 
     /**
@@ -101,6 +115,10 @@ public class KnowledgeDocumentLifecycleService {
         }
         LOG.info("knowledge_document_batch_publish completed requestedCount={} publishedCount={} alreadyPublishedCount={}",
                 requestedIds.size(), publishedCount, alreadyPublishedCount);
+        // 全部已发布属于幂等重试，没有产生变更，不需要触发索引刷新。
+        if (publishedCount > 0) {
+            refreshIndex();
+        }
         return new BatchPublishKnowledgeDocumentsResult(
                 requestedIds.size(), publishedCount, alreadyPublishedCount);
     }
@@ -112,7 +130,9 @@ public class KnowledgeDocumentLifecycleService {
         if (!documents.update(archived, current.revision())) {
             throw new DocumentStateConflictException();
         }
-        // 普通浏览与正式索引读取均会再次查询实时 PUBLISHED 状态，因此提交后立即失去资格。
+        // 普通浏览与正式索引读取均会再次查询实时 PUBLISHED 状态，因此提交后立即失去资格；
+        // 同时提交增量刷新移除其在索引中的分块。
+        refreshIndex();
         return views.create(archived);
     }
 

@@ -17,8 +17,17 @@ public class KnowledgeIndexJobService {
         this.jobs = jobs;
     }
 
-    public KnowledgeIndexJobView submit() {
-        Long jobId = jobs.submitSingleFlight(new JobService.Request(KnowledgeIndexJobTypes.KNOWLEDGE_REINDEX, null));
+    /**
+     * @param mode 重建模式：{@link KnowledgeIndexJobTypes#REINDEX_MODE_REFRESH} 增量刷新，
+     *             其他值按 {@link KnowledgeIndexJobTypes#REINDEX_MODE_FULL} 全量重建处理
+     * @return 新建或复用活动任务的当前视图
+     */
+    public KnowledgeIndexJobView submit(String mode) {
+        // 模式经 inputObjectKey 传递给后台处理器；同一任务类型单飞保证两种模式不会并发执行。
+        String inputKey = KnowledgeIndexJobTypes.REINDEX_MODE_REFRESH.equals(mode)
+                ? KnowledgeIndexJobTypes.REINDEX_MODE_REFRESH
+                : KnowledgeIndexJobTypes.REINDEX_MODE_FULL;
+        Long jobId = jobs.submitSingleFlight(new JobService.Request(KnowledgeIndexJobTypes.KNOWLEDGE_REINDEX, inputKey));
         return get(jobId);
     }
 
