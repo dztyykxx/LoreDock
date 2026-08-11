@@ -37,7 +37,9 @@ public class McpWebConfiguration implements WebMvcConfigurer {
                     response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
                     return false;
                 }
-                McpRequestAccess.mark(request, access == Access.WRITE);
+                // X-LoreDock-Project 是客户端部署配置的可选项目锁；空值表示不锁定，
+                // 具体拒绝逻辑在工具层按“配置优先、显式传其他项目拒绝”执行。
+                McpRequestAccess.mark(request, access == Access.WRITE, request.getHeader("X-LoreDock-Project"));
                 return true;
             }
         };

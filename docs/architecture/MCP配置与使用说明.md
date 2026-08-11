@@ -9,6 +9,7 @@
 | 端点 | `http://localhost:8080/mcp`（端口由 `LOREDOCK_BACKEND_PORT` 控制，默认 8080） |
 | 协议 | Spring AI MCP Server，Streamable HTTP，SYNC 模式 |
 | 认证 | `Authorization: Bearer <token>` 请求头，不复用浏览器 Cookie 会话 |
+| 项目锁 | 可选 `X-LoreDock-Project` 请求头，把检索范围锁定为部署配置的项目（见第 3 节） |
 | 能力 | 仅工具（Tool），无 Resource / Prompt / Completion |
 
 工具清单（`KnowledgeMcpController` 中的 6 个 `@McpTool`）：
@@ -55,6 +56,20 @@ cd /path/to/LoreDock
 claude mcp add --transport http loredock http://localhost:8080/mcp \
   --header "Authorization: Bearer <LOREDOCK_MCP_WRITE_TOKEN>"
 ```
+
+可选的项目范围锁定（推荐）：加一个 `X-LoreDock-Project` 请求头，该 MCP server 的所有工具就只会检索这个项目，工具调用不再需要传 `project` 参数，模型也无法越界：
+
+```bash
+claude mcp add --transport http loredock-atlas http://localhost:8080/mcp \
+  --header "Authorization: Bearer <LOREDOCK_MCP_WRITE_TOKEN>" \
+  --header "X-LoreDock-Project: atlas"
+```
+
+多个项目各注册一个实例（server 名不同、header 不同）即可。锁定语义：
+
+- 配置后，工具未传 `project` 时自动使用锁定项目；
+- 工具显式传入其他项目被服务端拒绝（`MCP_PROJECT_LOCKED`），不会返回任何数据；
+- 未配置时，`project` 参数保持必填（`MCP_PROJECT_REQUIRED`）。
 
 要点（本仓库实测）：
 

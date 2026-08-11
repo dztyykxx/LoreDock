@@ -103,6 +103,43 @@ class McpProtocolIT {
     }
 
     /**
+     * 业务目的：客户端通过 {@code X-LoreDock-Project} 配置项目锁后，工具必须使用
+     * 锁定项目并拒绝模型显式传入的其他项目；未配置时缺省 project 参数仍必须被拒绝。
+     * 防止模型传错项目名导致检索或草稿提交落在错误范围。
+     */
+    @Test
+    void projectLockHeaderForcesConfiguredScopeAndRejectsOthers() throws Exception {
+        HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build();
+        HttpResponse<String> initialize = client.send(request("read-secret", null, "atlas", """
+                {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"loredock-test","version":"1"}}}
+                """), HttpResponse.BodyHandlers.ofString());
+        String sessionId = initialize.headers().firstValue("mcp-session-id").orElseThrow();
+        client.send(request("read-secret", sessionId, "atlas", """
+                {"jsonrpc":"2.0","method":"notifications/initialized"}
+                """), HttpResponse.BodyHandlers.ofString());
+        seedProject();
+
+        HttpResponse<String> withoutProject = client.send(request("read-secret", sessionId, "atlas", """
+                {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"knowledge_directory_list","arguments":{}}}
+                """), HttpResponse.BodyHandlers.ofString());
+        assertThat(withoutProject.statusCode()).isEqualTo(200);
+        assertThat(withoutProject.body()).contains("\"isError\":false");
+
+        HttpResponse<String> wrongProject = client.send(request("read-secret", sessionId, "atlas", """
+                {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"knowledge_directory_list","arguments":{"project":"other"}}}
+                """), HttpResponse.BodyHandlers.ofString());
+        assertThat(wrongProject.body()).contains("isError", "true", "MCP_PROJECT_LOCKED");
+
+        HttpResponse<String> noLockMissing = client.send(request("read-secret", sessionId, null, """
+                {"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"knowledge_directory_list","arguments":{}}}
+                """), HttpResponse.BodyHandlers.ofString());
+        assertThat(noLockMissing.body()).contains("isError", "true", "MCP_PROJECT_REQUIRED");
+
+        System.out.println("MCP 项目锁测试证据：configuredScope=atlas，withoutProject=通过，"
+                + "wrongProject=已拒绝，noLockMissingProject=已拒绝");
+    }
+
+    /**
      * 业务目的：MCP 协议路由必须在解析 initialize 内容前拒绝匿名请求；
      * 防止客户端能从服务信息或工具列表侧信道发现内部能力。
      */
@@ -125,12 +162,19 @@ class McpProtocolIT {
     }
 
     private HttpRequest request(String token, String sessionId, String body) {
+        return request(token, sessionId, null, body);
+    }
+
+    private HttpRequest request(String token, String sessionId, String project, String body) {
         HttpRequest.Builder request = HttpRequest.newBuilder(endpoint())
                 .header("Authorization", "Bearer " + token)
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json, text/event-stream");
         if (sessionId != null) {
             request.header("Mcp-Session-Id", sessionId);
+        }
+        if (project != null) {
+            request.header("X-LoreDock-Project", project);
         }
         return request.POST(HttpRequest.BodyPublishers.ofString(body)).build();
     }

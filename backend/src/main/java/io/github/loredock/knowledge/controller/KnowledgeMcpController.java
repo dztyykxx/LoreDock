@@ -51,48 +51,52 @@ public class KnowledgeMcpController {
     @McpTool(name = "knowledge_directory_list", description = "列出项目及通用范围内的已发布知识目录",
             annotations = @McpTool.McpAnnotations(readOnlyHint = true, destructiveHint = false, openWorldHint = false))
     public List<KnowledgeDocumentAccessService.DirectoryEntry> listDirectories(
-            @McpToolParam(description = "项目标识，例如 network-designer") String project,
+            @McpToolParam(required = false, description = "项目标识，例如 network-designer；未配置项目锁时必填") String project,
             @McpToolParam(required = false, description = "可选目录前缀") String prefix,
             @McpToolParam(required = false, description = "返回上限，最大 100") Integer limit
     ) {
-        return documents.listPublishedDirectories(project, prefix, bounded(limit, 50, 100));
+        String resolved = resolveProject(project);
+        return documents.listPublishedDirectories(resolved, prefix, bounded(limit, 50, 100));
     }
 
     /** @return 指定目录下的已发布知识摘要 */
     @McpTool(name = "knowledge_document_list", description = "列出指定目录下的已发布知识文档",
             annotations = @McpTool.McpAnnotations(readOnlyHint = true, destructiveHint = false, openWorldHint = false))
     public List<KnowledgeDocumentAccessService.DocumentSummary> listDocuments(
-            @McpToolParam(description = "项目标识") String project,
+            @McpToolParam(required = false, description = "项目标识；未配置项目锁时必填") String project,
             @McpToolParam(required = false, description = "可选逻辑目录") String directory,
             @McpToolParam(required = false, description = "返回上限，最大 100") Integer limit
     ) {
-        return documents.listPublishedDocuments(project, directory, bounded(limit, 50, 100));
+        String resolved = resolveProject(project);
+        return documents.listPublishedDocuments(resolved, directory, bounded(limit, 50, 100));
     }
 
     /** @return 已发布文档的有界 Markdown 分段 */
     @McpTool(name = "knowledge_document_read", description = "按 Unicode 码点游标分段读取已发布知识文档",
             annotations = @McpTool.McpAnnotations(readOnlyHint = true, destructiveHint = false, openWorldHint = false))
     public KnowledgeDocumentAccessService.DocumentPage readDocument(
-            @McpToolParam(description = "项目标识") String project,
+            @McpToolParam(required = false, description = "项目标识；未配置项目锁时必填") String project,
             @McpToolParam(description = "文档 ID") Long documentId,
             @McpToolParam(required = false, description = "起始 Unicode 码点游标，默认 0") Integer cursor,
             @McpToolParam(required = false, description = "本次最大返回码点数，默认 8000，最大 12000") Integer maxCodePoints
     ) {
-        return documents.readPublishedPage(project, documentId, cursor, maxCodePoints);
+        String resolved = resolveProject(project);
+        return documents.readPublishedPage(resolved, documentId, cursor, maxCodePoints);
     }
 
     /** @return 已发布知识的关键词匹配 */
     @McpTool(name = "knowledge_grep", description = "在已发布知识正文中执行大小写不敏感的关键词匹配",
             annotations = @McpTool.McpAnnotations(readOnlyHint = true, destructiveHint = false, openWorldHint = false))
     public List<KnowledgeDocumentAccessService.KeywordMatch> grep(
-            @McpToolParam(description = "项目标识") String project,
+            @McpToolParam(required = false, description = "项目标识；未配置项目锁时必填") String project,
             @McpToolParam(description = "要匹配的关键词") String keyword,
             @McpToolParam(required = false, description = "可选逻辑目录") String directory,
             @McpToolParam(required = false, description = "可选文档 ID 列表") List<Long> documentIds,
             @McpToolParam(required = false, description = "命中上限，最大 50") Integer limit,
             @McpToolParam(required = false, description = "上下文行数，最大 3") Integer contextLines
     ) {
-        return documents.grepPublished(project, keyword, directory,
+        String resolved = resolveProject(project);
+        return documents.grepPublished(resolved, keyword, directory,
                 documentIds == null ? List.of() : documentIds, bounded(limit, 20, 50), bounded(contextLines, 1, 3));
     }
 
@@ -100,11 +104,12 @@ public class KnowledgeMcpController {
     @McpTool(name = "knowledge_search", description = "在项目及通用范围内近似检索已发布业务知识",
             annotations = @McpTool.McpAnnotations(readOnlyHint = true, destructiveHint = false, openWorldHint = false))
     public KnowledgeMatches search(
-            @McpToolParam(description = "项目标识") String project,
+            @McpToolParam(required = false, description = "项目标识；未配置项目锁时必填") String project,
             @McpToolParam(description = "自然语言查询") String query,
             @McpToolParam(required = false, description = "返回上限，最大 20") Integer limit
     ) {
-        ProjectScope scope = projects.resolveEnabledScope(project, null);
+        String resolved = resolveProject(project);
+        ProjectScope scope = projects.resolveEnabledScope(resolved, null);
         Long version = search.findActiveIndexVersionId().orElse(null);
         if (version == null) {
             return new KnowledgeMatches(List.of(), List.of());
@@ -118,7 +123,7 @@ public class KnowledgeMcpController {
             annotations = @McpTool.McpAnnotations(readOnlyHint = false, destructiveHint = false,
                     idempotentHint = false, openWorldHint = false))
     public DraftSubmitted submitDraft(
-            @McpToolParam(description = "项目标识") String project,
+            @McpToolParam(required = false, description = "项目标识；未配置项目锁时必填") String project,
             @McpToolParam(description = "业务知识标题") String title,
             @McpToolParam(description = "仅包含业务知识的 Markdown 正文") String markdown,
             @McpToolParam(required = false, description = "可选逻辑目录") String directory,
@@ -126,7 +131,8 @@ public class KnowledgeMcpController {
             @McpToolParam(required = false, description = "本地来源文件名") String originalFilename
     ) {
         McpRequestAccess.requireWrite();
-        ProjectScope projectScope = projects.resolveEnabledScope(project, null);
+        String resolved = resolveProject(project);
+        ProjectScope projectScope = projects.resolveEnabledScope(resolved, null);
         String sourceName = originalFilename == null || originalFilename.isBlank()
                 ? "mcp-business-knowledge.md" : originalFilename;
         var created = commands.create(new CreateKnowledgeDocumentCommand(
@@ -135,6 +141,31 @@ public class KnowledgeMcpController {
                 new DocumentSource(DocumentSourceType.UPLOAD, null, sourceName, "由本地 Agent 通过 MCP 提交"),
                 KnowledgeScope.project(projectScope.projectId())));
         return new DraftSubmitted(created.id(), created.revision().value(), created.status().name());
+    }
+
+    /**
+     * 解析工具的项目参数：客户端通过 {@code X-LoreDock-Project} 配置项目锁时，
+     * 强制使用锁定项目并拒绝模型传入的其他项目；未配置时项目参数仍必填，
+     * 防止模型漏传导致检索范围不可知。
+     *
+     * @param requested 模型传入的项目参数，可能为空
+     * @return 实际生效的项目标识
+     * @throws IllegalArgumentException 锁定项目冲突或未配置且未传参
+     */
+    private String resolveProject(String requested) {
+        String trimmed = requested == null ? null : requested.trim();
+        String configured = McpRequestAccess.configuredProject();
+        if (configured != null) {
+            String locked = configured.trim();
+            if (trimmed != null && !trimmed.isEmpty() && !locked.equals(trimmed)) {
+                throw new IllegalArgumentException("MCP_PROJECT_LOCKED: 该项目被部署配置锁定为 " + locked);
+            }
+            return locked;
+        }
+        if (trimmed == null || trimmed.isEmpty()) {
+            throw new IllegalArgumentException("MCP_PROJECT_REQUIRED");
+        }
+        return trimmed;
     }
 
     private int bounded(Integer value, int defaultValue, int maximum) {
