@@ -24,7 +24,19 @@
     </div>
     <div v-else class="sidebar-recent">
       <p>最近问答</p>
-      <button v-for="question in DESIGN_SAMPLES.recentQuestions" :key="question" type="button" disabled>{{ question }}</button>
+      <button
+        v-for="conversation in recentConversations"
+        :key="conversation.conversationId"
+        type="button"
+        @click="openConversation(conversation)"
+      >
+        <span :title="conversation.title">{{ conversation.title }}</span>
+        <em class="qa-recent__scope">{{ scopeLabel(conversation) }}</em>
+      </button>
+      <p v-if="recentConversations.length === 0" class="sidebar-recent__empty">还没有问答记录</p>
+      <button v-if="recentCursor" class="qa-load-more" type="button" :disabled="loadingRecent" @click="loadEarlier">
+        加载更早记录
+      </button>
     </div>
 
     <div class="sidebar-profile">
@@ -36,10 +48,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import { RouterLink } from 'vue-router'
+import { inject, onMounted, ref, computed } from 'vue'
+import { RouterLink, useRouter } from 'vue-router'
 import type { WebRole } from '../api/types'
-import { DESIGN_SAMPLES } from '../designSamples'
+import { scopeLabel, type QaConversationSummary } from '../api/qa'
+import { qaApiKey } from '../appContext'
 import IconGlyph from './IconGlyph.vue'
 
 const props = defineProps<{
@@ -48,12 +61,53 @@ const props = defineProps<{
   currentProject?: { name: string; identifier: string }
 }>()
 
+const router = useRouter()
+// 侧栏最近问答是增强能力：测试或无 QA 上下文时静默跳过，不影响主导航。
+const api = inject(qaApiKey, null)
+// 无项目上下文时"问答"进入全局（全库）问答页；项目内仍进入项目问答。
 const qaTarget = computed(() => props.currentProject
   ? `/projects/${props.currentProject.identifier}/qa`
-  : '/projects')
+  : '/qa')
 const newQuestionTarget = computed(() => props.currentProject
   ? { path: `/projects/${props.currentProject.identifier}/qa`, query: { new: '1' } }
-  : '/projects')
+  : { path: '/qa', query: { new: '1' } })
+
+// 首页侧栏的最近问答：跨全局与各项目的分页会话历史，每项标注检索范围。
+const recentConversations = ref<QaConversationSummary[]>([])
+const recentCursor = ref<string | null>(null)
+const loadingRecent = ref(false)
+
+async function loadRecent(cursor?: string): Promise<void> {
+  if (!api || loadingRecent.value) return
+  loadingRecent.value = true
+  try {
+    const page = await api.conversationsGlobal(cursor, 10)
+    recentConversations.value = cursor ? [...recentConversations.value, ...page.items] : page.items
+    recentCursor.value = page.nextCursor
+  } catch {
+    // 侧栏最近问答加载失败保持静默；主导航与页面内容不受影响。
+  } finally {
+    loadingRecent.value = false
+  }
+}
+
+async function loadEarlier(): Promise<void> {
+  if (!recentCursor.value) return
+  await loadRecent(recentCursor.value)
+}
+
+function openConversation(conversation: QaConversationSummary): void {
+  const query = { conversationId: String(conversation.conversationId) }
+  void router.push(conversation.scope === 'GLOBAL'
+    ? { path: '/qa', query }
+    : { path: `/projects/${conversation.projectIdentifier}/qa`, query })
+}
+
+onMounted(() => {
+  if (!props.currentProject) {
+    void loadRecent()
+  }
+})
 
 defineEmits<{ logout: [] }>()
 </script>

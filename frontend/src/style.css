@@ -2614,6 +2614,17 @@ a {
   font-size: 10px;
 }
 
+.qa-recent > button em.qa-recent__scope {
+  align-self: flex-start;
+  border-radius: 999px;
+  padding: 1px 7px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-size: 9px;
+  font-style: normal;
+  font-weight: 600;
+}
+
 .qa-recent__empty {
   margin: 8px;
   line-height: 17px;

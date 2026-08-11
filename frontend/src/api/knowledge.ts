@@ -89,6 +89,8 @@ export interface BrowseKnowledgeInput {
   project?: string
   directory?: string
   includeDescendants?: boolean
+  /** 项目列表是否排除通用知识文档；项目页文档列表与草稿列表使用 */
+  excludeGlobal?: boolean
   page?: number
   size?: number
 }
@@ -172,7 +174,7 @@ export interface KnowledgeIndexPollOptions {
 export interface KnowledgeApi {
   browse(input: BrowseKnowledgeInput): Promise<KnowledgeBrowseResult>
   browseAdmin(input: AdminBrowseKnowledgeInput): Promise<KnowledgeBrowseResult>
-  getDocument(documentId: number, input: Pick<BrowseKnowledgeInput, 'context' | 'project'>): Promise<KnowledgeDocumentView>
+  getDocument(documentId: number, input: Pick<BrowseKnowledgeInput, 'context' | 'project' | 'excludeGlobal'>): Promise<KnowledgeDocumentView>
   listAdmin(input?: AdminKnowledgeFilter): Promise<PageResult<KnowledgeDocumentSummary>>
   getAdminDocument(documentId: number): Promise<AdminKnowledgeDocumentView>
   createDocument(input: KnowledgeDocumentWriteInput): Promise<AdminKnowledgeDocumentView>
@@ -200,6 +202,7 @@ export const knowledgeApi: KnowledgeApi = {
     appendQuery(query, 'project', input.project)
     appendQuery(query, 'directory', input.directory)
     appendQuery(query, 'includeDescendants', input.includeDescendants === undefined ? undefined : String(input.includeDescendants))
+    appendQuery(query, 'excludeGlobal', input.excludeGlobal === undefined ? undefined : String(input.excludeGlobal))
     appendQuery(query, 'page', input.page)
     appendQuery(query, 'size', input.size)
     return requestJson<KnowledgeBrowseResult>(`/api/knowledge-documents?${query}`)
@@ -210,6 +213,7 @@ export const knowledgeApi: KnowledgeApi = {
     appendQuery(query, 'project', input.project)
     appendQuery(query, 'directory', input.directory)
     appendQuery(query, 'status', input.status)
+    appendQuery(query, 'excludeGlobal', input.excludeGlobal === undefined ? undefined : String(input.excludeGlobal))
     appendQuery(query, 'page', input.page)
     appendQuery(query, 'size', input.size)
     return requestJson<KnowledgeBrowseResult>(`/api/admin/knowledge-documents/browse?${query}`)
@@ -218,6 +222,7 @@ export const knowledgeApi: KnowledgeApi = {
     const query = new URLSearchParams()
     appendQuery(query, 'context', input.context)
     appendQuery(query, 'project', input.project)
+    appendQuery(query, 'excludeGlobal', input.excludeGlobal === undefined ? undefined : String(input.excludeGlobal))
     return requestJson<KnowledgeDocumentView>(
       `/api/knowledge-documents/${encodeURIComponent(documentId)}?${query}`,
     )

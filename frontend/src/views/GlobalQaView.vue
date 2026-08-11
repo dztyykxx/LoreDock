@@ -5,9 +5,6 @@
         <span class="brand-mark">L</span><strong>LoreDock</strong>
       </RouterLink>
       <button class="qa-new-question" type="button" @click="startNewQuestion"><IconGlyph name="plus" />新建问答</button>
-      <RouterLink v-if="project" class="qa-project-back" :to="`/projects/${project.identifier}`">
-        <IconGlyph name="folder" /><span><strong>{{ project.name }}</strong><small>返回项目知识</small></span>
-      </RouterLink>
       <QaRecentSidebar :items="conversations" :selected-id="currentConversation?.conversationId ?? null" @select="selectConversation" />
       <button v-if="nextCursor" class="qa-load-more" type="button" :disabled="loading" @click="loadMore">加载更早记录</button>
       <div class="sidebar-profile">
@@ -20,8 +17,8 @@
     <main class="qa-main">
       <header class="qa-topbar">
         <div class="qa-topbar__project">
-          <span class="project-icon"><IconGlyph name="network" /></span>
-          <div><strong>{{ project?.name || '正在加载项目' }}</strong><small>{{ identifier }}</small></div>
+          <span class="project-icon"><IconGlyph name="book" /></span>
+          <div><strong>全局问答</strong><small>全数据库检索</small></div>
         </div>
         <div class="qa-topbar__controls">
           <span class="qa-scope-status"><IconGlyph name="lock" />范围已锁定</span>
@@ -31,50 +28,43 @@
         </div>
       </header>
 
-      <section v-if="projectError" class="qa-page-state qa-page-state--error" role="alert">
-        <IconGlyph name="warning" /><strong>无法打开项目问答</strong><p>项目可能不存在、已停用或当前会话无权访问。</p>
+      <section v-if="current" data-testid="locked-scope" class="qa-range-lock">
+        <div><IconGlyph name="lock" /><strong>本次问答范围</strong></div>
+        <span>全局</span>
+        <span>通用知识与所有项目已发布文档，不含分支</span>
       </section>
 
-      <template v-else>
-        <section v-if="current" data-testid="locked-scope" class="qa-range-lock">
-          <div><IconGlyph name="lock" /><strong>本次问答范围</strong></div>
-          <span>{{ current.scope.projectIdentifier }}</span>
-          <span>仅使用已发布文档</span>
-        </section>
-
-        <section class="qa-conversation">
-          <div v-if="loading && !project" class="qa-page-state" aria-live="polite">正在加载项目范围…</div>
-          <div v-else-if="loadError && conversations.length === 0" class="qa-page-state qa-page-state--error" role="alert">
-            <strong>问答历史加载失败</strong><p>{{ loadError }}</p><button type="button" @click="reloadConversations">重新加载</button>
-          </div>
-          <div v-else-if="!current" class="qa-empty-state">
-            <span><IconGlyph name="message" /></span>
-            <h1>还没有问答</h1>
-            <p>向 {{ project?.name || identifier }} 提出一个具体问题。每次问题只使用所选项目内已发布的知识文档。</p>
-          </div>
-          <template v-else>
-            <div v-for="round in rounds" :key="round.questionId" class="qa-round">
-            <article class="qa-user-message">
-              <div><strong>你</strong></div>
-              <p>{{ questionText(round) }}</p>
-            </article>
-            <QaAnswerPanel
-              :snapshot="round"
-              :partial-text="round.questionId === current?.questionId ? partialText : (round.resultText ?? '')"
-              :process-events="round.questionId === current?.questionId ? processEvents : round.processEvents"
-              :connection-state="round.questionId === current?.questionId ? connectionState : 'idle'"
-              @retry="retryRound(round)"
-              @open-citations="openRoundCitations(round, $event)"
-              @feedback="openRoundFeedback(round)"
-            />
-            </div>
-          </template>
-        </section>
-
-        <div class="qa-composer-wrap">
-          <QaQuestionComposer ref="composer" :busy="submitting" :error="submitError" @submit="submitQuestion" />
+      <section class="qa-conversation">
+        <div v-if="loadError && conversations.length === 0" class="qa-page-state qa-page-state--error" role="alert">
+          <strong>问答历史加载失败</strong><p>{{ loadError }}</p><button type="button" @click="reloadConversations">重新加载</button>
         </div>
-      </template>
+        <div v-else-if="!current" class="qa-empty-state">
+          <span><IconGlyph name="message" /></span>
+          <h1>还没有问答</h1>
+          <p>向全数据库提出一个具体问题，回答会引用通用知识与各项目的已发布文档。</p>
+        </div>
+        <template v-else>
+          <div v-for="round in rounds" :key="round.questionId" class="qa-round">
+          <article class="qa-user-message">
+            <div><strong>你</strong></div>
+            <p>{{ questionText(round) }}</p>
+          </article>
+          <QaAnswerPanel
+            :snapshot="round"
+            :partial-text="round.questionId === current?.questionId ? partialText : (round.resultText ?? '')"
+            :process-events="round.questionId === current?.questionId ? processEvents : round.processEvents"
+            :connection-state="round.questionId === current?.questionId ? connectionState : 'idle'"
+            :show-feedback="false"
+            @retry="retryRound(round)"
+            @open-citations="openRoundCitations(round, $event)"
+          />
+          </div>
+        </template>
+      </section>
+
+      <div class="qa-composer-wrap">
+        <QaQuestionComposer ref="composer" :busy="submitting" :error="submitError" @submit="submitQuestion" />
+      </div>
     </main>
 
     <QaCitationDrawer
@@ -83,20 +73,15 @@
       :return-focus-to="citationTrigger"
       @close="closeCitations"
     />
-    <div v-if="feedbackOpen && detailTarget" class="qa-modal-backdrop" @click.self="feedbackOpen = false">
-      <KnowledgeGapDialog :api="api" :snapshot="detailTarget" @close="feedbackOpen = false" />
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import type { ProjectDetail } from '../api/types'
 import type { QaQuestion } from '../api/qa'
-import { useProjectApi, useQaApi, useSession } from '../appContext'
+import { useQaApi, useSession } from '../appContext'
 import IconGlyph from '../components/IconGlyph.vue'
-import KnowledgeGapDialog from '../components/KnowledgeGapDialog.vue'
 import QaAnswerPanel from '../components/QaAnswerPanel.vue'
 import QaCitationDrawer from '../components/QaCitationDrawer.vue'
 import QaQuestionComposer from '../components/QaQuestionComposer.vue'
@@ -106,33 +91,25 @@ import { createProjectQaController } from '../qa/useProjectQa'
 const route = useRoute()
 const router = useRouter()
 const session = useSession()
-const projects = useProjectApi()
 const api = useQaApi()
-const identifier = String(route.params.identifier)
-const project = ref<ProjectDetail | null>(null)
-const projectError = ref(false)
 const citationsOpen = ref(false)
-const feedbackOpen = ref(false)
 const citationTrigger = ref<HTMLElement | null>(null)
 const detailTarget = ref<QaQuestion | null>(null)
 const composer = ref<InstanceType<typeof QaQuestionComposer> | null>(null)
-const qa = createProjectQaController(api, identifier)
+// identifier 为空即全局模式：创建、详情与事件流走 /api/qa 全库端点。
+const qa = createProjectQaController(api, null)
 const {
   conversations, currentConversation, rounds, processEvents, nextCursor, current, loading, submitting,
   loadError, submitError, connectionState, partialText,
 } = qa
-const identity = computed(() => session.identity.value)
+const identity = session.identity
 
 async function initialize(): Promise<void> {
-  loading.value = true
-  try {
-    project.value = await projects.getProject(identifier)
-  } catch {
-    projectError.value = true
-    loading.value = false
-    return
-  }
   await reloadConversations()
+  const deepLink = route.query.conversationId
+  if (typeof deepLink === 'string' && /^\d+$/.test(deepLink)) {
+    await selectConversation(Number(deepLink))
+  }
   if (route.query.new === '1') {
     const query = { ...route.query }
     delete query.new
@@ -145,14 +122,12 @@ async function initialize(): Promise<void> {
 async function reloadConversations(): Promise<void> {
   try {
     await qa.loadConversations()
-    const deepLink = route.query.conversationId
-    if (typeof deepLink === 'string' && /^\d+$/.test(deepLink)) {
-      await selectConversation(Number(deepLink))
-    } else if (route.query.new !== '1' && !current.value && conversations.value[0]) {
+    if (route.query.new !== '1' && route.query.conversationId === undefined
+      && !current.value && conversations.value[0]) {
       await qa.selectConversation(conversations.value[0].conversationId)
     }
   } catch {
-    // composable 已保存可展示的稳定错误，不覆盖已成功加载的项目范围。
+    // composable 已保存可展示的稳定错误。
   }
 }
 
@@ -167,11 +142,10 @@ async function loadMore(): Promise<void> {
 
 async function selectConversation(conversationId: number): Promise<void> {
   citationsOpen.value = false
-  feedbackOpen.value = false
   try {
     await qa.selectConversation(conversationId)
   } catch {
-    // 当前范围内的统一错误由页面状态显示，不复用上一条详情。
+    // 统一错误由页面状态显示。
   }
 }
 
@@ -183,7 +157,6 @@ function startNewQuestion(): void {
   processEvents.value = []
   partialText.value = ''
   citationsOpen.value = false
-  feedbackOpen.value = false
 }
 
 async function submitQuestion(question: string): Promise<void> {
@@ -199,7 +172,7 @@ async function retryRound(round: QaQuestion): Promise<void> {
   try {
     await qa.retry(questionText(round))
   } catch {
-    // 主动重试始终使用新幂等键，失败时保留当前会话以便再次尝试。
+    // 主动重试始终使用新幂等键。
   }
 }
 
@@ -213,11 +186,6 @@ function openRoundCitations(round: QaQuestion, trigger: HTMLElement): void {
   detailTarget.value = round
   citationTrigger.value = trigger
   citationsOpen.value = true
-}
-
-function openRoundFeedback(round: QaQuestion): void {
-  detailTarget.value = round
-  feedbackOpen.value = true
 }
 
 function questionText(round: QaQuestion): string {

@@ -131,15 +131,26 @@ export interface QaProcessEvent {
   occurredAt: string
 }
 
+export type QaConversationScope = 'GLOBAL' | 'PROJECT'
+
 export interface QaConversationSummary {
   conversationId: number
   projectIdentifier: string
+  /** 项目显示名；GLOBAL 会话为空 */
+  projectName: string | null
+  /** 检索范围：GLOBAL（全库）或 PROJECT（项目 + 通用） */
+  scope: QaConversationScope
   title: string
   lastQuestion: string
   status: QaRunStatus
   createdAt: string
   updatedAt: string
   lastQuestionAt: string
+}
+
+/** @returns 会话检索范围的中文标注，供侧栏与列表展示 */
+export function scopeLabel(summary: Pick<QaConversationSummary, 'scope' | 'projectName' | 'projectIdentifier'>): string {
+  return summary.scope === 'GLOBAL' ? '全局' : `项目：${summary.projectName ?? summary.projectIdentifier}`
 }
 
 export interface QaConversationPage {
@@ -261,6 +272,22 @@ export interface QaApi {
     handlers: QaEventStreamHandlers,
     factory?: EventSourceFactory,
   ): QaEventStream
+  /** 跨项目最近会话列表（GLOBAL ∪ 所有项目），每项带范围标注 */
+  conversationsGlobal(cursor?: string, limit?: number): Promise<QaConversationPage>
+  /** 全局会话详情（摘要 + 轮次） */
+  conversationGlobal(conversationId: number): Promise<QaConversation>
+  /** 全局问答历史 */
+  historyGlobal(cursor?: string, limit?: number): Promise<QaQuestionPage>
+  /** 全局问答详情 */
+  detailGlobal(questionId: number): Promise<QaQuestion>
+  /** 创建全局问答（检索范围为全库） */
+  createQuestionGlobal(input: CreateQaQuestionInput): Promise<QaQuestion>
+  openEventStreamGlobal(
+    questionId: number,
+    afterSequence: number,
+    handlers: QaEventStreamHandlers,
+    factory?: EventSourceFactory,
+  ): QaEventStream
 }
 
 const eventNames: QaSseEventName[] = [
@@ -317,6 +344,41 @@ export const qaApi: QaApi = {
           handlers.onEvent(name, JSON.parse(raw.data) as QaSseEvent)
         } catch {
           // 无法解析的流事件不能进入可信状态；交给统一断线恢复重新读取服务端快照。
+          handlers.onError()
+        }
+      }) as EventListener)
+    }
+    source.addEventListener('error', handlers.onError)
+    return { close: () => source.close() }
+  },
+  conversationsGlobal(cursor, limit = 20) {
+    const query = new URLSearchParams({ limit: String(limit) })
+    if (cursor) query.set('cursor', cursor)
+    return requestJson<QaConversationPage>(`/api/qa/conversations?${query}`)
+  },
+  conversationGlobal: (conversationId) => requestJson<QaConversation>(
+    `/api/qa/conversations/${encodeURIComponent(conversationId)}`,
+  ),
+  historyGlobal(cursor, limit = 20) {
+    const query = new URLSearchParams({ limit: String(limit) })
+    if (cursor) query.set('cursor', cursor)
+    return requestJson<QaQuestionPage>(`/api/qa/questions?${query}`)
+  },
+  detailGlobal: (questionId) => requestJson<QaQuestion>(
+    `/api/qa/questions/${encodeURIComponent(questionId)}`,
+  ),
+  createQuestionGlobal: (input) => requestJson<QaQuestion>('/api/qa/questions', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  }),
+  openEventStreamGlobal(questionId, afterSequence, handlers, factory = browserEventSourceFactory) {
+    const path = `/api/qa/questions/${encodeURIComponent(questionId)}/events?afterSequence=${afterSequence}`
+    const source = factory(resolveApiUrl(path), { withCredentials: true })
+    for (const name of eventNames) {
+      source.addEventListener(name, ((raw: MessageEvent<string>) => {
+        try {
+          handlers.onEvent(name, JSON.parse(raw.data) as QaSseEvent)
+        } catch {
           handlers.onError()
         }
       }) as EventListener)

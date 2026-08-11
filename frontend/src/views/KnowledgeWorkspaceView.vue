@@ -29,17 +29,17 @@
         </ProjectHero>
 
         <ProjectTabs
-          v-if="project"
-          :active="isDraftWorkspace ? 'drafts' : 'knowledge'"
+          :active="activeTab"
           :role="identity.role"
-          :project-identifier="project.identifier"
-          :project-id="project.id"
+          :project-identifier="project?.identifier ?? ''"
+          :project-id="project?.id ?? 0"
+          :global="!project"
           :knowledge-count="isDraftWorkspace ? null : totalElements"
           :draft-count="isDraftWorkspace ? totalElements : null"
         />
 
         <PageHeader
-          :breadcrumb="isDraftWorkspace ? '项目 / 草稿' : project ? '项目 / 知识文档' : '工作空间 / 通用业务知识'"
+          :breadcrumb="isDraftWorkspace ? (project ? '项目 / 草稿' : '工作空间 / 草稿') : project ? '项目 / 知识文档' : '工作空间 / 通用业务知识'"
           :title="isDraftWorkspace ? '草稿' : project ? '知识文档' : '通用业务知识'"
           :description="isDraftWorkspace
             ? '上传的变更材料、待审核内容和 AI 整理产物统一从草稿流程处理。勾选后可合并整理或直接发布。'
@@ -132,7 +132,7 @@
             <p v-if="batchMessage" data-testid="batch-publish-message" class="knowledge-batch-message" :class="{ 'knowledge-batch-message--error': batchError }" role="status">{{ batchMessage }}</p>
             <div v-if="documents.length === 0" data-testid="knowledge-empty" class="knowledge-empty">
               <IconGlyph name="book" />
-              <strong>{{ isDraftWorkspace ? '当前项目暂无草稿' : isAdministrator ? '当前范围暂无知识文档' : '暂无已发布知识' }}</strong>
+              <strong>{{ isDraftWorkspace ? (project ? '当前项目暂无草稿' : '当前范围暂无草稿') : isAdministrator ? '当前范围暂无知识文档' : '暂无已发布知识' }}</strong>
               <p>{{ isDraftWorkspace ? '上传 Markdown 后会先进入这里，再由管理员勾选后整理或发布。' : isAdministrator ? '可以新建或导入资料后再发布。' : '请联系管理员补充并发布知识。' }}</p>
             </div>
             <DocumentList
@@ -222,7 +222,14 @@ const router = useRouter()
 const identity = computed(() => session.identity.value)
 const isAdministrator = computed(() => identity.value?.role === 'ADMIN')
 const isProjectContext = computed(() => typeof route.params.identifier === 'string')
-const isDraftWorkspace = computed(() => route.name === 'project-drafts' || route.name === 'project-draft-detail')
+const isDraftWorkspace = computed(() => route.name === 'project-drafts' || route.name === 'project-draft-detail'
+  || route.name === 'knowledge-global-drafts' || route.name === 'knowledge-global-draft-detail')
+/** 通用知识页与项目页共用的 tab 高亮：知识文档 / 草稿 / 知识任务 */
+const activeTab = computed(() => {
+  if (isDraftWorkspace.value) return 'drafts'
+  if (route.name === 'knowledge-global-tasks') return 'tasks'
+  return 'knowledge'
+})
 const project = ref<ProjectDetail | null>(null)
 const currentDirectory = ref('')
 const page = ref(0)
@@ -288,6 +295,8 @@ async function loadDocuments(): Promise<void> {
         project: project.value?.identifier,
         directory: currentDirectory.value || undefined,
         includeDescendants: true,
+        // 项目文档列表不混入通用知识文档；通用知识页保持 GLOBAL 范围。
+        excludeGlobal: Boolean(project.value),
         page: page.value,
         size: 20,
       })
@@ -312,6 +321,8 @@ async function loadAdminDocuments(): Promise<void> {
     project: project.value?.identifier,
     directory: currentDirectory.value || undefined,
     status: isDraftWorkspace.value ? 'DRAFT' : undefined,
+    // 项目草稿池不混入通用知识草稿；通用知识页保持 GLOBAL 范围。
+    excludeGlobal: Boolean(project.value),
     page: page.value,
     size: 20,
   })
@@ -331,6 +342,8 @@ async function loadDetail(documentId: number): Promise<void> {
       : await api.getDocument(documentId, {
           context: project.value ? 'PROJECT' : 'GLOBAL',
           project: project.value?.identifier,
+          // 与列表保持一致：项目内详情读不落到通用知识文档。
+          excludeGlobal: Boolean(project.value),
         })
   } catch {
     detailError.value = true
@@ -358,8 +371,8 @@ async function changePage(target: number): Promise<void> {
 
 async function clearSelectedDetailRoute(): Promise<void> {
   if (!selectedDocumentId.value) return
-  const target = isDraftWorkspace.value && project.value
-    ? `/projects/${project.value.identifier}/drafts`
+  const target = isDraftWorkspace.value
+    ? (project.value ? `/projects/${project.value.identifier}/drafts` : '/knowledge/drafts')
     : project.value ? `/projects/${project.value.identifier}` : '/knowledge'
   await router.replace({ path: target, query: route.query })
 }
@@ -375,14 +388,18 @@ function toggleAllDrafts(): void {
 }
 
 async function startMerge(): Promise<void> {
-  if (!project.value || selectedDocumentIds.value.length === 0 || mergeStarting.value || batchPublishing.value) return
+  if (selectedDocumentIds.value.length === 0 || mergeStarting.value || batchPublishing.value) return
   mergeStarting.value = true
   mergeError.value = false
   mergeMessage.value = ''
   batchMessage.value = ''
   try {
-    const task = await knowledgeTaskApi.start(project.value.identifier, selectedDocumentIds.value, mergeGoal.value.trim())
-    await router.push(`/projects/${project.value.identifier}/knowledge-tasks/${task.conversationId}`)
+    // 无项目上下文时发起全局知识整理（整理通用业务知识），任务与发布均为通用范围。
+    const task = await knowledgeTaskApi.start(
+      project.value?.identifier ?? null, selectedDocumentIds.value, mergeGoal.value.trim())
+    await router.push(project.value
+      ? `/projects/${project.value.identifier}/knowledge-tasks/${task.conversationId}`
+      : `/knowledge/knowledge-tasks/${task.conversationId}`)
   } catch (failure) {
     mergeError.value = true
     mergeMessage.value = failure instanceof ApiError
@@ -418,11 +435,11 @@ async function publishSelectedDocuments(): Promise<void> {
 }
 
 async function openDocument(documentId: number): Promise<void> {
-  const target = isDraftWorkspace.value && project.value
-    ? `/projects/${project.value.identifier}/drafts/${documentId}`
+  const target = isDraftWorkspace.value
+    ? (project.value ? `/projects/${project.value.identifier}/drafts/${documentId}` : `/knowledge/drafts/${documentId}`)
     : project.value
       ? `/projects/${project.value.identifier}/knowledge/${documentId}`
-    : `/knowledge/${documentId}`
+      : `/knowledge/${documentId}`
   await router.push({ path: target, query: route.query })
   await loadDetail(documentId)
 }
@@ -483,10 +500,15 @@ async function logout(): Promise<void> {
 onMounted(initialize)
 
 watch(() => route.name, async (current, previous) => {
-  const workspaceRoutes = new Set(['project-knowledge', 'project-knowledge-detail', 'project-drafts', 'project-draft-detail'])
+  const workspaceRoutes = new Set([
+    'project-knowledge', 'project-knowledge-detail', 'project-drafts', 'project-draft-detail',
+    'knowledge-global-drafts', 'knowledge-global-draft-detail',
+  ])
   if (current === previous || !workspaceRoutes.has(String(current)) || !workspaceRoutes.has(String(previous))) return
   const currentIsDraft = current === 'project-drafts' || current === 'project-draft-detail'
+    || current === 'knowledge-global-drafts' || current === 'knowledge-global-draft-detail'
   const previousIsDraft = previous === 'project-drafts' || previous === 'project-draft-detail'
+    || previous === 'knowledge-global-drafts' || previous === 'knowledge-global-draft-detail'
   if (currentIsDraft === previousIsDraft) return
   currentDirectory.value = ''
   page.value = 0

@@ -41,7 +41,12 @@ function qaApi(overrides: Partial<QaApi> = {}): QaApi {
     conversation: vi.fn(),
     history: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
     detail: vi.fn(), createQuestion: vi.fn(), createKnowledgeGap: vi.fn(),
-    openEventStream: vi.fn().mockReturnValue({ close: vi.fn() }), ...overrides,
+    openEventStream: vi.fn().mockReturnValue({ close: vi.fn() }),
+    conversationsGlobal: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+    conversationGlobal: vi.fn(),
+    historyGlobal: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+    detailGlobal: vi.fn(), createQuestionGlobal: vi.fn(),
+    openEventStreamGlobal: vi.fn().mockReturnValue({ close: vi.fn() }), ...overrides,
   }
 }
 
@@ -49,6 +54,8 @@ function conversationSummary() {
   return {
     conversationId: 51,
     projectIdentifier: 'network-designer',
+    projectName: '网络设计',
+    scope: 'PROJECT' as const,
     title: '当前范围是什么？',
     lastQuestion: '当前范围是什么？',
     status: 'COMPLETED' as const,

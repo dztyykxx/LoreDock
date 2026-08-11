@@ -59,7 +59,7 @@
       </p>
       <div class="qa-answer__actions">
         <button data-testid="retry-answer" type="button" @click="$emit('retry')">使用新运行重试</button>
-        <a data-testid="browse-knowledge" :href="`/projects/${encodeURIComponent(snapshot.scope.projectIdentifier)}`">浏览已发布知识</a>
+        <a data-testid="browse-knowledge" :href="browseHref">浏览已发布知识</a>
       </div>
     </template>
     <template v-else>
@@ -75,7 +75,7 @@
       <button type="button" data-testid="open-citations" @click="openCitations">
         <IconGlyph name="file" />来源 {{ snapshot.citations.length }}
       </button>
-      <button type="button" data-testid="open-feedback" @click="$emit('feedback')">记录知识缺口</button>
+      <button v-if="showFeedback" type="button" data-testid="open-feedback" @click="$emit('feedback')">记录知识缺口</button>
     </footer>
   </article>
 </template>
@@ -92,6 +92,8 @@ const props = defineProps<{
   partialText: string
   connectionState: QaConnectionState
   processEvents?: QaProcessEvent[]
+  /** 是否展示"记录知识缺口"；全局问答无全局缺口端点，默认展示 */
+  showFeedback?: boolean
 }>()
 const emit = defineEmits<{ retry: []; openCitations: [trigger: HTMLElement]; feedback: [] }>()
 const processOpen = ref(false)
@@ -101,6 +103,11 @@ const visibleProcessEvents = computed(() => (props.processEvents ?? props.snapsh
 function openCitations(event: MouseEvent): void {
   emit('openCitations', event.currentTarget as HTMLElement)
 }
+
+/** 全局问答的浏览链接指向通用知识页；项目问答指向项目知识页。 */
+const browseHref = computed(() => props.snapshot.scope.projectIdentifier === 'GLOBAL'
+  ? '/knowledge'
+  : `/projects/${encodeURIComponent(props.snapshot.scope.projectIdentifier)}`)
 
 const phaseLabel = computed(() => ({
   ACCEPTED: '问题已受理',

@@ -121,15 +121,21 @@ export interface DraftDiff {
   truncated: boolean
 }
 
-function base(identifier: string, conversationId: number): string {
-  return `/api/admin/projects/${encodeURIComponent(identifier)}/knowledge-tasks/${conversationId}`
+/** 任务根路径；identifier 为空表示全局知识任务（整理通用业务知识）。 */
+function taskRoot(identifier: string | null): string {
+  return identifier
+    ? `/api/admin/projects/${encodeURIComponent(identifier)}/knowledge-tasks`
+    : '/api/admin/knowledge-tasks'
+}
+
+function base(identifier: string | null, conversationId: number): string {
+  return `${taskRoot(identifier)}/${conversationId}`
 }
 
 export const knowledgeTaskApi = {
-  list: (identifier: string) => requestJson<KnowledgeTaskSummary[]>(
-    `/api/admin/projects/${encodeURIComponent(identifier)}/knowledge-tasks`),
-  start: (identifier: string, selectedDraftIds: number[], goal: string) => requestJson<KnowledgeTask>(
-    `/api/admin/projects/${encodeURIComponent(identifier)}/knowledge-tasks`, {
+  list: (identifier: string | null) => requestJson<KnowledgeTaskSummary[]>(taskRoot(identifier)),
+  start: (identifier: string | null, selectedDraftIds: number[], goal: string) => requestJson<KnowledgeTask>(
+    taskRoot(identifier), {
       method: 'POST',
       body: JSON.stringify({
         idempotencyKey: crypto.randomUUID(),
@@ -138,43 +144,43 @@ export const knowledgeTaskApi = {
         goal,
       }),
     }),
-  detail: (identifier: string, conversationId: number) => requestJson<KnowledgeTask>(base(identifier, conversationId)),
-  stop: (identifier: string, conversationId: number, runId: number) =>
+  detail: (identifier: string | null, conversationId: number) => requestJson<KnowledgeTask>(base(identifier, conversationId)),
+  stop: (identifier: string | null, conversationId: number, runId: number) =>
     requestJson<KnowledgeTaskRun>(`${base(identifier, conversationId)}/runs/${runId}/stop`, { method: 'POST' }),
-  pause: (identifier: string, conversationId: number, runId: number) =>
+  pause: (identifier: string | null, conversationId: number, runId: number) =>
     requestJson<KnowledgeTaskRun>(`${base(identifier, conversationId)}/runs/${runId}/pause`, { method: 'POST' }),
-  resume: (identifier: string, conversationId: number, runId: number, guidance: string) =>
+  resume: (identifier: string | null, conversationId: number, runId: number, guidance: string) =>
     requestJson<KnowledgeTaskRun>(`${base(identifier, conversationId)}/runs/${runId}/resume`, {
       method: 'POST', body: JSON.stringify({ guidance }),
     }),
-  continueTask: (identifier: string, conversationId: number, guidance: string) =>
+  continueTask: (identifier: string | null, conversationId: number, guidance: string) =>
     requestJson<KnowledgeTaskRun>(`${base(identifier, conversationId)}/continue`, {
       method: 'POST', body: JSON.stringify({ idempotencyKey: crypto.randomUUID(), guidance }),
     }),
-  revision: (identifier: string, conversationId: number, draftId: number, revision: number) =>
+  revision: (identifier: string | null, conversationId: number, draftId: number, revision: number) =>
     requestJson<DraftRevision>(`${base(identifier, conversationId)}/drafts/${draftId}/revisions/${revision}`),
-  revisions: (identifier: string, conversationId: number, draftId: number) =>
+  revisions: (identifier: string | null, conversationId: number, draftId: number) =>
     requestJson<DraftRevision[]>(`${base(identifier, conversationId)}/drafts/${draftId}/revisions`),
-  diff: (identifier: string, conversationId: number, draftId: number, fromRevision: number | null, toRevision: number) =>
+  diff: (identifier: string | null, conversationId: number, draftId: number, fromRevision: number | null, toRevision: number) =>
     requestJson<DraftDiff>(`${base(identifier, conversationId)}/drafts/${draftId}/diff`, {
       method: 'POST', body: JSON.stringify({ fromRevision, toRevision }),
     }),
-  publish: (identifier: string, conversationId: number, draftId: number, reviewedRevision: number) =>
+  publish: (identifier: string | null, conversationId: number, draftId: number, reviewedRevision: number) =>
     requestJson(`${base(identifier, conversationId)}/drafts/${draftId}/publish`, {
       method: 'POST', body: JSON.stringify({ reviewedRevision }),
     }),
-  publishWorkspace: (identifier: string, conversationId: number, reviewedDrafts: Array<{ draftId: number; reviewedRevision: number }>) =>
+  publishWorkspace: (identifier: string | null, conversationId: number, reviewedDrafts: Array<{ draftId: number; reviewedRevision: number }>) =>
     requestJson(`${base(identifier, conversationId)}/publish`, {
       method: 'POST', body: JSON.stringify({ idempotencyKey: crypto.randomUUID(), reviewedDrafts }),
     }),
-  closeNoChange: (identifier: string, conversationId: number, reason: string) =>
+  closeNoChange: (identifier: string | null, conversationId: number, reason: string) =>
     requestJson<KnowledgeTask>(`${base(identifier, conversationId)}/close-no-change`, {
       method: 'POST', body: JSON.stringify({ reason }),
     }),
-  abandon: (identifier: string, conversationId: number, reason: string) =>
+  abandon: (identifier: string | null, conversationId: number, reason: string) =>
     requestJson<KnowledgeTask>(`${base(identifier, conversationId)}/abandon`, {
       method: 'POST', body: JSON.stringify({ reason }),
     }),
-  eventUrl: (identifier: string, conversationId: number, after: number) =>
+  eventUrl: (identifier: string | null, conversationId: number, after: number) =>
     `${base(identifier, conversationId)}/events?after=${after}`,
 }

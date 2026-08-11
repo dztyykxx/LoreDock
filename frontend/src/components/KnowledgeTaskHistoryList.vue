@@ -4,7 +4,7 @@
       v-for="task in tasks"
       :key="task.conversationId"
       :data-conversation-id="task.conversationId"
-      :to="`/projects/${projectIdentifier}/knowledge-tasks/${task.conversationId}`"
+      :to="taskTarget(task.conversationId)"
       class="task-history-item"
     >
       <span class="task-history-item__icon"><IconGlyph name="message" /></span>
@@ -28,7 +28,14 @@ import { RouterLink } from 'vue-router'
 import type { KnowledgeTaskRunStatus, KnowledgeTaskStatus, KnowledgeTaskSummary } from '../api/knowledgeTasks'
 import IconGlyph from './IconGlyph.vue'
 
-defineProps<{ projectIdentifier: string; tasks: KnowledgeTaskSummary[] }>()
+const props = defineProps<{ projectIdentifier: string | null; tasks: KnowledgeTaskSummary[] }>()
+
+/** 项目任务进入项目详情；全局知识任务（projectIdentifier 为空）进入通用知识页任务详情。 */
+function taskTarget(conversationId: number): string {
+  return props.projectIdentifier
+    ? `/projects/${props.projectIdentifier}/knowledge-tasks/${conversationId}`
+    : `/knowledge/knowledge-tasks/${conversationId}`
+}
 
 function statusLabel(status: KnowledgeTaskRunStatus | null): string {
   if (!status) return '未运行'

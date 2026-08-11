@@ -7,22 +7,31 @@
       @logout="logout"
     />
     <main class="app-main knowledge-task-main">
-      <AppTopBar :project-name="project?.name ?? identifier" />
+      <header v-if="!project" class="list-topbar">
+        <div><span>工作空间</span><IconGlyph name="chevronRight" /><strong>通用业务知识</strong></div>
+      </header>
+      <AppTopBar v-else :project-name="project.name" />
       <section class="knowledge-task-content">
-        <ProjectHero
-          :name="project?.name ?? identifier"
-          :identifier="identifier"
-          :technology-stack="project?.technologyStack ?? '知识整理任务'"
-        >
-          <template #actions>
-            <RouterLink :to="`/projects/${identifier}/knowledge-tasks`"><AppButton variant="secondary" icon="arrowLeft">返回任务列表</AppButton></RouterLink>
-          </template>
-        </ProjectHero>
+        <template v-if="project">
+          <ProjectHero
+            :name="project.name"
+            :identifier="project.identifier"
+            :technology-stack="project.technologyStack"
+          >
+            <template #actions>
+              <RouterLink :to="`/projects/${project.identifier}/knowledge-tasks`"><AppButton variant="secondary" icon="arrowLeft">返回任务列表</AppButton></RouterLink>
+            </template>
+          </ProjectHero>
+        </template>
+        <div v-else class="global-task-heading">
+          <RouterLink to="/knowledge/knowledge-tasks"><AppButton variant="secondary" icon="arrowLeft">返回任务列表</AppButton></RouterLink>
+        </div>
         <ProjectTabs
           active="tasks"
           :role="identity.role"
-          :project-identifier="identifier"
-          :project-id="project?.id"
+          :project-identifier="project?.identifier ?? ''"
+          :project-id="project?.id ?? 0"
+          :global="!project"
         />
 
         <p v-if="loading" class="task-page-state">正在读取知识任务…</p>
@@ -56,6 +65,7 @@ import { useProjectApi, useSession } from '../appContext'
 import AppButton from '../components/AppButton.vue'
 import AppSidebar from '../components/AppSidebar.vue'
 import AppTopBar from '../components/AppTopBar.vue'
+import IconGlyph from '../components/IconGlyph.vue'
 import KnowledgeTaskWorkspace from '../components/KnowledgeTaskWorkspace.vue'
 import ProjectHero from '../components/ProjectHero.vue'
 import ProjectTabs from '../components/ProjectTabs.vue'
@@ -65,7 +75,8 @@ const router = useRouter()
 const projects = useProjectApi()
 const session = useSession()
 const identity = computed(() => session.identity.value)
-const identifier = String(route.params.identifier)
+// identifier 为空表示全局知识任务详情（/knowledge/knowledge-tasks/:conversationId）。
+const identifier = typeof route.params.identifier === 'string' ? route.params.identifier : null
 const conversationId = Number(route.params.conversationId)
 const project = ref<ProjectDetail | null>(null)
 const task = ref<KnowledgeTask | null>(null)
@@ -166,8 +177,12 @@ async function logout(): Promise<void> { await session.logout(); await router.pu
 
 onMounted(async () => {
   try {
-    const [, projectDetail] = await Promise.all([load(), projects.getProject(identifier)])
-    project.value = projectDetail
+    if (identifier) {
+      const [, projectDetail] = await Promise.all([load(), projects.getProject(identifier)])
+      project.value = projectDetail
+    } else {
+      await load()
+    }
     openEvents()
     schedulePoll()
   } catch { error.value = '无法打开知识任务。' } finally { loading.value = false }
@@ -180,6 +195,7 @@ onBeforeUnmount(() => { if (pollTimer !== undefined) window.clearTimeout(pollTim
 .knowledge-task-main{min-height:960px;background:var(--surface)}
 .knowledge-task-content{width:min(1220px,calc(100% - 64px));margin:0 auto;padding:20px 0 32px}
 .knowledge-task-content>.project-tabs{margin-top:14px}
+.global-task-heading{margin-top:14px}
 .knowledge-task-content>.knowledge-task-workspace{margin-top:14px}
 .task-page-state{margin:32px 0;border:1px solid var(--border);border-radius:12px;padding:24px;background:var(--neutral-soft)}
 .task-page-state--error{color:var(--danger);background:var(--danger-soft)}

@@ -41,6 +41,12 @@ function api(overrides: Partial<QaApi> = {}): QaApi {
     createQuestion: vi.fn().mockResolvedValue(question()),
     createKnowledgeGap: vi.fn(),
     openEventStream: vi.fn().mockReturnValue({ close: vi.fn() }),
+    conversationsGlobal: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+    conversationGlobal: vi.fn().mockResolvedValue({ conversation: conversation(), rounds: [question()] }),
+    historyGlobal: vi.fn().mockResolvedValue({ items: [], nextCursor: null }),
+    detailGlobal: vi.fn().mockResolvedValue(question()),
+    createQuestionGlobal: vi.fn().mockResolvedValue(question()),
+    openEventStreamGlobal: vi.fn().mockReturnValue({ close: vi.fn() }),
     ...overrides,
   }
 }
@@ -49,6 +55,8 @@ function conversation() {
   return {
     conversationId: 51,
     projectIdentifier: 'network-designer',
+    projectName: '网络设计',
+    scope: 'PROJECT' as const,
     title: '为什么需要范围锁定？',
     lastQuestion: '为什么需要范围锁定？',
     status: 'COMPLETED' as const,

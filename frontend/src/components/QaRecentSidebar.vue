@@ -16,18 +16,24 @@
     >
       <span :title="itemText(item)">{{ itemText(item) }}</span>
       <small>{{ formatTime(itemTime(item)) }}</small>
+      <em v-if="itemScope(item)" class="qa-recent__scope">{{ itemScope(item) }}</em>
     </button>
   </section>
 </template>
 
 <script setup lang="ts">
-import type { QaConversationSummary, QaQuestion } from '../api/qa'
+import { scopeLabel, type QaConversationSummary, type QaQuestion } from '../api/qa'
 
 defineProps<{ items: Array<QaConversationSummary | QaQuestion>; selectedId: number | null }>()
 defineEmits<{ select: [itemId: number] }>()
 
 function isConversation(item: QaConversationSummary | QaQuestion): item is QaConversationSummary {
   return 'title' in item
+}
+
+/** @returns 会话检索范围标注；旧问题列表（无 scope 字段）不标注，保持兼容 */
+function itemScope(item: QaConversationSummary | QaQuestion): string | null {
+  return isConversation(item) && 'scope' in item ? scopeLabel(item) : null
 }
 
 function itemId(item: QaConversationSummary | QaQuestion): number {

@@ -6,8 +6,10 @@ import ProjectSettingsView from '../views/ProjectSettingsView.vue'
 import KnowledgeWorkspaceView from '../views/KnowledgeWorkspaceView.vue'
 import KnowledgeEditorView from '../views/KnowledgeEditorView.vue'
 import ProjectQaView from '../views/ProjectQaView.vue'
+import GlobalQaView from '../views/GlobalQaView.vue'
 import KnowledgeTaskView from '../views/KnowledgeTaskView.vue'
 import KnowledgeTaskListView from '../views/KnowledgeTaskListView.vue'
+import GlobalKnowledgeTaskListView from '../views/GlobalKnowledgeTaskListView.vue'
 import GlobalSearchView from '../views/GlobalSearchView.vue'
 
 export function createLoreDockRouter(session: SessionController): Router {
@@ -33,6 +35,36 @@ export function createLoreDockRouter(session: SessionController): Router {
         name: 'global-search',
         component: GlobalSearchView,
         meta: { requiresAuth: true },
+      },
+      {
+        path: '/qa',
+        name: 'global-qa',
+        component: GlobalQaView,
+        meta: { requiresAuth: true },
+      },
+      {
+        path: '/knowledge/drafts',
+        name: 'knowledge-global-drafts',
+        component: KnowledgeWorkspaceView,
+        meta: { requiresAuth: true, adminOnly: true, memberFallback: '/knowledge' },
+      },
+      {
+        path: '/knowledge/drafts/:documentId',
+        name: 'knowledge-global-draft-detail',
+        component: KnowledgeWorkspaceView,
+        meta: { requiresAuth: true, adminOnly: true, memberFallback: '/knowledge' },
+      },
+      {
+        path: '/knowledge/knowledge-tasks',
+        name: 'knowledge-global-tasks',
+        component: GlobalKnowledgeTaskListView,
+        meta: { requiresAuth: true, adminOnly: true, memberFallback: '/knowledge' },
+      },
+      {
+        path: '/knowledge/knowledge-tasks/:conversationId',
+        name: 'knowledge-global-task',
+        component: KnowledgeTaskView,
+        meta: { requiresAuth: true, adminOnly: true, memberFallback: '/knowledge' },
       },
       {
         path: '/knowledge/new',

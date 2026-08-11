@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it, vi } from 'vitest'
 import AppButton from './AppButton.vue'
@@ -7,6 +7,7 @@ import ProjectCard from './ProjectCard.vue'
 import ProjectTabs from './ProjectTabs.vue'
 import AppSidebar from './AppSidebar.vue'
 import AppTopBar from './AppTopBar.vue'
+import { qaApiKey } from '../appContext'
 import type { ProjectSummary } from '../api/types'
 
 const project: ProjectSummary = {
@@ -169,9 +170,10 @@ describe('design components', () => {
   })
 
   /**
-   * 业务目的：没有当前项目时问答入口仍应可点击并引导选择项目，不能伪造一个默认问答范围。
+   * 业务目的：没有当前项目时问答入口应进入全局（全库）问答页，检索范围包含通用与各项目，
+   * 不再引导回项目列表。
    */
-  it('routes generic sidebar questions to explicit project selection', () => {
+  it('routes generic sidebar questions to global qa page', () => {
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [{ path: '/projects', name: 'projects', component: { template: '<div />' } }],
@@ -181,7 +183,45 @@ describe('design components', () => {
       global: { plugins: [router] },
     })
 
-    expect(wrapper.get('[data-testid="sidebar-qa-link"]').attributes('href')).toBe('/projects')
-    expect(wrapper.get('[data-testid="sidebar-new-question-link"]').attributes('href')).toBe('/projects')
+    expect(wrapper.get('[data-testid="sidebar-qa-link"]').attributes('href')).toBe('/qa')
+    expect(wrapper.get('[data-testid="sidebar-new-question-link"]').attributes('href')).toBe('/qa?new=1')
+  })
+
+  /**
+   * 业务目的：无项目侧栏的最近问答必须来自跨项目会话接口并标注检索范围（全局/项目：名称），
+   * 支持游标加载更早记录；防止继续以静态样例冒充真实历史。
+   */
+  it('renders cross-project recent conversations with scope labels', async () => {
+    const conversationsGlobal = vi.fn()
+      .mockResolvedValueOnce({
+        items: [
+          { conversationId: 1, projectIdentifier: 'GLOBAL', projectName: null, scope: 'GLOBAL', title: '全局问题', lastQuestion: '全局问题', status: 'COMPLETED', createdAt: '2026-08-01T00:00:00Z', updatedAt: '2026-08-01T00:00:00Z', lastQuestionAt: '2026-08-01T00:00:00Z' },
+          { conversationId: 2, projectIdentifier: 'api-project', projectName: '接口返回项目', scope: 'PROJECT', title: '项目问题', lastQuestion: '项目问题', status: 'COMPLETED', createdAt: '2026-08-01T00:00:00Z', updatedAt: '2026-08-01T00:00:00Z', lastQuestionAt: '2026-08-01T00:00:00Z' },
+        ],
+        nextCursor: 'cursor-1',
+      })
+      .mockResolvedValueOnce({ items: [], nextCursor: null })
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/projects', component: { template: '<div />' } },
+        { path: '/qa', name: 'global-qa', component: { template: '<div />' } },
+      ],
+    })
+    const wrapper = mount(AppSidebar, {
+      props: { displayName: '管理员', role: 'ADMIN' },
+      global: {
+        plugins: [router],
+        provide: { [qaApiKey]: { conversationsGlobal } },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('全局问题')
+    expect(wrapper.text()).toContain('项目：接口返回项目')
+    expect(wrapper.get('.qa-load-more').text()).toContain('加载更早记录')
+    await wrapper.get('.qa-load-more').trigger('click')
+    await flushPromises()
+    expect(conversationsGlobal).toHaveBeenCalledWith('cursor-1', 10)
   })
 })

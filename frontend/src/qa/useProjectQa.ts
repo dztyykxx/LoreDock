@@ -44,11 +44,12 @@ export interface ProjectQaController {
 }
 
 /**
- * 管理单个项目问答页的快照与流式连接；历史正文不会进入新问题请求。
+ * 管理问答页的快照与流式连接；历史正文不会进入新问题请求。
+ * identifier 为空时进入全局（全库）模式：创建、详情与事件流走 /api/qa 全局端点。
  */
 export function createProjectQaController(
   api: QaApi,
-  identifier: string,
+  identifier: string | null,
   options: ProjectQaControllerOptions = {},
 ): ProjectQaController {
   const conversations = ref<QaConversationSummary[]>([])
@@ -79,7 +80,7 @@ export function createProjectQaController(
     loading.value = true
     loadError.value = null
     try {
-      const page = await api.history(identifier, cursor)
+      const page = identifier ? await api.history(identifier, cursor) : await api.historyGlobal(cursor)
       history.value = cursor ? [...history.value, ...page.items] : page.items
       nextCursor.value = page.nextCursor
     } catch (error) {
@@ -94,7 +95,9 @@ export function createProjectQaController(
     loading.value = true
     loadError.value = null
     try {
-      const page = await api.conversations(identifier, cursor)
+      const page = identifier
+        ? await api.conversations(identifier, cursor)
+        : await api.conversationsGlobal(cursor)
       conversations.value = cursor ? [...conversations.value, ...page.items] : page.items
       nextCursor.value = page.nextCursor
     } catch (error) {
@@ -110,7 +113,9 @@ export function createProjectQaController(
     loading.value = true
     loadError.value = null
     try {
-      const detail = await api.conversation(identifier, conversationId)
+      const detail = identifier
+        ? await api.conversation(identifier, conversationId)
+        : await api.conversationGlobal(conversationId)
       currentConversation.value = detail.conversation
       rounds.value = [...detail.rounds].sort((left, right) => (
         left.createdAt.localeCompare(right.createdAt) || left.questionId - right.questionId
@@ -138,7 +143,10 @@ export function createProjectQaController(
     loading.value = true
     loadError.value = null
     try {
-      await observe(await api.detail(identifier, questionId))
+      const snapshot = identifier
+        ? await api.detail(identifier, questionId)
+        : await api.detailGlobal(questionId)
+      await observe(snapshot)
     } catch (error) {
       loadError.value = errorMessage(error)
       throw error
@@ -167,7 +175,9 @@ export function createProjectQaController(
         ...(conversationId ? { conversationId } : {}),
         question,
       }
-      const snapshot = await api.createQuestion(identifier, input)
+      const snapshot = identifier
+        ? await api.createQuestion(identifier, input)
+        : await api.createQuestionGlobal(input)
       pendingIdempotencyKey.value = null
       pendingRequestSignature = null
       history.value = [snapshot, ...history.value.filter(item => item.questionId !== snapshot.questionId)]
@@ -212,7 +222,14 @@ export function createProjectQaController(
   function connect(questionId: number): void {
     const generation = ++connectionGeneration
     connectionState.value = 'connecting'
-    stream = api.openEventStream(identifier, questionId, lastSequence, {
+    stream = identifier
+      ? api.openEventStream(identifier, questionId, lastSequence, streamHandlers(generation, questionId))
+      : api.openEventStreamGlobal(questionId, lastSequence, streamHandlers(generation, questionId))
+    connectionState.value = 'open'
+  }
+
+  function streamHandlers(generation: number, questionId: number): Parameters<QaApi['openEventStream']>[3] {
+    return {
       onEvent(name, event) {
         if (generation !== connectionGeneration || current.value?.questionId !== questionId) return
         applyEvent(name, event, questionId)
@@ -237,8 +254,7 @@ export function createProjectQaController(
           }, reconnectDelayMs)
         }
       },
-    })
-    connectionState.value = 'open'
+    }
   }
 
   function applyEvent(name: QaSseEventName, event: QaSseEvent, questionId: number): void {
@@ -257,7 +273,9 @@ export function createProjectQaController(
 
   async function refreshTerminal(questionId: number): Promise<void> {
     try {
-      const snapshot = await api.detail(identifier, questionId)
+      const snapshot = identifier
+        ? await api.detail(identifier, questionId)
+        : await api.detailGlobal(questionId)
       current.value = snapshot
       partialText.value = snapshot.resultText ?? ''
       phase.value = snapshot.status
@@ -276,7 +294,9 @@ export function createProjectQaController(
 
   async function refreshConversations(snapshot: QaQuestion): Promise<void> {
     try {
-      const page = await api.conversations(identifier, undefined)
+      const page = identifier
+        ? await api.conversations(identifier, undefined)
+        : await api.conversationsGlobal(undefined)
       conversations.value = page.items
       nextCursor.value = page.nextCursor
       const selected = page.items.find(item => item.conversationId === snapshot.conversationId) ?? null
@@ -297,9 +317,12 @@ export function createProjectQaController(
       ?? snapshot.messages.find(message => message.role === 'USER')?.content
       ?? existing?.lastQuestion
       ?? '未命名问题'
+    const global = snapshot.scope.projectIdentifier === 'GLOBAL'
     currentConversation.value = {
       conversationId: snapshot.conversationId,
       projectIdentifier: snapshot.scope.projectIdentifier,
+      projectName: existing?.projectName ?? null,
+      scope: global ? 'GLOBAL' : 'PROJECT',
       title: existing?.title ?? [...question].slice(0, 200).join(''),
       lastQuestion: question,
       status: snapshot.status,
