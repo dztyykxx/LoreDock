@@ -278,8 +278,70 @@ class QaServiceCreateTest {
         System.out.println("测试证据：场景=无效分支，Agent启动=0，问答写入=0，消息写入=0");
     }
 
+    /**
+     * 业务目的：全局问答创建必须跳过项目主数据解析，落库 project_id 为空 + 哨兵标识，
+     * 并直接启动全局 Agent 运行；防止把"全库"误当项目解析失败。
+     */
+    @Test
+    void globalCreateSkipsProjectResolutionAndUsesSentinelScope() {
+        AgentRun globalRun = globalRun();
+        when(agents.startGlobal(any())).thenReturn(globalRun);
+        when(agents.get(RUN_ID, "member")).thenReturn(globalRun);
+
+        WebQaQuestionSnapshot snapshot = service.createGlobalSnapshot(new QaService.GlobalCreateRequest(
+                "member", "MEMBER", "global-key", null, "全库问题"));
+
+        verify(projects, never()).resolveEnabledScope(any(), any());
+        ArgumentCaptor<AgentService.GlobalStartRequest> start =
+                ArgumentCaptor.forClass(AgentService.GlobalStartRequest.class);
+        verify(agents).startGlobal(start.capture());
+        assertThat(start.getValue().question()).isEqualTo("全库问题");
+        ArgumentCaptor<WebQaConversationRecord> conversation =
+                ArgumentCaptor.forClass(WebQaConversationRecord.class);
+        verify(conversations).insert(conversation.capture());
+        assertThat(conversation.getValue().projectId()).isNull();
+        assertThat(conversation.getValue().projectIdentifier()).isEqualTo("GLOBAL");
+        assertThat(snapshot.question().projectId()).isNull();
+        assertThat(snapshot.question().projectIdentifier()).isEqualTo("GLOBAL");
+        System.out.printf("测试证据：场景=全局会话创建，conversationId=%s，projectId=null，哨兵=%s，问题=%s%n",
+                snapshot.question().conversationId(), snapshot.question().projectIdentifier(),
+                start.getValue().question());
+    }
+
+    /**
+     * 业务目的：全局问答必须与项目问答使用不同的幂等域；相同操作者以相同键重试相同输入
+     * 只能复用原全局轮次，不能重复启动全局 Agent。
+     */
+    @Test
+    void globalIdempotentRetryReusesQuestionWithoutStartingNewRun() {
+        AgentRun globalRun = globalRun();
+        when(agents.startGlobal(any())).thenReturn(globalRun);
+        when(agents.get(RUN_ID, "member")).thenReturn(globalRun);
+
+        WebQaQuestionSnapshot first = service.createGlobalSnapshot(new QaService.GlobalCreateRequest(
+                "member", "MEMBER", "global-key", null, "全库问题"));
+        when(questions.findByOperatorAndIdempotencyKey("member", "global-key"))
+                .thenReturn(Optional.of(first.question()));
+        when(messages.findByQuestionId(first.question().id())).thenReturn(first.messages());
+
+        WebQaQuestionSnapshot retried = service.createGlobalSnapshot(new QaService.GlobalCreateRequest(
+                "member", "MEMBER", "global-key", null, "全库问题"));
+
+        assertThat(retried.question().id()).isEqualTo(first.question().id());
+        verify(agents, org.mockito.Mockito.times(1)).startGlobal(any());
+        System.out.printf("测试证据：场景=全局问答幂等复用，questionId=%s，全局Agent启动次数=1%n",
+                retried.question().id());
+    }
+
     private QaService.CreateRequest command(String key, String question) {
         return new QaService.CreateRequest("member", "MEMBER", key, "atlas", null, question);
+    }
+
+    private AgentRun globalRun() {
+        return new AgentRun(
+                RUN_ID, AgentRun.Status.ACCEPTED, null, null, null, null, null,
+                new AgentRun.Scope(null, "GLOBAL", null, "global", null, null, null),
+                0, 0, NOW, null, null, List.of());
     }
 
     private String requestHash(Long conversationId, String question) {

@@ -40,10 +40,11 @@ public final class WebQaHttpMapper {
                 snapshot.citations().stream().map(WebQaHttpMapper::toCitation).toList());
     }
 
-    /** @return 最近会话公开摘要 */
+    /** @return 最近会话公开摘要；scope 供前端标注"全局"或"项目：名称" */
     public static WebQaConversationSummaryResponse toResponse(QaService.ConversationSummary value) {
-        return new WebQaConversationSummaryResponse(value.conversationId(), value.projectIdentifier(), value.title(),
-                value.lastQuestion(), value.status(), value.createdAt(), value.updatedAt(), value.lastQuestionAt());
+        return new WebQaConversationSummaryResponse(value.conversationId(), value.projectIdentifier(),
+                value.projectName(), value.scope(), value.title(), value.lastQuestion(), value.status(),
+                value.createdAt(), value.updatedAt(), value.lastQuestionAt());
     }
 
     private static WebQaProcessEventResponse toProcessEvent(AgentEvent event) {

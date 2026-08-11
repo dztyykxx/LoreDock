@@ -47,6 +47,12 @@ public class AgentServiceImpl implements AgentService {
 
     private static final String TASK_TYPE = "project_qa";
     private static final String SKILL_NAME = "project-qa";
+    /** 全局问答幂等 hash 的独立域前缀，与项目问答互不复用同一幂等记录。 */
+    private static final String GLOBAL_TASK_DOMAIN = "global_qa";
+    /** 全局会话与运行的哨兵项目标识；真实项目标识为小写风格，不与该值碰撞。 */
+    private static final String GLOBAL_PROJECT_IDENTIFIER = "GLOBAL";
+    /** 全局会话与运行的哨兵分支名；仅占位，不参与检索范围。 */
+    private static final String GLOBAL_BRANCH_NAME = "global";
     private static final int MAX_EVENT_PAGE_SIZE = 200;
     private static final int MAX_HISTORY_MESSAGES = 16;
     private static final int MAX_HISTORY_CODE_POINTS = 8000;
@@ -106,6 +112,61 @@ public class AgentServiceImpl implements AgentService {
     public AgentRun start(StartRequest request) {
         Objects.requireNonNull(request, "agent start request is required");
         return toApiRun(startSnapshot(request));
+    }
+
+    @Override
+    public AgentRun startGlobal(GlobalStartRequest request) {
+        Objects.requireNonNull(request, "agent global start request is required");
+        return toApiRun(startGlobalSnapshot(request));
+    }
+
+    AgentRunSnapshot startGlobalSnapshot(GlobalStartRequest command) {
+        NormalizedGlobalInput input = normalizeGlobal(command);
+        // 幂等 hash 使用独立前缀域，与项目问答的 TASK_TYPE 域隔离，防止同幂等键误复用。
+        String requestHash = hash(GLOBAL_TASK_DOMAIN + "\n" + input.question() + "\n"
+                + historyHashInput(input.conversationHistory()));
+        var existing = runs.findByOperatorAndIdempotencyKey(input.operatorId(), input.idempotencyKey());
+        if (existing.isPresent()) {
+            if (!requestHash.equals(existing.get().requestHash())) {
+                throw new AgentRequestException(AgentRun.ErrorCode.AGENT_RUN_IDEMPOTENCY_CONFLICT);
+            }
+            return existing.get();
+        }
+        requireAvailable();
+        String instructions = readProjectQaSkill();
+        Long generationId = knowledge.findActiveIndexVersionId().orElse(null);
+        // 全局问答不解析项目主数据：projectId/branchId 为空，项目标识用哨兵；
+        // 允许的知识范围为通用与所有项目的项目级文档，不含分支文档。
+        AgentScopeSnapshot scope = new AgentScopeSnapshot(
+                null, GLOBAL_PROJECT_IDENTIFIER, null, GLOBAL_BRANCH_NAME, null, null,
+                generationId, List.of("GLOBAL", "PROJECT"));
+        AgentVersionSnapshot versions = new AgentVersionSnapshot(
+                SKILL_NAME, configuration.modelName(), configuration.outputSchemaVersion());
+        Instant acceptedAt = timeProvider.instant();
+        AgentRunCreateData data = new AgentRunCreateData(
+                null, input.operatorId(), input.idempotencyKey(), requestHash, TASK_TYPE,
+                hash(input.question()), input.question().codePointCount(0, input.question().length()),
+                scope, versions, acceptedAt);
+        AgentRunAcceptanceResult acceptanceResult = runs.accept(data);
+        AgentRunSnapshot accepted = acceptanceResult.snapshot();
+        if (!acceptanceResult.newlyAccepted()) {
+            if (!requestHash.equals(accepted.requestHash())) {
+                throw new AgentRequestException(AgentRun.ErrorCode.AGENT_RUN_IDEMPOTENCY_CONFLICT);
+            }
+            return accepted;
+        }
+        Long runId = accepted.runId();
+        AgentExecutionRequest request = new AgentExecutionRequest(
+                runId, input.question(), instructions, outputSchema, scope, versions,
+                configuration.runtimeLimits(), acceptedAt.plus(configuration.totalTimeout()),
+                input.conversationHistory());
+        dispatchAfterCommit(request);
+        AgentRunSnapshot result = runs.findById(runId).orElse(accepted);
+        log.info("agent_run startGlobal completed traceId={} runId={} scope={} "
+                        + "knowledgeGenerationAvailable={} status={}",
+                traceId(runId), runId, scope.projectIdentifier(),
+                scope.knowledgeGenerationId() != null, result.status());
+        return result;
     }
 
     AgentRunSnapshot startSnapshot(StartRequest command) {
@@ -213,10 +274,13 @@ public class AgentServiceImpl implements AgentService {
         if (!snapshot.operatorId().equals(operatorId)) {
             throw new AgentRunNotFoundException();
         }
-        try {
-            projects.resolveEnabledScope(snapshot.scope().projectIdentifier(), snapshot.scope().branch());
-        } catch (RuntimeException exception) {
-            throw new AgentRunNotFoundException();
+        // 全局运行不绑定项目主数据，跳过项目解析；仍保留操作者归属复核。
+        if (snapshot.scope().projectId() != null) {
+            try {
+                projects.resolveEnabledScope(snapshot.scope().projectIdentifier(), snapshot.scope().branch());
+            } catch (RuntimeException exception) {
+                throw new AgentRunNotFoundException();
+            }
         }
         return snapshot;
     }
@@ -334,6 +398,23 @@ public class AgentServiceImpl implements AgentService {
         return new NormalizedInput(key, operatorId, project, branch, question, history);
     }
 
+    private NormalizedGlobalInput normalizeGlobal(GlobalStartRequest command) {
+        Objects.requireNonNull(command, "command");
+        String operatorId = required(command.operatorId(), 128, "operator invalid");
+        String role = required(command.operatorRole(), 16, "role invalid").toUpperCase(Locale.ROOT);
+        if (!role.equals("ADMIN") && !role.equals("MEMBER")) {
+            throw new IllegalArgumentException("operator role invalid");
+        }
+        String key = required(command.idempotencyKey(), 128, "idempotency key invalid");
+        String question = Objects.requireNonNull(command.question(), "question").strip();
+        int questionLength = question.codePointCount(0, question.length());
+        if (questionLength < 1 || questionLength > 2000) {
+            throw new IllegalArgumentException("question length invalid");
+        }
+        List<ConversationMessage> history = normalizeHistory(command.conversationHistory());
+        return new NormalizedGlobalInput(key, operatorId, question, history);
+    }
+
     private List<ConversationMessage> normalizeHistory(List<ConversationMessage> source) {
         if (source == null || source.isEmpty()) {
             return List.of();
@@ -394,6 +475,14 @@ public class AgentServiceImpl implements AgentService {
             String operatorId,
             String projectIdentifier,
             String branch,
+            String question,
+            List<ConversationMessage> conversationHistory
+    ) {
+    }
+
+    private record NormalizedGlobalInput(
+            String idempotencyKey,
+            String operatorId,
             String question,
             List<ConversationMessage> conversationHistory
     ) {

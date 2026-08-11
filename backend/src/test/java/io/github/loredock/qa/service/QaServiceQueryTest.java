@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.github.loredock.agent.api.AgentRun;
@@ -17,6 +19,8 @@ import io.github.loredock.qa.converter.WebQaCursorCodec;
 import io.github.loredock.qa.api.QaQuestionNotFoundException;
 import io.github.loredock.qa.model.result.WebQaQuestionRecord;
 import io.github.loredock.qa.model.result.WebQaConversationRecord;
+import io.github.loredock.qa.model.result.WebQaGlobalConversationRecord;
+import io.github.loredock.qa.model.result.WebQaStreamTarget;
 import io.github.loredock.qa.model.snapshot.WebQaCursor;
 import java.time.Instant;
 import java.util.List;
@@ -143,6 +147,94 @@ class QaServiceQueryTest {
                 .isInstanceOf(QaQuestionNotFoundException.class)
                 .hasMessage("QA_QUESTION_NOT_FOUND");
         System.out.printf("测试证据：场景=详情防枚举，猜测questionId=%s，稳定错误=QA_QUESTION_NOT_FOUND%n", guessed);
+    }
+
+    /**
+     * 业务目的：跨项目最近会话列表必须混排全局与各项目会话并标注 scope 与项目显示名，
+     * 供侧栏区分"全局"与"项目：名称"；GLOBAL 行项目名称为空。
+     */
+    @Test
+    void globalConversationHistoryMixesScopesWithLabels() {
+        WebQaGlobalConversationRecord global = new WebQaGlobalConversationRecord(
+                9000000000000000091L, "member", null, "GLOBAL", null, "全局首轮",
+                NOW.minusSeconds(5), NOW.minusSeconds(5), NOW.minusSeconds(5));
+        WebQaGlobalConversationRecord project = new WebQaGlobalConversationRecord(
+                9000000000000000092L, "member", PROJECT_ID, "atlas", "Atlas", "项目首轮",
+                NOW.minusSeconds(10), NOW.minusSeconds(10), NOW.minusSeconds(10));
+        when(conversations.findGlobalHistory("member", null, 3)).thenReturn(List.of(global, project));
+        when(agents.get(any(), org.mockito.ArgumentMatchers.eq("member"))).thenAnswer(invocation ->
+                run(invocation.getArgument(0)));
+        when(questions.findByConversation(9000000000000000091L, 101))
+                .thenReturn(List.of(globalQuestion(9000000000000000091L, 1101L)));
+        when(questions.findByConversation(9000000000000000092L, 101))
+                .thenReturn(List.of(projectQuestion(9000000000000000092L, 1102L)));
+        when(messages.findByQuestionId(any())).thenReturn(List.of());
+
+        QaService.ConversationPage page = service.conversationsGlobal(
+                new QaService.GlobalConversationHistoryQuery("member", null, 2));
+
+        assertThat(page.items()).hasSize(2);
+        assertThat(page.items().get(0).scope()).isEqualTo("GLOBAL");
+        assertThat(page.items().get(0).projectName()).isNull();
+        assertThat(page.items().get(1).scope()).isEqualTo("PROJECT");
+        assertThat(page.items().get(1).projectName()).isEqualTo("Atlas");
+        System.out.printf("测试证据：场景=跨项目会话列表，条目=%d，范围标注=%s%n",
+                page.items().size(),
+                page.items().stream().map(QaService.ConversationSummary::scope).toList());
+    }
+
+    /**
+     * 业务目的：全局详情必须只允许访问 project_id 为空的全局轮次，项目轮次必须保持不可见，
+     * 防止全局端点借 questionId 越权读取项目内问答。
+     */
+    @Test
+    void globalDetailOnlyReachesGlobalRounds() {
+        Long projectQuestionId = 8000000000000000085L;
+        when(questions.findVisibleById("member", null, projectQuestionId)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.detailGlobal(
+                new QaService.GlobalDetailQuery("member", projectQuestionId)))
+                .isInstanceOf(QaQuestionNotFoundException.class);
+        verify(agents, never()).get(any(), any());
+        System.out.printf("测试证据：场景=全局详情范围隔离，项目questionId=%s，返回=404，Agent读取=0%n",
+                projectQuestionId);
+    }
+
+    /**
+     * 业务目的：全局 SSE 的每轮访问复核必须识别哨兵标识，只复核操作者与全局轮次而不解析
+     * 项目主数据；防止全局问答长连接被误判为越权而立即关闭（terminal_or_access_closed）。
+     */
+    @Test
+    void authorizeInternalAcceptsGlobalSentinelWithoutProjectResolution() {
+        Long runId = 1101L;
+        WebQaQuestionRecord global = globalQuestion(9000000000000000091L, runId);
+        when(questions.findVisibleById("member", null, global.id())).thenReturn(Optional.of(global));
+        when(agents.get(runId, "member")).thenReturn(globalRun(runId));
+
+        WebQaStreamTarget target = service.authorizeInternal(
+                new QaService.DetailQuery("member", "GLOBAL", global.id()));
+
+        assertThat(target.question().projectIdentifier()).isEqualTo("GLOBAL");
+        verify(projects, never()).resolveEnabledScope(any(), any());
+        System.out.printf("测试证据：场景=全局SSE访问复核，哨兵=%s，项目主数据解析=0，questionId=%s%n",
+                target.question().projectIdentifier(), target.question().id());
+    }
+
+    private AgentRun globalRun(Long runId) {
+        return new AgentRun(
+                runId, AgentRun.Status.RUNNING, null, null, null, null, null,
+                new AgentRun.Scope(null, "GLOBAL", null, "global", null, null, null),
+                0, 0, NOW, NOW, null, List.of());
+    }
+
+    private WebQaQuestionRecord globalQuestion(Long conversationId, Long runId) {
+        return new WebQaQuestionRecord(9000000000000000101L, conversationId, "member", "global-round",
+                "a".repeat(64), null, "GLOBAL", null, "global", runId, NOW.minusSeconds(4));
+    }
+
+    private WebQaQuestionRecord projectQuestion(Long conversationId, Long runId) {
+        return new WebQaQuestionRecord(9000000000000000102L, conversationId, "member", "project-round",
+                "b".repeat(64), PROJECT_ID, "atlas", BRANCH_ID, "main", runId, NOW.minusSeconds(9));
     }
 
     private ProjectScope project() {

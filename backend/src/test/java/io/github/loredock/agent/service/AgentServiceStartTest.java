@@ -226,6 +226,26 @@ class AgentServiceStartTest {
         System.out.println("测试证据：场景=Agent队列满，已接受运行终态错误=AGENT_RUNTIME_BUSY");
     }
 
+    /**
+     * 业务目的：全局问答运行不解析项目主数据：scope 固定为通用 + 所有项目项目级文档（不含分支），
+     * projectId/branchId 为空且 taskType 复用 project_qa；防止把全库运行误当项目运行。
+     */
+    @Test
+    void startGlobalFixesAllScopeWithoutProjectResolution() {
+        AgentRunSnapshot result = service().startGlobalSnapshot(new AgentService.GlobalStartRequest(
+                "global-key", "member", "MEMBER", "全库问题", List.of()));
+
+        assertThat(result.scope().projectId()).isNull();
+        assertThat(result.scope().projectIdentifier()).isEqualTo("GLOBAL");
+        assertThat(result.scope().branchId()).isNull();
+        assertThat(result.scope().allowedKnowledgeScopes()).containsExactly("GLOBAL", "PROJECT");
+        assertThat(acceptedData.get().taskType()).isEqualTo("project_qa");
+        verify(projects, org.mockito.Mockito.never()).resolveEnabledScope(any(), any());
+        System.out.printf("测试证据：场景=全局运行固定范围，projectId=%s，哨兵=%s，允许范围=%s，taskType=%s%n",
+                result.scope().projectId(), result.scope().projectIdentifier(),
+                result.scope().allowedKnowledgeScopes(), acceptedData.get().taskType());
+    }
+
     private AgentServiceImpl service() {
         return new AgentServiceImpl(configuration, skills, "schema", projects, knowledge,
                 runs, mock(AgentEventService.class), scheduler, taskExecutor, dispatchFailures,

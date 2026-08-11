@@ -46,6 +46,7 @@ public interface KnowledgeSearchCandidateMapper {
                     or (c.scope_type = 'BRANCH' and c.project_id = #{projectId}
                         and c.branch_id = #{branchId})
                 ))
+                or (#{contextType} = 'ALL' and c.scope_type in ('GLOBAL', 'PROJECT'))
               )
               <if test="tags != null and tags.length > 0">
                 and c.normalized_tags @&gt; #{tags, jdbcType=ARRAY,
@@ -105,6 +106,7 @@ public interface KnowledgeSearchCandidateMapper {
                     or (c.scope_type = 'BRANCH' and c.project_id = #{projectId}
                         and c.branch_id = #{branchId})
                 ))
+                or (#{contextType} = 'ALL' and c.scope_type in ('GLOBAL', 'PROJECT'))
               )
               <if test="tags != null and tags.length > 0">
                 and c.normalized_tags @&gt; #{tags, jdbcType=ARRAY,

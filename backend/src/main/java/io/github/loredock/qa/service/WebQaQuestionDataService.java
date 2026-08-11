@@ -38,11 +38,16 @@ public class WebQaQuestionDataService {
     }
 
     public Optional<WebQaQuestionRecord> findVisibleById(String operatorId, Long projectId, Long questionId) {
-        return Optional.ofNullable(mapper.selectOne(Wrappers.<WebQaQuestionEntity>lambdaQuery()
-                        .eq(WebQaQuestionEntity::getId, questionId)
-                        .eq(WebQaQuestionEntity::getOperatorId, operatorId)
-                        .eq(WebQaQuestionEntity::getProjectId, projectId)))
-                .map(this::toRecord);
+        LambdaQueryWrapper<WebQaQuestionEntity> query = Wrappers.<WebQaQuestionEntity>lambdaQuery()
+                .eq(WebQaQuestionEntity::getId, questionId)
+                .eq(WebQaQuestionEntity::getOperatorId, operatorId);
+        // 全局轮次 project_id 为空，与项目轮次互斥：范围条件必须区分 NULL 与具体项目。
+        if (projectId == null) {
+            query.isNull(WebQaQuestionEntity::getProjectId);
+        } else {
+            query.eq(WebQaQuestionEntity::getProjectId, projectId);
+        }
+        return Optional.ofNullable(mapper.selectOne(query)).map(this::toRecord);
     }
 
     public List<WebQaQuestionRecord> findHistory(
@@ -55,8 +60,13 @@ public class WebQaQuestionDataService {
             throw new IllegalArgumentException("web QA history limit out of range");
         }
         LambdaQueryWrapper<WebQaQuestionEntity> query = Wrappers.<WebQaQuestionEntity>lambdaQuery()
-                .eq(WebQaQuestionEntity::getOperatorId, operatorId)
-                .eq(WebQaQuestionEntity::getProjectId, projectId);
+                .eq(WebQaQuestionEntity::getOperatorId, operatorId);
+        // 全局历史只读 project_id 为空的轮次；项目历史按具体项目限定，两者互斥。
+        if (projectId == null) {
+            query.isNull(WebQaQuestionEntity::getProjectId);
+        } else {
+            query.eq(WebQaQuestionEntity::getProjectId, projectId);
+        }
         if (after != null) {
             query.and(bounds -> bounds
                     .lt(WebQaQuestionEntity::getCreatedAt, after.createdAt())

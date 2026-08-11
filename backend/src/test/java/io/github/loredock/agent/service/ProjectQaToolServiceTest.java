@@ -162,6 +162,42 @@ class ProjectQaToolServiceTest {
                 error -> assertThat(error.code()).isEqualTo(AgentErrorCode.AGENT_TOOL_SCOPE_VIOLATION));
     }
 
+    /**
+     * 业务目的：全局问答运行（projectId 为空）的 knowledge_search 必须走全库检索，
+     * 跨项目项目级文档允许引用（证据携带真实项目标识），分支文档仍被 AGENT_TOOL_SCOPE_VIOLATION 拒绝。
+     */
+    @Test
+    void globalRunKnowledgeSearchAllowsCrossProjectAndRejectsBranch() {
+        AgentRunSnapshot globalRun = new AgentRunSnapshot(RUN_ID, "member", "key", "a".repeat(64), "project_qa",
+                AgentRunStatus.RUNNING, null, null, null, null,
+                new AgentScopeSnapshot(null, "GLOBAL", null, "global", null, null, GENERATION_ID,
+                        List.of("GLOBAL", "PROJECT")),
+                new AgentVersionSnapshot("project_qa", "deepseek-v4-flash", "project-qa-v1"),
+                10, 0, 0, null, null, NOW, NOW, null, List.of());
+        when(runs.findById(RUN_ID)).thenReturn(Optional.of(globalRun));
+        var projectB = new KnowledgeMatch(8000000000000000089L,
+                new KnowledgeMatch.Scope("PROJECT", "other-project", null), "项目B文档", "内容", null, NOW, 0.8);
+        when(knowledge.searchAll(any())).thenReturn(new KnowledgeMatches(List.of(), List.of(projectB)));
+
+        AgentToolResult result = service.knowledgeSearch(RUN_ID, new KnowledgeSearchToolRequest("跨项目问题", 5));
+
+        verify(knowledge).searchAll(any());
+        assertThat(result.resultCount()).isEqualTo(1);
+        assertThat(result.evidence()).singleElement().satisfies(value -> {
+            assertThat(value.projectIdentifier()).isEqualTo("other-project");
+            assertThat(value.branch()).isEqualTo("global");
+        });
+
+        var branchDoc = new KnowledgeMatch(8000000000000000090L,
+                new KnowledgeMatch.Scope("BRANCH", "other-project", "main"), "分支文档", "内容", null, NOW, 0.8);
+        when(knowledge.searchAll(any())).thenReturn(new KnowledgeMatches(List.of(), List.of(branchDoc)));
+        assertThatThrownBy(() -> service.knowledgeSearch(RUN_ID, new KnowledgeSearchToolRequest("分支问题", 5)))
+                .isInstanceOf(AgentToolException.class)
+                .extracting(Throwable::getMessage).isEqualTo("AGENT_TOOL_SCOPE_VIOLATION");
+        System.out.printf("测试证据：场景=全局问答跨项目放行，项目B证据=%s，分支证据=%s%n",
+                "RETAINED", "AGENT_TOOL_SCOPE_VIOLATION");
+    }
+
     private AgentRunSnapshot run() {
         return new AgentRunSnapshot(RUN_ID, "member", "key", "a".repeat(64), "project_qa",
                 AgentRunStatus.RUNNING, null, null, null, null,

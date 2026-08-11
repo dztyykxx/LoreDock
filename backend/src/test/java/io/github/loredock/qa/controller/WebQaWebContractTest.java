@@ -63,7 +63,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @WebMvcTest(
         controllers = {AuthController.class, WebQaController.class, WebQaConversationController.class,
-                WebQaSseController.class},
+                WebQaSseController.class, GlobalWebQaController.class},
         properties = {
                 "sa-token.token-name=loredock_session",
                 "sa-token.is-read-header=false",
@@ -282,7 +282,7 @@ class WebQaWebContractTest {
     @Test
     void conversationEndpointsReturnScopedSummaryAndStableRounds() throws Exception {
         var summary = new QaService.ConversationSummary(
-                51L, "atlas", "为什么必须校验引用？", "它还有哪些限制？",
+                51L, "atlas", null, "PROJECT", "为什么必须校验引用？", "它还有哪些限制？",
                 QaQuestion.Status.COMPLETED, NOW.minusSeconds(10), NOW, NOW);
         when(questions.conversations(any())).thenReturn(new QaService.ConversationPage(List.of(summary), null));
         when(questions.conversation(any())).thenReturn(new QaService.Conversation(summary, List.of(snapshot())));
@@ -378,6 +378,44 @@ class WebQaWebContractTest {
                 .andExpect(status().isOk())
                 .andReturn();
         return result.getResponse().getCookie("loredock_session");
+    }
+
+    /**
+     * 业务目的：全局问答端点不依赖 URL 项目：创建返回 202 且范围标注哨兵 GLOBAL，
+     * 跨项目会话列表携带 scope 与 projectName 供侧栏标注"全局"或"项目：名称"。
+     */
+    @Test
+    void globalQaEndpointsCreateAndListCrossProjectConversations() throws Exception {
+        var summary = new QaService.ConversationSummary(
+                61L, "GLOBAL", null, "GLOBAL", "全局首轮", "全库问题",
+                QaQuestion.Status.COMPLETED, NOW.minusSeconds(5), NOW, NOW);
+        WebQaQuestionRecord globalQuestion = new WebQaQuestionRecord(
+                QUESTION_ID + 1, 61L, "member", "global-key", "a".repeat(64),
+                null, "GLOBAL", null, "global", RUN_ID, NOW);
+        AgentRun globalRun = new AgentRun(
+                RUN_ID, AgentRun.Status.ACCEPTED, null, null, null, null, null,
+                new AgentRun.Scope(null, "GLOBAL", null, "global", null, null, null),
+                0, 0, NOW, null, null, List.of());
+        WebQaQuestionSnapshot globalSnapshot = new WebQaQuestionSnapshot(
+                globalQuestion, globalRun, WebQaTrustState.IN_PROGRESS, List.of());
+        when(questions.createGlobal(any()))
+                .thenReturn(io.github.loredock.testsupport.QaApiFixtures.question(globalSnapshot));
+        when(questions.conversationsGlobal(any()))
+                .thenReturn(new QaService.ConversationPage(List.of(summary), null));
+        when(agents.lastEventSequence(RUN_ID, "member")).thenReturn(0L);
+
+        mockMvc.perform(post("/api/qa/questions").cookie(loginCookie("member"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"idempotencyKey\":\"global-key\",\"question\":\"全库问题\"}"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.scope.projectIdentifier").value("GLOBAL"));
+        mockMvc.perform(get("/api/qa/conversations").cookie(loginCookie("member")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].scope").value("GLOBAL"))
+                .andExpect(jsonPath("$.items[0].projectName").doesNotExist());
+        verify(questions).createGlobal(new QaService.GlobalCreateRequest(
+                "member", "MEMBER", "global-key", null, "全库问题"));
+        System.out.println("测试证据：场景=全局问答端点，创建=202，范围=GLOBAL，列表scope标注=GLOBAL");
     }
 
     private QaQuestion snapshot() {

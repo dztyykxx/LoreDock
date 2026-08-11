@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import io.github.loredock.qa.mapper.WebQaConversationMapper;
 import io.github.loredock.qa.model.entity.WebQaConversationEntity;
 import io.github.loredock.qa.model.result.WebQaConversationRecord;
+import io.github.loredock.qa.model.result.WebQaGlobalConversationRecord;
 import io.github.loredock.qa.model.snapshot.WebQaCursor;
 import java.time.Instant;
 import java.util.List;
@@ -37,7 +38,7 @@ public class WebQaConversationDataService {
     }
 
     /**
-     * 追加轮次前锁定当前操作者和项目可见的会话。
+     * 追加轮次前锁定当前操作者和范围可见的会话；projectId 为空时只匹配 GLOBAL 会话。
      *
      * @return 可见会话；越界或不存在时为空
      */
@@ -45,13 +46,36 @@ public class WebQaConversationDataService {
         return Optional.ofNullable(mapper.selectVisibleForUpdate(id, operatorId, projectId)).map(this::toRecord);
     }
 
-    /** @return 当前操作者和项目可见的会话；越界或不存在时为空 */
+    /** @return 当前操作者和范围可见的会话；projectId 为空时只匹配 GLOBAL 会话，越界或不存在时为空 */
     public Optional<WebQaConversationRecord> findVisible(Long id, String operatorId, Long projectId) {
-        return Optional.ofNullable(mapper.selectOne(Wrappers.<WebQaConversationEntity>lambdaQuery()
-                        .eq(WebQaConversationEntity::getId, id)
-                        .eq(WebQaConversationEntity::getOperatorId, operatorId)
-                        .eq(WebQaConversationEntity::getProjectId, projectId)))
-                .map(this::toRecord);
+        LambdaQueryWrapper<WebQaConversationEntity> query = Wrappers.<WebQaConversationEntity>lambdaQuery()
+                .eq(WebQaConversationEntity::getId, id)
+                .eq(WebQaConversationEntity::getOperatorId, operatorId);
+        // 全局会话 project_id 为空，与项目会话互斥：范围条件必须区分 NULL 与具体项目。
+        if (projectId == null) {
+            query.isNull(WebQaConversationEntity::getProjectId);
+        } else {
+            query.eq(WebQaConversationEntity::getProjectId, projectId);
+        }
+        return Optional.ofNullable(mapper.selectOne(query)).map(this::toRecord);
+    }
+
+    /**
+     * 按最近问题时间和稳定标识倒序读取当前操作者全部范围（GLOBAL 与所有项目）的会话。
+     *
+     * @return 严格受操作者范围限制的跨项目会话列表；projectName 来自项目主数据，GLOBAL 行为空
+     */
+    public List<WebQaGlobalConversationRecord> findGlobalHistory(
+            String operatorId,
+            WebQaCursor after,
+            int limit
+    ) {
+        if (limit < 1 || limit > MAX_QUERY_LIMIT) {
+            throw new IllegalArgumentException("web QA global conversation history limit out of range");
+        }
+        return mapper.findGlobalHistory(operatorId,
+                after == null ? null : after.createdAt(),
+                after == null ? null : after.id(), limit);
     }
 
     /**

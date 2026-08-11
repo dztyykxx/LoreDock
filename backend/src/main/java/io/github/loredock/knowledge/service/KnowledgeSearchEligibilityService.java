@@ -35,10 +35,12 @@ public class KnowledgeSearchEligibilityService {
         if (candidateIds.isEmpty()) {
             return List.of();
         }
-        boolean validScope = scope.contextType() == KnowledgeBrowseContextType.GLOBAL
-                ? scope.projectId() == null && scope.branchId() == null
-                : scope.contextType() == KnowledgeBrowseContextType.PROJECT
-                && scope.projectId() != null && scope.branchId() != null;
+        boolean validScope = switch (scope.contextType()) {
+            case GLOBAL -> scope.projectId() == null && scope.branchId() == null;
+            case PROJECT -> scope.projectId() != null && scope.branchId() != null;
+            // 全库模式只允许 Agent 内部路径构造，不解析项目主数据。
+            case ALL -> scope.projectId() == null && scope.branchId() == null;
+        };
         if (!validScope || candidateIds.stream().anyMatch(java.util.Objects::isNull)) {
             throw new IllegalArgumentException("knowledge search eligibility scope or candidates are invalid");
         }

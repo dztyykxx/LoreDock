@@ -29,6 +29,7 @@ public interface KnowledgeSearchEligibilityMapper {
                     or (scope_type = 'PROJECT' and project_id = #{projectId})
                     or (scope_type = 'BRANCH' and project_id = #{projectId} and branch_id = #{branchId})
                 ))
+                or (#{contextType} = 'ALL' and scope_type in ('GLOBAL', 'PROJECT'))
               )
             </script>
             """)

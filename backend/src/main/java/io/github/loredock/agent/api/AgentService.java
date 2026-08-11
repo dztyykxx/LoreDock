@@ -14,6 +14,13 @@ public interface AgentService {
     AgentRun start(StartRequest request);
 
     /**
+     * @param request 已认证操作者提交的全局（全库）问答请求；不解析项目主数据
+     * @return 已受理或按幂等键复用的运行
+     * @throws AgentRequestException 输入有效但 Agent 当前不能受理，或幂等键冲突
+     */
+    AgentRun startGlobal(GlobalStartRequest request);
+
+    /**
      * @param runId 运行标识
      * @param operatorId 操作者稳定标识
      * @return 已复核操作者与项目访问范围的运行终态
@@ -62,6 +69,25 @@ public interface AgentService {
                 String question
         ) {
             this(idempotencyKey, operatorId, operatorRole, projectIdentifier, branch, question, List.of());
+        }
+    }
+
+    /**
+     * @param idempotencyKey 当前操作者内唯一幂等键
+     * @param operatorId 操作者稳定标识
+     * @param operatorRole ADMIN 或 MEMBER
+     * @param question 1～2000 个 Unicode 字符的问题
+     * @param conversationHistory 同会话已完成且受服务端裁剪的非证据消息
+     */
+    record GlobalStartRequest(
+            String idempotencyKey,
+            String operatorId,
+            String operatorRole,
+            String question,
+            List<ConversationMessage> conversationHistory
+    ) {
+        public GlobalStartRequest {
+            conversationHistory = conversationHistory == null ? List.of() : List.copyOf(conversationHistory);
         }
     }
 

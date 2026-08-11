@@ -96,10 +96,12 @@ public class KnowledgeCandidateDataService {
             throw new IllegalArgumentException("knowledge candidate request is invalid");
         }
         KnowledgeSearchResolvedScope scope = request.scope();
-        boolean validScope = scope.contextType() == KnowledgeBrowseContextType.GLOBAL
-                ? scope.projectId() == null && scope.branchId() == null
-                : scope.contextType() == KnowledgeBrowseContextType.PROJECT
-                && scope.projectId() != null && scope.branchId() != null;
+        boolean validScope = switch (scope.contextType()) {
+            case GLOBAL -> scope.projectId() == null && scope.branchId() == null;
+            case PROJECT -> scope.projectId() != null && scope.branchId() != null;
+            // 全库模式只允许 Agent 内部路径构造，不解析项目主数据。
+            case ALL -> scope.projectId() == null && scope.branchId() == null;
+        };
         if (!validScope) {
             throw new IllegalArgumentException("knowledge candidate scope is invalid");
         }

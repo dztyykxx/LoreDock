@@ -17,6 +17,7 @@ import io.github.loredock.knowledge.api.KnowledgeMatch;
 import io.github.loredock.knowledge.api.KnowledgeMatches;
 import io.github.loredock.knowledge.api.KnowledgeQuery;
 import io.github.loredock.knowledge.api.KnowledgeSearchService;
+import io.github.loredock.knowledge.api.KnowledgeSearchService.GlobalKnowledgeQuery;
 import io.github.loredock.knowledge.api.KnowledgeSearchVersionChangedException;
 import java.time.Clock;
 import java.util.ArrayList;
@@ -79,9 +80,7 @@ public class ProjectQaToolService {
         int limit = boundedLimit(request.limit());
         KnowledgeMatches response;
         try {
-            response = knowledge.search(new KnowledgeQuery(
-                    run.scope().projectIdentifier(), run.scope().branch(), request.query(), limit,
-                    run.scope().knowledgeGenerationId()));
+            response = searchMatches(run, request.query(), limit);
         } catch (KnowledgeSearchVersionChangedException exception) {
             throw versionChanged();
         }
@@ -169,6 +168,14 @@ public class ProjectQaToolService {
     private void requireKnowledgeScope(AgentRunSnapshot run, KnowledgeMatch result) {
         String type = result.scope().type();
         boolean allowed = run.scope().allowedKnowledgeScopes().contains(type);
+        if (run.scope().projectId() == null) {
+            // 全局运行跨项目放行：通用与任意项目的项目级文档均可引用；
+            // 分支文档不在 allowedKnowledgeScopes 中，仍被拒绝。
+            if (!allowed) {
+                throw new AgentToolException(AgentErrorCode.AGENT_TOOL_SCOPE_VIOLATION);
+            }
+            return;
+        }
         boolean projectMatches = result.scope().projectIdentifier() == null
                 || run.scope().projectIdentifier().equals(result.scope().projectIdentifier());
         boolean branchMatches = result.scope().branch() == null
@@ -178,6 +185,22 @@ public class ProjectQaToolService {
         }
     }
 
+    /**
+     * 按运行范围解析检索路径：项目运行检索"项目+通用"；全局问答检索全库；
+     * 全局知识整理只检索通用知识。全局运行的证据项目标识取结果真实项目，GLOBAL 文档写哨兵。
+     */
+    private KnowledgeMatches searchMatches(AgentRunSnapshot run, String query, int limit) {
+        Long generationId = run.scope().knowledgeGenerationId();
+        if (run.scope().projectId() != null) {
+            return knowledge.search(new KnowledgeQuery(
+                    run.scope().projectIdentifier(), run.scope().branch(), query, limit, generationId));
+        }
+        GlobalKnowledgeQuery global = new GlobalKnowledgeQuery(query, limit, generationId);
+        return "project_qa".equals(run.taskType())
+                ? knowledge.searchAll(global)
+                : knowledge.searchGlobal(global);
+    }
+
     private AgentEvidence knowledgeEvidence(AgentRunSnapshot run, KnowledgeMatch result, boolean retained) {
         var source = result.source();
         EvidenceSourceMetadata metadata = source == null
@@ -185,8 +208,14 @@ public class ProjectQaToolService {
                 : new EvidenceSourceMetadata(
                         EvidenceSourceMetadata.CURRENT_SCHEMA_VERSION,
                         result.scope().type(), source.type(), source.wikiUrl(), source.originalFilename());
+        // 全局运行的证据项目标识取结果真实项目（GLOBAL 文档写哨兵），供引用抽屉标注真实项目。
+        String evidenceProject = run.scope().projectId() == null
+                ? (result.scope().projectIdentifier() == null
+                        ? "GLOBAL" : result.scope().projectIdentifier())
+                : run.scope().projectIdentifier();
+        String evidenceBranch = run.scope().projectId() == null ? "global" : run.scope().branch();
         return new AgentEvidence(null, run.runId(), EvidenceSourceType.KNOWLEDGE, retained,
-                result.relevance(), result.documentId(), null, run.scope().projectIdentifier(), run.scope().branch(),
+                result.relevance(), result.documentId(), null, evidenceProject, evidenceBranch,
                 null, null, result.title(), result.sourceUpdatedAt(), metadata);
     }
 

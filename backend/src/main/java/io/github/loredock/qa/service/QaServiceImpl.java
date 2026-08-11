@@ -19,6 +19,7 @@ import io.github.loredock.qa.model.enums.WebQaMessageRole;
 import io.github.loredock.qa.model.enums.WebQaTrustState;
 import io.github.loredock.qa.model.result.WebQaMessageRecord;
 import io.github.loredock.qa.model.result.WebQaConversationRecord;
+import io.github.loredock.qa.model.result.WebQaGlobalConversationRecord;
 import io.github.loredock.qa.model.result.WebQaQuestionRecord;
 import io.github.loredock.qa.model.result.WebQaStreamTarget;
 import io.github.loredock.qa.model.snapshot.WebQaCursor;
@@ -48,6 +49,10 @@ public class QaServiceImpl implements QaService {
     private static final int MAX_CONTEXT_ROUNDS = 8;
     private static final int MAX_CONTEXT_CODE_POINTS = 8000;
     private static final int MAX_TITLE_CODE_POINTS = 200;
+    /** 全局会话的哨兵项目标识；与 AgentServiceImpl 全局运行保持一致。 */
+    private static final String GLOBAL_SCOPE_IDENTIFIER = "GLOBAL";
+    /** 全局会话的哨兵分支名；仅占位，不参与检索范围。 */
+    private static final String GLOBAL_SCOPE_BRANCH = "global";
     private final ProjectService projects;
     private final AgentService agents;
     private final WebQaConversationDataService conversations;
@@ -127,30 +132,93 @@ public class QaServiceImpl implements QaService {
         AgentRun run = agents.start(new AgentService.StartRequest(
                 agentIdempotencyKey(command.idempotencyKey().value()), command.operatorId(), command.operatorRole(),
                 project.projectIdentifier(), project.branchName(), command.question().value(), history));
-        WebQaQuestionRecord question = new WebQaQuestionRecord(
-                null, conversation.id(), command.operatorId(), command.idempotencyKey().value(), requestHash,
+        return persistRound(command.operatorId(), command.idempotencyKey(), requestHash, conversation.id(),
+                createdConversation, run, command.question(), createdAt);
+    }
+
+    @Override
+    @Transactional
+    public QaQuestion createGlobal(GlobalCreateRequest request) {
+        return toApi(createGlobalSnapshot(request));
+    }
+
+    WebQaQuestionSnapshot createGlobalSnapshot(GlobalCreateRequest request) {
+        GlobalNormalizedCreate command = normalizeGlobal(request);
+        String requestHash = hash(GLOBAL_SCOPE_IDENTIFIER + "\n" + GLOBAL_SCOPE_BRANCH + "\n"
+                + (command.conversationId() == null ? "NEW" : command.conversationId())
+                + "\n" + command.question().value());
+        var existing = questions.findByOperatorAndIdempotencyKey(
+                command.operatorId(), command.idempotencyKey().value());
+        if (existing.isPresent()) {
+            requireSameRequest(existing.get(), requestHash);
+            WebQaQuestionSnapshot reused = snapshot(
+                    existing.get(), agents.get(existing.get().runId(), command.operatorId()));
+            log.info("web_qa createGlobal reused traceId={} questionId={} runId={} scope={} status={} "
+                            + "questionLength={} questionDigest={}",
+                    traceId(existing.get().id()), existing.get().id(), existing.get().runId(),
+                    existing.get().projectIdentifier(), reused.run().status(),
+                    command.question().codePointLength(), shortHash(command.question().value()));
+            return reused;
+        }
+        Instant createdAt = timeProvider.instant();
+        WebQaConversationRecord conversation;
+        boolean createdConversation = command.conversationId() == null;
+        if (createdConversation) {
+            // 全局会话不解析项目主数据：project_id 为空，项目标识写哨兵，供可见性与列表区分范围。
+            conversation = conversations.insert(new WebQaConversationRecord(
+                    null, command.operatorId(), null, GLOBAL_SCOPE_IDENTIFIER,
+                    truncate(command.question().value(), MAX_TITLE_CODE_POINTS), createdAt, createdAt, createdAt));
+        } else {
+            conversation = conversations.lockVisible(command.conversationId(), command.operatorId(), null)
+                    .orElseThrow(QaConversationNotFoundException::new);
+            if (questions.hasActiveRound(conversation.id())) {
+                throw new QaConversationBusyException();
+            }
+        }
+        List<AgentService.ConversationMessage> history = completedHistory(conversation.id(), command.operatorId());
+        AgentRun run = agents.startGlobal(new AgentService.GlobalStartRequest(
+                agentIdempotencyKey(command.idempotencyKey().value()), command.operatorId(), command.operatorRole(),
+                command.question().value(), history));
+        return persistRound(command.operatorId(), command.idempotencyKey(), requestHash, conversation.id(),
+                createdConversation, run, command.question(), createdAt);
+    }
+
+    /**
+     * 落库新轮次并在幂等竞争时复读数据库胜者；项目问答与全局问答共用同一组并发保护规则。
+     */
+    private WebQaQuestionSnapshot persistRound(
+            String operatorId,
+            WebQaIdempotencyKey idempotencyKey,
+            String requestHash,
+            Long conversationId,
+            boolean createdConversation,
+            AgentRun run,
+            WebQaQuestionText question,
+            Instant createdAt
+    ) {
+        WebQaQuestionRecord questionRecord = new WebQaQuestionRecord(
+                null, conversationId, operatorId, idempotencyKey.value(), requestHash,
                 run.scope().projectId(), run.scope().projectIdentifier(), run.scope().branchId(), run.scope().branch(),
                 run.runId(), createdAt);
-        var insertedQuestionId = questions.insertIfAbsent(question);
+        var insertedQuestionId = questions.insertIfAbsent(questionRecord);
         if (insertedQuestionId.isEmpty()) {
             // 并发请求只能复读数据库胜者；不得以本事务内临时对象覆盖已提交事实。
             if (createdConversation) {
                 // 首轮竞争输家的会话没有任何问题，必须在同一事务内清理，避免最近会话出现空记录。
-                conversations.deleteEmpty(conversation.id());
+                conversations.deleteEmpty(conversationId);
             }
-            WebQaQuestionRecord raced = questions.findByOperatorAndIdempotencyKey(
-                            command.operatorId(), command.idempotencyKey().value())
+            WebQaQuestionRecord raced = questions.findByOperatorAndIdempotencyKey(operatorId, idempotencyKey.value())
                     .orElseThrow(() -> new IllegalStateException("web QA idempotent winner missing"));
             requireSameRequest(raced, requestHash);
-            return snapshot(raced, agents.get(raced.runId(), command.operatorId()));
+            return snapshot(raced, agents.get(raced.runId(), operatorId));
         }
-        question = new WebQaQuestionRecord(
-                insertedQuestionId.orElseThrow(), question.conversationId(), question.operatorId(), question.idempotencyKey(),
-                question.requestHash(), question.projectId(), question.projectIdentifier(), question.branchId(),
-                question.branch(), question.runId(), question.createdAt());
+        WebQaQuestionRecord persisted = new WebQaQuestionRecord(
+                insertedQuestionId.orElseThrow(), questionRecord.conversationId(), questionRecord.operatorId(),
+                questionRecord.idempotencyKey(), questionRecord.requestHash(), questionRecord.projectId(),
+                questionRecord.projectIdentifier(), questionRecord.branchId(), questionRecord.branch(),
+                questionRecord.runId(), questionRecord.createdAt());
         WebQaMessageRecord pendingUserMessage = new WebQaMessageRecord(
-                null, question.id(), WebQaMessageRole.USER, command.question().value(),
-                null, null, createdAt);
+                null, persisted.id(), WebQaMessageRole.USER, question.value(), null, null, createdAt);
         var insertedMessageId = messages.insertIfAbsent(pendingUserMessage);
         if (insertedMessageId.isEmpty()) {
             throw new IllegalStateException("new web QA user message role already exists");
@@ -159,13 +227,12 @@ public class QaServiceImpl implements QaService {
                 insertedMessageId.orElseThrow(), pendingUserMessage.questionId(), pendingUserMessage.role(),
                 pendingUserMessage.content(), pendingUserMessage.resultType(), pendingUserMessage.refusalReason(),
                 pendingUserMessage.createdAt());
-        conversations.updateActivity(conversation.id(), createdAt);
+        conversations.updateActivity(conversationId, createdAt);
         log.info("web_qa create completed traceId={} questionId={} runId={} project={} branch={} status={} "
                         + "questionLength={} questionDigest={}",
-                traceId(question.id()), question.id(), run.runId(), question.projectIdentifier(), question.branch(),
-                run.status(), command.question().codePointLength(), shortHash(command.question().value()));
-        return new WebQaQuestionSnapshot(
-                question, run, trustState(run), List.of(userMessage));
+                traceId(persisted.id()), persisted.id(), run.runId(), persisted.projectIdentifier(),
+                persisted.branch(), run.status(), question.codePointLength(), shortHash(question.value()));
+        return new WebQaQuestionSnapshot(persisted, run, trustState(run), List.of(userMessage));
     }
 
     @Override
@@ -175,21 +242,40 @@ public class QaServiceImpl implements QaService {
             throw new IllegalArgumentException("web QA page size out of range");
         }
         ProjectScope project = enabledProject(query.projectIdentifier());
-        WebQaCursor after = query.cursor() == null || query.cursor().isBlank()
-                ? null : WebQaCursorCodec.decode(query.cursor());
-        List<WebQaQuestionRecord> records = questions.findHistory(
-                query.operatorId(), project.projectId(), after, query.limit() + 1);
-        boolean hasMore = records.size() > query.limit();
-        List<WebQaQuestionRecord> visible = hasMore ? records.subList(0, query.limit()) : records;
+        return historyPage(questionHistory(query.operatorId(), project.projectId(), query.cursor(), query.limit()),
+                query.limit(), project.projectIdentifier());
+    }
+
+    @Override
+    public QaQuestionPage historyGlobal(GlobalHistoryQuery query) {
+        if (query.operatorId() == null || query.operatorId().isBlank()) {
+            throw new QaQuestionNotFoundException();
+        }
+        if (query.limit() < 1 || query.limit() > MAX_PAGE_SIZE) {
+            throw new IllegalArgumentException("web QA page size out of range");
+        }
+        List<WebQaQuestionRecord> records = questionHistory(query.operatorId(), null, query.cursor(), query.limit());
+        return historyPage(records, query.limit(), GLOBAL_SCOPE_IDENTIFIER);
+    }
+
+    /** @return 当前操作者与范围的问答历史分页；projectId 为空时只读全局轮次 */
+    private List<WebQaQuestionRecord> questionHistory(String operatorId, Long projectId, String cursor, int limit) {
+        WebQaCursor after = cursor == null || cursor.isBlank() ? null : WebQaCursorCodec.decode(cursor);
+        return questions.findHistory(operatorId, projectId, after, limit + 1);
+    }
+
+    private QaQuestionPage historyPage(List<WebQaQuestionRecord> records, int limit, String scopeLabel) {
+        boolean hasMore = records.size() > limit;
+        List<WebQaQuestionRecord> visible = hasMore ? records.subList(0, limit) : records;
         List<WebQaQuestionSnapshot> snapshots = new ArrayList<>(visible.size());
         for (WebQaQuestionRecord question : visible) {
-            snapshots.add(snapshot(question, agents.get(question.runId(), query.operatorId())));
+            snapshots.add(snapshot(question, agents.get(question.runId(), question.operatorId())));
         }
         String nextCursor = hasMore && !visible.isEmpty()
                 ? WebQaCursorCodec.encode(new WebQaCursor(visible.getLast().createdAt(), visible.getLast().id()))
                 : null;
-        log.info("web_qa history queried traceId={} project={} resultCount={} hasMore={}",
-                traceId(), project.projectIdentifier(), snapshots.size(), hasMore);
+        log.info("web_qa history queried traceId={} scope={} resultCount={} hasMore={}",
+                traceId(), scopeLabel, snapshots.size(), hasMore);
         return new QaQuestionPage(snapshots.stream().map(this::toApi).toList(), nextCursor);
     }
 
@@ -213,12 +299,80 @@ public class QaServiceImpl implements QaService {
         boolean hasMore = records.size() > query.limit();
         List<WebQaConversationRecord> visible = hasMore ? records.subList(0, query.limit()) : records;
         List<ConversationSummary> items = visible.stream()
-                .map(value -> summary(value, query.operatorId())).toList();
+                .map(value -> summary(value, null, query.operatorId())).toList();
         String nextCursor = hasMore && !visible.isEmpty()
                 ? WebQaCursorCodec.encode(new WebQaCursor(
                         visible.getLast().lastQuestionAt(), visible.getLast().id()))
                 : null;
         return new ConversationPage(items, nextCursor);
+    }
+
+    @Override
+    public ConversationPage conversationsGlobal(GlobalConversationHistoryQuery query) {
+        if (query.operatorId() == null || query.operatorId().isBlank()) {
+            throw new QaConversationNotFoundException();
+        }
+        if (query.limit() < 1 || query.limit() > MAX_PAGE_SIZE) {
+            throw new IllegalArgumentException("web QA conversation page size out of range");
+        }
+        WebQaCursor after = query.cursor() == null || query.cursor().isBlank()
+                ? null : WebQaCursorCodec.decode(query.cursor());
+        List<WebQaGlobalConversationRecord> records = conversations.findGlobalHistory(
+                query.operatorId(), after, query.limit() + 1);
+        boolean hasMore = records.size() > query.limit();
+        List<WebQaGlobalConversationRecord> visible = hasMore ? records.subList(0, query.limit()) : records;
+        List<ConversationSummary> items = visible.stream()
+                .map(value -> summary(fromRow(value), value.projectName(), query.operatorId())).toList();
+        String nextCursor = hasMore && !visible.isEmpty()
+                ? WebQaCursorCodec.encode(new WebQaCursor(
+                        visible.getLast().lastQuestionAt(), visible.getLast().id()))
+                : null;
+        log.info("web_qa global conversation history queried traceId={} resultCount={} hasMore={}",
+                traceId(), items.size(), hasMore);
+        return new ConversationPage(items, nextCursor);
+    }
+
+    @Override
+    public Conversation conversationGlobal(GlobalConversationDetailQuery query) {
+        if (query.operatorId() == null || query.operatorId().isBlank()) {
+            throw new QaConversationNotFoundException();
+        }
+        if (query.conversationId() == null) {
+            throw new QaConversationNotFoundException();
+        }
+        WebQaConversationRecord conversation = conversations.findVisible(
+                        query.conversationId(), query.operatorId(), null)
+                .orElseThrow(QaConversationNotFoundException::new);
+        return conversationWithRounds(conversation, query.operatorId());
+    }
+
+    @Override
+    public QaQuestion detailGlobal(GlobalDetailQuery query) {
+        if (query.operatorId() == null || query.operatorId().isBlank()) {
+            throw new QaQuestionNotFoundException();
+        }
+        if (query.questionId() == null) {
+            throw new QaQuestionNotFoundException();
+        }
+        // 全局详情只允许访问 project_id 为空的全局轮次，项目轮次由项目端点提供。
+        WebQaQuestionRecord question = questions.findVisibleById(
+                        query.operatorId(), null, query.questionId())
+                .orElseThrow(QaQuestionNotFoundException::new);
+        try {
+            return toApi(snapshot(question, agents.get(question.runId(), query.operatorId())));
+        } catch (AgentRunNotFoundException exception) {
+            throw new QaQuestionNotFoundException();
+        }
+    }
+
+    private Conversation conversationWithRounds(WebQaConversationRecord conversation, String operatorId) {
+        List<WebQaQuestionRecord> records = questions.findByConversation(conversation.id(), MAX_CONVERSATION_ROUNDS + 1);
+        if (records.size() > MAX_CONVERSATION_ROUNDS) {
+            records = records.subList(0, MAX_CONVERSATION_ROUNDS);
+        }
+        List<QaQuestion> rounds = records.stream()
+                .map(value -> toApi(snapshot(value, agents.get(value.runId(), operatorId)))).toList();
+        return new Conversation(summary(conversation, null, operatorId), rounds);
     }
 
     @Override
@@ -231,13 +385,7 @@ public class QaServiceImpl implements QaService {
         WebQaConversationRecord conversation = conversations.findVisible(
                         query.conversationId(), query.operatorId(), project.projectId())
                 .orElseThrow(QaConversationNotFoundException::new);
-        List<WebQaQuestionRecord> records = questions.findByConversation(conversation.id(), MAX_CONVERSATION_ROUNDS + 1);
-        if (records.size() > MAX_CONVERSATION_ROUNDS) {
-            records = records.subList(0, MAX_CONVERSATION_ROUNDS);
-        }
-        List<QaQuestion> rounds = records.stream()
-                .map(value -> toApi(snapshot(value, agents.get(value.runId(), query.operatorId())))).toList();
-        return new Conversation(summary(conversation, query.operatorId()), rounds);
+        return conversationWithRounds(conversation, query.operatorId());
     }
 
     WebQaQuestionSnapshot detailSnapshot(DetailQuery query) {
@@ -254,9 +402,12 @@ public class QaServiceImpl implements QaService {
         if (query.questionId() == null) {
             throw new QaQuestionNotFoundException();
         }
-        ProjectScope project = enabledProject(query.projectIdentifier());
+        // 全局 SSE 以哨兵标识进入：不解析项目主数据，只复核操作者与 project_id 为空的全局轮次；
+        // 项目问答仍走启用项目解析（防止"GLOBAL"被当作真实项目）。
+        Long projectId = GLOBAL_SCOPE_IDENTIFIER.equals(query.projectIdentifier())
+                ? null : enabledProject(query.projectIdentifier()).projectId();
         WebQaQuestionRecord question = questions.findVisibleById(
-                        query.operatorId(), project.projectId(), query.questionId())
+                        query.operatorId(), projectId, query.questionId())
                 .orElseThrow(QaQuestionNotFoundException::new);
         try {
             return new WebQaStreamTarget(question, agents.get(question.runId(), query.operatorId()));
@@ -348,6 +499,18 @@ public class QaServiceImpl implements QaService {
                 WebQaQuestionText.of(request.question()));
     }
 
+    private GlobalNormalizedCreate normalizeGlobal(GlobalCreateRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("create request is required");
+        }
+        return new GlobalNormalizedCreate(
+                requireText(request.operatorId(), "operator"),
+                requireText(request.operatorRole(), "operator role"),
+                WebQaIdempotencyKey.of(request.idempotencyKey()),
+                request.conversationId(),
+                WebQaQuestionText.of(request.question()));
+    }
+
     private String requireText(String value, String field) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(field + " is required");
@@ -359,7 +522,7 @@ public class QaServiceImpl implements QaService {
         return value == null || value.isBlank() ? null : value.strip();
     }
 
-    private ConversationSummary summary(WebQaConversationRecord conversation, String operatorId) {
+    private ConversationSummary summary(WebQaConversationRecord conversation, String projectName, String operatorId) {
         List<WebQaQuestionRecord> rounds = questions.findByConversation(conversation.id(), MAX_CONVERSATION_ROUNDS + 1);
         if (rounds.isEmpty()) {
             throw new IllegalStateException("QA conversation has no rounds");
@@ -369,9 +532,16 @@ public class QaServiceImpl implements QaService {
         String lastQuestion = messages.findByQuestionId(last.id()).stream()
                 .filter(value -> value.role() == WebQaMessageRole.USER)
                 .map(WebQaMessageRecord::content).findFirst().orElse(conversation.title());
-        return new ConversationSummary(conversation.id(), conversation.projectIdentifier(), conversation.title(),
-                lastQuestion, QaQuestion.Status.valueOf(run.status().name()), conversation.createdAt(),
-                conversation.updatedAt(), conversation.lastQuestionAt());
+        // 范围标注由项目归属推导：project_id 为空即全局会话，项目显示名仅跨项目列表提供。
+        String scope = conversation.projectId() == null ? "GLOBAL" : "PROJECT";
+        return new ConversationSummary(conversation.id(), conversation.projectIdentifier(), projectName, scope,
+                conversation.title(), lastQuestion, QaQuestion.Status.valueOf(run.status().name()),
+                conversation.createdAt(), conversation.updatedAt(), conversation.lastQuestionAt());
+    }
+
+    private WebQaConversationRecord fromRow(WebQaGlobalConversationRecord row) {
+        return new WebQaConversationRecord(row.id(), row.operatorId(), row.projectId(), row.projectIdentifier(),
+                row.title(), row.createdAt(), row.updatedAt(), row.lastQuestionAt());
     }
 
     private List<AgentService.ConversationMessage> completedHistory(Long conversationId, String operatorId) {
@@ -476,6 +646,15 @@ public class QaServiceImpl implements QaService {
             WebQaIdempotencyKey idempotencyKey,
             String projectIdentifier,
             String branch,
+            Long conversationId,
+            WebQaQuestionText question
+    ) {
+    }
+
+    private record GlobalNormalizedCreate(
+            String operatorId,
+            String operatorRole,
+            WebQaIdempotencyKey idempotencyKey,
             Long conversationId,
             WebQaQuestionText question
     ) {

@@ -6,6 +6,8 @@ import io.github.loredock.knowledge.api.KnowledgeQuery;
 import io.github.loredock.knowledge.api.KnowledgeSearchVersionChangedException;
 import io.github.loredock.knowledge.exception.KnowledgeEmbeddingUnavailableException;
 import io.github.loredock.knowledge.exception.KnowledgeIndexUnavailableException;
+import io.github.loredock.knowledge.mapper.KnowledgeProjectSpaceMapper;
+import io.github.loredock.knowledge.model.KnowledgeScope;
 import io.github.loredock.knowledge.model.enums.KnowledgeBrowseContextType;
 import io.github.loredock.knowledge.model.enums.KnowledgeScopeType;
 import io.github.loredock.knowledge.model.enums.KnowledgeSearchMode;
@@ -35,8 +37,11 @@ import java.text.Normalizer;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -61,6 +66,7 @@ public class KnowledgeSearchServiceImpl implements io.github.loredock.knowledge.
     private final KnowledgeEmbeddingService embedding;
     private final KnowledgeSearchEligibilityService eligibility;
     private final ReciprocalRankFusion fusion;
+    private final KnowledgeProjectSpaceMapper projectSpaces;
 
     /**
      * @param scopes 项目与分支主数据范围解析器
@@ -70,6 +76,7 @@ public class KnowledgeSearchServiceImpl implements io.github.loredock.knowledge.
      * @param embedding 离线查询 Embedding 端口
      * @param eligibility 当前事实表资格复核端口
      * @param fusion 固定版本 RRF 融合器
+     * @param projectSpaces 全库结果的项目标识批量回填端口
      */
     public KnowledgeSearchServiceImpl(
             ProjectKnowledgeScopeResolver scopes,
@@ -78,7 +85,8 @@ public class KnowledgeSearchServiceImpl implements io.github.loredock.knowledge.
             KnowledgeCandidateDataService semantics,
             KnowledgeEmbeddingService embedding,
             KnowledgeSearchEligibilityService eligibility,
-            ReciprocalRankFusion fusion
+            ReciprocalRankFusion fusion,
+            KnowledgeProjectSpaceMapper projectSpaces
     ) {
         this.scopes = scopes;
         this.generations = generations;
@@ -87,6 +95,7 @@ public class KnowledgeSearchServiceImpl implements io.github.loredock.knowledge.
         this.embedding = embedding;
         this.eligibility = eligibility;
         this.fusion = fusion;
+        this.projectSpaces = projectSpaces;
     }
 
     @Override
@@ -118,6 +127,31 @@ public class KnowledgeSearchServiceImpl implements io.github.loredock.knowledge.
                 KnowledgeSearchMode.HYBRID,
                 new KnowledgeSearchFilters(List.of(), null, null),
                 request.limit()));
+        if (!request.indexVersionId().equals(response.generationId())
+                || !isActiveIndexVersion(request.indexVersionId())) {
+            throw new KnowledgeSearchVersionChangedException();
+        }
+        return toApiResponse(response);
+    }
+
+    @Override
+    public KnowledgeMatches searchAll(GlobalKnowledgeQuery request) {
+        return unbounded(KnowledgeBrowseContextType.ALL, request);
+    }
+
+    @Override
+    public KnowledgeMatches searchGlobal(GlobalKnowledgeQuery request) {
+        return unbounded(KnowledgeBrowseContextType.GLOBAL, request);
+    }
+
+    /** 全局问答与全局知识整理的共享执行入口；范围由调用方内部路径固定。 */
+    private KnowledgeMatches unbounded(KnowledgeBrowseContextType type, GlobalKnowledgeQuery request) {
+        if (request == null || !isActiveIndexVersion(request.indexVersionId())) {
+            throw new KnowledgeSearchVersionChangedException();
+        }
+        KnowledgeSearchResponse response = search(new KnowledgeSearchQuery(
+                type, null, null, request.query(),
+                KnowledgeSearchMode.HYBRID, new KnowledgeSearchFilters(List.of(), null, null), request.limit()));
         if (!request.indexVersionId().equals(response.generationId())
                 || !isActiveIndexVersion(request.indexVersionId())) {
             throw new KnowledgeSearchVersionChangedException();
@@ -170,8 +204,11 @@ public class KnowledgeSearchServiceImpl implements io.github.loredock.knowledge.
     }
 
     private KnowledgeSearchResponse execute(PreparedQuery query, String traceId, long started) {
-        KnowledgeBrowseContext browse = scopes.resolveBrowse(
-                query.contextType(), query.projectIdentifier(), query.requestedBranch());
+        // 全库模式只允许 Agent 内部路径构造：范围已固定为通用 + 所有项目项目级文档，
+        // 不解析项目主数据；公开端点传入 ALL 会被 prepare/入口校验拒绝（安全边界）。
+        KnowledgeBrowseContext browse = query.contextType() == KnowledgeBrowseContextType.ALL
+                ? null
+                : scopes.resolveBrowse(query.contextType(), query.projectIdentifier(), query.requestedBranch());
         KnowledgeSearchResolvedScope scope = resolvedScope(query, browse);
         LOGGER.info("knowledge_search_scope resolved traceId={} operation=knowledge_search context={} "
                         + "projectId={} branchId={} branch={}",
@@ -204,6 +241,9 @@ public class KnowledgeSearchServiceImpl implements io.github.loredock.knowledge.
                 .filter(candidate -> eligibleSet.contains(candidate.documentId()))
                 .map(candidate -> toResult(candidate, scope))
                 .toList();
+        if (scope.contextType() == KnowledgeBrowseContextType.ALL) {
+            results = annotateProjectIdentifiers(results, fused);
+        }
         LOGGER.info("knowledge_search_eligibility completed traceId={} operation=knowledge_search generationId={} "
                         + "candidateDocumentCount={} excludedCount={} eligibleCount={}",
                 traceId, generation.generationId(), candidateIds.size(), candidateIds.size() - results.size(),
@@ -252,6 +292,10 @@ public class KnowledgeSearchServiceImpl implements io.github.loredock.knowledge.
     }
 
     private KnowledgeSearchResolvedScope resolvedScope(PreparedQuery query, KnowledgeBrowseContext browse) {
+        if (query.contextType() == KnowledgeBrowseContextType.ALL) {
+            // 全库模式不解析项目主数据，范围固定为通用 + 所有项目项目级文档。
+            return new KnowledgeSearchResolvedScope(KnowledgeBrowseContextType.ALL, null, null, null, null);
+        }
         if (browse.type() != query.contextType()) {
             throw new IllegalStateException("resolved knowledge search context does not match request");
         }
@@ -263,6 +307,51 @@ public class KnowledgeSearchServiceImpl implements io.github.loredock.knowledge.
         }
         return new KnowledgeSearchResolvedScope(browse.type(), query.projectIdentifier(), query.actualBranch(),
                 browse.projectId(), browse.branchId());
+    }
+
+    /**
+     * 全库结果的项目标识回填：候选 SQL 只有项目 Long，必须批量取名后替换结果范围，
+     * 使前端与引用抽屉能够标注真实项目；GLOBAL 文档保持项目标识为空。
+     */
+    private List<KnowledgeSearchResult> annotateProjectIdentifiers(
+            List<KnowledgeSearchResult> results,
+            List<FusedKnowledgeSearchCandidate> fused
+    ) {
+        Map<Long, String> documentIdentifiers = projectIdentifiers(fused);
+        if (documentIdentifiers.isEmpty()) {
+            return results;
+        }
+        return results.stream().map(result -> {
+            if (result.scope().type() != KnowledgeScopeType.PROJECT
+                    || result.scope().projectIdentifier() != null) {
+                return result;
+            }
+            String identifier = documentIdentifiers.get(result.documentId());
+            return identifier == null ? result : new KnowledgeSearchResult(
+                    result.documentId(),
+                    new KnowledgeSearchResultScope(KnowledgeScopeType.PROJECT, identifier, null),
+                    result.title(), result.snippet(), result.truncated(), result.format(), result.tags(),
+                    result.source(), result.sourceUpdatedAt(), result.relevance(), result.matchedBy());
+        }).toList();
+    }
+
+    /** @return 文档 Long 到项目业务标识的映射；仅包含候选确实属于项目范围的文档 */
+    private Map<Long, String> projectIdentifiers(List<FusedKnowledgeSearchCandidate> fused) {
+        Map<Long, Long> documentProjects = fused.stream()
+                .map(FusedKnowledgeSearchCandidate::bestCandidate)
+                .filter(candidate -> candidate.scope().type() == KnowledgeScopeType.PROJECT)
+                .collect(Collectors.toMap(KnowledgeSearchCandidate::documentId,
+                        candidate -> candidate.scope().projectId(), (left, right) -> left));
+        if (documentProjects.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, String> projectIdentifiers = projectSpaces.selectProjectIdentifiers(
+                        documentProjects.values().stream().distinct().toList()).stream()
+                .collect(Collectors.toMap(KnowledgeProjectSpaceMapper.ProjectIdentifierRow::id,
+                        KnowledgeProjectSpaceMapper.ProjectIdentifierRow::identifier));
+        return documentProjects.entrySet().stream()
+                .filter(entry -> projectIdentifiers.containsKey(entry.getValue()))
+                .collect(Collectors.toMap(Map.Entry::getKey, entry -> projectIdentifiers.get(entry.getValue())));
     }
 
     private KnowledgeSearchResult toResult(
@@ -293,9 +382,10 @@ public class KnowledgeSearchServiceImpl implements io.github.loredock.knowledge.
         }
         String projectIdentifier = normalizeOptional(query.projectIdentifier());
         String requestedBranch = normalizeOptional(query.branch());
-        if (query.contextType() == KnowledgeBrowseContextType.GLOBAL
+        if ((query.contextType() == KnowledgeBrowseContextType.GLOBAL
+                || query.contextType() == KnowledgeBrowseContextType.ALL)
                 && (projectIdentifier != null || requestedBranch != null)) {
-            throw new IllegalArgumentException("global knowledge search contains project scope");
+            throw new IllegalArgumentException("unbounded knowledge search contains project scope");
         }
         if (query.contextType() == KnowledgeBrowseContextType.PROJECT && projectIdentifier == null) {
             throw new IllegalArgumentException("project knowledge search requires project identifier");

@@ -2,6 +2,8 @@ package io.github.loredock.qa.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import io.github.loredock.qa.model.entity.WebQaConversationEntity;
+import io.github.loredock.qa.model.result.WebQaGlobalConversationRecord;
+import java.util.List;
 import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -23,7 +25,8 @@ public interface WebQaConversationMapper extends BaseMapper<WebQaConversationEnt
     Long insertReturning(@Param("value") WebQaConversationEntity value);
 
     /**
-     * 追加轮次前锁定同一操作者与项目可见的会话，串行化“检查活动轮次—创建新轮次”。
+     * 追加轮次前锁定同一操作者与范围可见的会话，串行化“检查活动轮次—创建新轮次”；
+     * projectId 为空时只匹配 GLOBAL 会话（project_id IS NULL），与项目会话互斥。
      */
     @Select("""
             select id, operator_id as "operatorId", project_id as "projectId",
@@ -31,13 +34,52 @@ public interface WebQaConversationMapper extends BaseMapper<WebQaConversationEnt
                    created_at as "createdAt", updated_at as "updatedAt",
                    last_question_at as "lastQuestionAt"
             from web_qa_conversation
-            where id = #{conversationId} and operator_id = #{operatorId} and project_id = #{projectId}
+            where id = #{conversationId} and operator_id = #{operatorId}
+              and (
+                (#{projectId} is null and project_id is null)
+                or (#{projectId} is not null and project_id = #{projectId})
+              )
             for update
             """)
     WebQaConversationEntity selectVisibleForUpdate(
             @Param("conversationId") Long conversationId,
             @Param("operatorId") String operatorId,
             @Param("projectId") Long projectId
+    );
+
+    /**
+     * 读取当前操作者全部范围（GLOBAL 与所有项目）的最近会话，附带项目显示名。
+     *
+     * @param afterCreatedAt 可选游标时间；与 afterId 一起构成稳定倒序边界
+     * @param afterId 可选游标 ID
+     * @return 严格受操作者限制的跨项目会话行
+     */
+    @Select("""
+            <script>
+            select conversation.id, conversation.operator_id as "operatorId",
+                   conversation.project_id as "projectId",
+                   conversation.project_identifier as "projectIdentifier",
+                   project.name as "projectName", conversation.title,
+                   conversation.created_at as "createdAt", conversation.updated_at as "updatedAt",
+                   conversation.last_question_at as "lastQuestionAt"
+            from web_qa_conversation conversation
+            left join project_space project on project.id = conversation.project_id
+            where conversation.operator_id = #{operatorId}
+            <if test="afterCreatedAt != null and afterId != null">
+              and (
+                conversation.last_question_at &lt; #{afterCreatedAt}
+                or (conversation.last_question_at = #{afterCreatedAt} and conversation.id &lt; #{afterId})
+              )
+            </if>
+            order by conversation.last_question_at desc, conversation.id desc
+            limit #{limit}
+            </script>
+            """)
+    List<WebQaGlobalConversationRecord> findGlobalHistory(
+            @Param("operatorId") String operatorId,
+            @Param("afterCreatedAt") java.time.Instant afterCreatedAt,
+            @Param("afterId") Long afterId,
+            @Param("limit") int limit
     );
 
     /** @return 删除的未绑定问题会话数，有轮次时稳定返回 0 */

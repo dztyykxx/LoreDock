@@ -14,6 +14,9 @@ import static org.mockito.Mockito.when;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import io.github.loredock.knowledge.mapper.KnowledgeProjectSpaceMapper;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import io.github.loredock.knowledge.api.KnowledgeMatches;
 import io.github.loredock.knowledge.exception.KnowledgeEmbeddingUnavailableException;
 import io.github.loredock.knowledge.exception.KnowledgeIndexUnavailableException;
 import io.github.loredock.knowledge.model.DocumentSource;
@@ -64,6 +67,7 @@ class KnowledgeSearchServiceTest {
     private KnowledgeCandidateDataService semantics;
     private KnowledgeEmbeddingService embedding;
     private KnowledgeSearchEligibilityService eligibility;
+    private KnowledgeProjectSpaceMapper projectSpaces;
     private KnowledgeSearchServiceImpl service;
 
     @BeforeEach
@@ -74,8 +78,9 @@ class KnowledgeSearchServiceTest {
         semantics = mock(KnowledgeCandidateDataService.class);
         embedding = mock(KnowledgeEmbeddingService.class);
         eligibility = mock(KnowledgeSearchEligibilityService.class);
+        projectSpaces = mock(KnowledgeProjectSpaceMapper.class);
         service = new KnowledgeSearchServiceImpl(scopes, generations, keywords, semantics, embedding,
-                eligibility, new ReciprocalRankFusion());
+                eligibility, new ReciprocalRankFusion(), projectSpaces);
         when(scopes.resolveBrowse(KnowledgeBrowseContextType.PROJECT, "project-a", null))
                 .thenReturn(new KnowledgeBrowseContext(KnowledgeBrowseContextType.PROJECT, PROJECT_ID, BRANCH_ID));
         when(scopes.resolveBrowse(KnowledgeBrowseContextType.GLOBAL, null, null))
@@ -398,6 +403,35 @@ class KnowledgeSearchServiceTest {
         float[] vector = new float[512];
         vector[axis] = 1;
         return new KnowledgeEmbeddingVector(vector);
+    }
+
+    /**
+     * 业务目的：全局问答的全库检索（searchAll）必须不经项目主数据解析直接覆盖通用与任意项目
+     * 的项目级文档，并把候选 SQL 返回的项目 Long 回填为真实项目标识，GLOBAL 文档保持标识为空。
+     */
+    @Test
+    void searchAllCoversGeneralAndAllProjectsAndBackfillsProjectIdentifiers() {
+        Long globalId = id(11);
+        Long projectId = id(12);
+        when(keywords.findKeywordCandidates(any(), any())).thenReturn(List.of(
+                candidate(globalId, 0, 9, KnowledgeScope.global()),
+                candidate(projectId, 0, 8, KnowledgeScope.project(PROJECT_ID))));
+        when(projectSpaces.selectProjectIdentifiers(List.of(PROJECT_ID)))
+                .thenReturn(List.of(new KnowledgeProjectSpaceMapper.ProjectIdentifierRow(PROJECT_ID, "project-a")));
+
+        KnowledgeMatches response = service.searchAll(
+                new io.github.loredock.knowledge.api.KnowledgeSearchService.GlobalKnowledgeQuery(
+                        "恢复方案", 5, GENERATION_ID));
+
+        assertThat(response.results()).hasSize(2);
+        assertThat(response.results()).filteredOn(value -> value.scope().type().equals("PROJECT"))
+                .singleElement().satisfies(value -> assertThat(value.scope().projectIdentifier())
+                        .isEqualTo("project-a"));
+        assertThat(response.results()).filteredOn(value -> value.scope().type().equals("GLOBAL"))
+                .singleElement().satisfies(value -> assertThat(value.scope().projectIdentifier()).isNull());
+        verify(scopes, org.mockito.Mockito.never()).resolveBrowse(any(), any(), any(), anyBoolean());
+        System.out.printf("测试证据：场景=全库检索范围，结果=%d，项目回填=%s，项目主数据解析=0%n",
+                response.results().size(), "project-a");
     }
 
     private KnowledgeSearchCandidate candidate(Long documentId, int chunkNo, double score) {
