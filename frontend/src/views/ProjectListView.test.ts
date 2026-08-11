@@ -85,9 +85,9 @@ describe('ProjectListView', () => {
   beforeEach(() => vi.restoreAllMocks())
 
   /**
-   * 业务目的：项目卡片展示真实项目字段，但不得暴露后端保留的默认分支和分支数量。
+   * 业务目的：项目卡片只展示真实项目字段，不展示伪造的知识数量，也不暴露后端保留的默认分支和分支数量。
    */
-  it('renders real project fields with isolated design samples', async () => {
+  it('renders real project fields without fabricated counts', async () => {
     const wrapper = await mountList('MEMBER', createProjectApi())
 
     expect(wrapper.text()).toContain('2 个项目')
@@ -95,7 +95,7 @@ describe('ProjectListView', () => {
     expect(wrapper.text()).toContain('network-designer-api')
     expect(wrapper.text()).not.toContain('3 个分支')
     expect(wrapper.text()).not.toContain('默认 main')
-    expect(wrapper.text()).toContain('26 篇知识')
+    expect(wrapper.text()).not.toContain('篇知识')
     expect(wrapper.text()).not.toContain('sample-service')
   })
 

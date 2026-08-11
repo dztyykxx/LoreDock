@@ -7,9 +7,6 @@
     <h3>{{ project.name }}</h3>
     <code>{{ project.identifier }}</code>
     <p>{{ project.technologyStack }}<template v-if="project.description"> · {{ project.description }}</template></p>
-    <div class="project-card__meta">
-      <span><IconGlyph name="file" />{{ sampleKnowledgeCount }} 篇知识</span>
-    </div>
   </RouterLink>
 </template>
 
@@ -22,7 +19,6 @@ import IconGlyph from './IconGlyph.vue'
 const props = defineProps<{
   project: ProjectSummary
   role: WebRole
-  sampleKnowledgeCount: number
 }>()
 
 const target = computed(() => `/projects/${props.project.identifier}`)

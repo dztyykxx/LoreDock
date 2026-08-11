@@ -61,7 +61,6 @@
               :key="project.id"
               :project="project"
               :role="identity.role"
-              :sample-knowledge-count="sampleKnowledgeCount(project)"
             />
           </div>
         </section>
@@ -98,7 +97,6 @@ import FormField from '../components/FormField.vue'
 import IconGlyph from '../components/IconGlyph.vue'
 import PageHeader from '../components/PageHeader.vue'
 import ProjectCard from '../components/ProjectCard.vue'
-import { DESIGN_SAMPLES } from '../designSamples'
 
 const api = useProjectApi()
 const session = useSession()
@@ -127,12 +125,6 @@ const filteredProjects = computed(() => {
     project.name.toLocaleLowerCase().includes(keyword)
     || project.identifier.toLocaleLowerCase().includes(keyword))
 })
-
-function sampleKnowledgeCount(project: ProjectSummary) {
-  // 知识数尚无后端接口，仅按原始项目顺序取设计样例，筛选不得把样例错配给其他项目。
-  const sourceIndex = projects.value.findIndex(item => item.id === project.id)
-  return DESIGN_SAMPLES.projectKnowledgeCounts[sourceIndex] ?? 8
-}
 
 async function loadProjects() {
   loading.value = true

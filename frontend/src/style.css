@@ -697,27 +697,6 @@ a {
   line-height: 20px;
 }
 
-.project-card__meta {
-  margin-top: auto;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 15px;
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.project-card__meta span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.project-card__meta .icon-glyph {
-  width: 14px;
-  height: 14px;
-  color: var(--quiet);
-}
-
 .login-page {
   min-height: 100vh;
   display: grid;

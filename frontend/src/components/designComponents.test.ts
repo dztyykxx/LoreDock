@@ -54,15 +54,15 @@ describe('design components', () => {
   })
 
   /**
-   * 业务目的：项目卡片只展示 MVP 需要的项目事实，后端保留的分支字段不得成为前端能力。
+   * 业务目的：项目卡片只展示真实项目事实，不展示后端尚无接口的伪造知识数量，也不暴露后端保留的分支字段。
    */
-  it('keeps real project fields while rendering the design knowledge sample', async () => {
+  it('keeps only real project fields', async () => {
     const router = createRouter({
       history: createMemoryHistory(),
       routes: [{ path: '/projects/:identifier', component: { template: '<div />' } }],
     })
     const wrapper = mount(ProjectCard, {
-      props: { project, role: 'MEMBER', sampleKnowledgeCount: 26 },
+      props: { project, role: 'MEMBER' },
       global: { plugins: [router] },
     })
 
@@ -70,7 +70,7 @@ describe('design components', () => {
     expect(wrapper.text()).toContain('api-project')
     expect(wrapper.text()).not.toContain('5 个分支')
     expect(wrapper.text()).not.toContain('默认 develop')
-    expect(wrapper.text()).toContain('26 篇知识')
+    expect(wrapper.text()).not.toContain('篇知识')
     expect(wrapper.text()).not.toContain('network-designer')
   })
 
@@ -83,7 +83,7 @@ describe('design components', () => {
       routes: [{ path: '/projects/:identifier', name: 'project-knowledge', component: { template: '<div />' } }],
     })
     const wrapper = mount(ProjectCard, {
-      props: { project, role, sampleKnowledgeCount: 26 },
+      props: { project, role },
       global: { plugins: [router] },
     })
 
