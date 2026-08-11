@@ -64,11 +64,14 @@ select {
   outline: none;
 }
 
+/*
+ * 聚焦光环只应用于按钮和链接。输入类控件不在此绘制：登录框、对话输入框、
+ * 搜索框等均由外层容器（带边框）包裹无边框的原生 input/textarea/select，
+ * 若原生控件自身再画光环，会落在容器边框内侧、与容器边框不重合形成双层绿框。
+ * 输入类控件的焦点统一由外层容器的 :focus-within 边框或控件自身的 :focus 边框表达。
+ */
 button:focus-visible,
-a:focus-visible,
-input:focus-visible,
-textarea:focus-visible,
-select:focus-visible {
+a:focus-visible {
   box-shadow: 0 0 0 3px rgb(21 131 109 / 20%);
 }
 
@@ -523,6 +526,11 @@ a {
   font-size: 12px;
 }
 
+.branch-selector:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgb(21 131 109 / 10%);
+}
+
 .project-hero {
   min-height: 63px;
   display: flex;
@@ -940,6 +948,10 @@ a {
   border: 0;
   background: transparent;
   font-size: 13px;
+}
+
+.list-search:focus-within {
+  box-shadow: 0 0 0 3px rgb(21 131 109 / 10%);
 }
 
 .list-search kbd {
@@ -1942,6 +1954,11 @@ a {
   font-size: 11px;
 }
 
+.tag-input__control:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgb(21 131 109 / 10%);
+}
+
 .tag-input__control input {
   min-width: 110px;
   flex: 1;
@@ -2393,6 +2410,18 @@ a {
 
 .editor-field > .field-error {
   color: var(--danger);
+}
+
+/* 独立带边框的输入控件自身承担焦点表达，与 .snapshot-form-grid 等控件的聚焦样式保持一致。 */
+.editor-field input:focus,
+.editor-field select:focus,
+.editor-field textarea:focus,
+.knowledge-editor-toolbar select:focus,
+.scope-fields select:focus,
+.knowledge-gap-dialog select:focus,
+.knowledge-gap-dialog textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgb(21 131 109 / 10%);
 }
 
 .knowledge-editor-toolbar {
