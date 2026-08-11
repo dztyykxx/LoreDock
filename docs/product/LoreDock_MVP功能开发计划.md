@@ -241,7 +241,7 @@ flowchart TD
 - 在会话中固定勾选草稿 ID，原草稿作为不可变输入；任务按稳定知识主题生成或修改最多 10 份工作文档；
 - 直接使用框架 `ReactAgent`、`ClasspathSkillRegistry`/`SkillsAgentHook` 和 ToolCallback，不使用 Agent Spec、子 Agent 或项目自建运行时；
 - 完善 `knowledge-curator` Workflow Skill，让模型自主读取勾选草稿、恢复多文档工作区、查看目录、检索并读取已发布文档全文，再修订相关工作文档；
-- 补齐 `selected_draft_list/read`、`workspace_document_list`、`knowledge_directory_list`、`knowledge_document_list/read`、`knowledge_search`、`knowledge_grep`、`draft_create/read/update/diff` 等受控 Tool；
+- 补齐 `selected_draft_list/read`、`workspace_document_list`、`knowledge_directory_list`、`knowledge_document_list/read`、`knowledge_search`、`knowledge_grep`、`draft_create/read/rename/update/diff` 等受控 Tool；大文档读取使用 Unicode 码点游标分段；
 - Tool 内强制项目、文档状态、会话固定输入、参数上限、来源完整性、幂等和发布边界；
 - 工作文档使用带基础修订号和幂等键的结构化更新，每次更新保存不可变修订并由服务端生成 Markdown Diff；
 - 重复、冲突、过期、缺口和待确认问题由模型在最终回复中说明，不调用专用警告 Tool，也不写入工作文档正文；

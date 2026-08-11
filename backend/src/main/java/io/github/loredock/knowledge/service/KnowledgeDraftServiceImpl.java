@@ -229,8 +229,8 @@ public class KnowledgeDraftServiceImpl implements KnowledgeDraftService {
             long toRevision = runRevisions.getLast().getRevision();
             String from = requireRevision(draft.getId(), fromRevision).getMarkdown();
             String to = requireRevision(draft.getId(), toRevision).getMarkdown();
-            int additions = lineCount(to);
-            int deletions = lineCount(from);
+            int additions = from.equals(to) ? 0 : lineCount(to);
+            int deletions = from.equals(to) ? 0 : lineCount(from);
             changes.add(new RunDocumentChange(
                     draft.getId(), WorkspaceOperation.valueOf(draft.getOperation()), draft.getTitle(),
                     fromRevision, toRevision, additions, deletions));
@@ -303,6 +303,55 @@ public class KnowledgeDraftServiceImpl implements KnowledgeDraftService {
     }
 
     @Override
+    @Transactional
+    public DraftRevision rename(RenameRequest request) {
+        AccessContext context = requireContext(request == null ? null : request.context());
+        Long draftId = positive(request.draftId());
+        String key = text(request.idempotencyKey(), 128);
+        String title = text(request.title(), 200);
+        String summary = text(request.changeSummary(), 1000);
+        String requestHash = hash("RENAME\n" + request.baseRevision() + "\n" + title + "\n" + summary);
+        KnowledgeDraftRevisionEntity replay = revisions.selectOne(
+                Wrappers.<KnowledgeDraftRevisionEntity>lambdaQuery()
+                        .eq(KnowledgeDraftRevisionEntity::getDraftId, draftId)
+                        .eq(KnowledgeDraftRevisionEntity::getCreatedByRunId, context.runId())
+                        .eq(KnowledgeDraftRevisionEntity::getIdempotencyKey, key));
+        if (replay != null) {
+            if (!requestHash.equals(replay.getRequestHash())) {
+                throw failure(KnowledgeDraftException.Code.DRAFT_IDEMPOTENCY_CONFLICT);
+            }
+            return revision(visible(draftId, context), replay);
+        }
+        KnowledgeDraftEntity draft = locked(draftId, context);
+        if (!WorkspaceOperation.ADD.name().equals(draft.getOperation())) {
+            throw failure(KnowledgeDraftException.Code.DRAFT_OPERATION_INVALID);
+        }
+        if (draft.getCurrentRevision() != request.baseRevision()) {
+            throw failure(KnowledgeDraftException.Code.DRAFT_REVISION_CONFLICT);
+        }
+        if (title.equals(draft.getTitle())) {
+            throw failure(KnowledgeDraftException.Code.DRAFT_OPERATION_INVALID);
+        }
+        KnowledgeDraftRevisionEntity base = requireRevision(draftId, request.baseRevision());
+        long next = request.baseRevision() + 1;
+        Instant now = clock.instant();
+        KnowledgeDraftRevisionEntity created = KnowledgeDraftRevisionEntity.builder()
+                .draftId(draftId).revision(next).markdown(base.getMarkdown()).blocksJson(base.getBlocksJson())
+                .changeSummary(summary).createdByRunId(context.runId()).idempotencyKey(key)
+                .requestHash(requestHash).createdAt(now).build();
+        revisions.insert(created);
+        if (drafts.renameAndAdvance(draftId, request.baseRevision(), next, title, now) != 1) {
+            throw failure(KnowledgeDraftException.Code.DRAFT_REVISION_CONFLICT);
+        }
+        draft.setTitle(title);
+        draft.setCurrentRevision(next);
+        draft.setUpdatedAt(now);
+        log.info("knowledge_draft renamed draftId={} conversationId={} runId={} fromRevision={} toRevision={}",
+                draftId, context.conversationId(), context.runId(), request.baseRevision(), next);
+        return revision(draft, created);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public DraftDiff diff(DiffRequest request) {
         AccessContext context = requireContext(request == null ? null : request.context());
@@ -312,8 +361,8 @@ public class KnowledgeDraftServiceImpl implements KnowledgeDraftService {
                 : requireRevision(draft.getId(), request.fromRevision()).getMarkdown();
         KnowledgeDraftRevisionEntity toRevision = requireRevision(draft.getId(), request.toRevision());
         String to = toRevision.getMarkdown();
-        int deletions = lineCount(from);
-        int additions = lineCount(to);
+        int deletions = from.equals(to) ? 0 : lineCount(from);
+        int additions = from.equals(to) ? 0 : lineCount(to);
         String value = unified(from, to, request.fromRevision(), request.toRevision());
         boolean truncated = value.codePointCount(0, value.length()) > MAX_DIFF_CODE_POINTS;
         if (truncated) {
@@ -635,8 +684,11 @@ public class KnowledgeDraftServiceImpl implements KnowledgeDraftService {
     private String unified(String from, String to, Long fromRevision, long toRevision) {
         StringBuilder result = new StringBuilder()
                 .append("--- draft/").append(fromRevision == null ? "baseline" : fromRevision).append('\n')
-                .append("+++ draft/").append(toRevision).append('\n')
-                .append("@@ -1,").append(lineCount(from)).append(" +1,").append(lineCount(to)).append(" @@\n");
+                .append("+++ draft/").append(toRevision).append('\n');
+        if (from.equals(to)) {
+            return result.toString();
+        }
+        result.append("@@ -1,").append(lineCount(from)).append(" +1,").append(lineCount(to)).append(" @@\n");
         if (!from.isEmpty()) {
             from.lines().forEach(line -> result.append('-').append(line).append('\n'));
         }

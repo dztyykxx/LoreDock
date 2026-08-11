@@ -54,6 +54,15 @@ public interface KnowledgeDraftService {
     DraftRevision update(UpdateRequest request);
 
     /**
+     * 在当前修订上更正新增工作文档的标题，并以正文不变的新修订进入审核链。
+     *
+     * @param request 固定范围、基础修订、新标题和幂等键
+     * @return 标题已更新的新修订
+     * @throws KnowledgeDraftException 修改正式文档工作副本、修订过期或幂等冲突
+     */
+    DraftRevision rename(RenameRequest request);
+
+    /**
      * 由服务端生成基线/旧修订到目标修订的 Markdown unified diff。
      *
      * @param request 草稿与比较修订
@@ -129,6 +138,16 @@ public interface KnowledgeDraftService {
             operations = operations == null ? List.of() : List.copyOf(operations);
         }
     }
+
+    /** 新增工作文档改名请求；MODIFY 文档标题仍由正式基线固定。 */
+    record RenameRequest(
+            AccessContext context,
+            Long draftId,
+            long baseRevision,
+            String idempotencyKey,
+            String title,
+            String changeSummary
+    ) { }
 
     /**
      * @param type 插入、替换或删除

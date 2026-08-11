@@ -26,6 +26,9 @@ import org.springframework.stereotype.Component;
 @Component
 public class KnowledgeCurationTools {
 
+    private static final int DEFAULT_READ_CODE_POINTS = 8_000;
+    private static final int MAX_READ_CODE_POINTS = 12_000;
+
     private final ProjectQaToolService knowledge;
     private final AgentEvidenceService evidence;
     private final ObjectProvider<KnowledgeDraftService> drafts;
@@ -73,17 +76,18 @@ public class KnowledgeCurationTools {
     }
 
     /** @return 指定勾选草稿在会话启动时的不可变 Markdown 快照 */
-    @Tool(name = "selected_draft_read", description = "按文档 ID 读取当前任务固定的待处理草稿 Markdown 快照")
+    @Tool(name = "selected_draft_read", description = "按 Unicode 码点游标分段读取当前任务固定的待处理草稿 Markdown 快照；nextCursor 为空时已到文末")
     public SelectedDraftContent selectedDraftRead(
             @ToolParam(description = "selected_draft_list 返回的待处理草稿文档 ID") Long documentId,
+            @ToolParam(required = false, description = "起始 Unicode 码点游标；首段传 0，后续逐字复制 nextCursor") Integer cursor,
+            @ToolParam(required = false, description = "本次最大返回码点数；建议 8000，最大 12000") Integer maxCodePoints,
             ToolContext context
     ) {
         ToolScope scope = scope(context);
         return selectedDrafts(scope.conversationId()).stream()
                 .filter(value -> value.getDocumentId().equals(documentId))
                 .findFirst()
-                .map(value -> new SelectedDraftContent(value.getDocumentId(), value.getDocumentRevision(),
-                        value.getTitle(), value.getDirectoryPath(), value.getOriginalFilename(), value.getMarkdown()))
+                .map(value -> selectedDraftPage(value, cursor, maxCodePoints))
                 .orElseThrow(() -> new IllegalArgumentException("当前任务未勾选该草稿"));
     }
 
@@ -109,14 +113,16 @@ public class KnowledgeCurationTools {
         return documents.listPublishedDocuments(scope.projectIdentifier(), directory, defaultLimit(limit));
     }
 
-    /** @return 指定已发布文档的完整 Markdown */
-    @Tool(name = "knowledge_document_read", description = "按文档 ID 读取当前项目授权范围内的已发布 Markdown 全文")
-    public KnowledgeDocumentAccessService.DocumentContent knowledgeDocumentRead(
+    /** @return 指定已发布文档的有界 Markdown 分段 */
+    @Tool(name = "knowledge_document_read", description = "按 Unicode 码点游标分段读取当前项目授权范围内的已发布 Markdown；nextCursor 为空时已到文末")
+    public KnowledgeDocumentAccessService.DocumentPage knowledgeDocumentRead(
             @ToolParam(description = "目录、搜索或匹配结果返回的已发布文档 ID") Long documentId,
+            @ToolParam(required = false, description = "起始 Unicode 码点游标；首段传 0，后续逐字复制 nextCursor") Integer cursor,
+            @ToolParam(required = false, description = "本次最大返回码点数；建议 8000，最大 12000") Integer maxCodePoints,
             ToolContext context
     ) {
         ToolScope scope = scope(context);
-        return documents.readPublished(scope.projectIdentifier(), documentId);
+        return documents.readPublishedPage(scope.projectIdentifier(), documentId, cursor, maxCodePoints);
     }
 
     /** @return 已发布 Markdown 中的有界关键词命中 */
@@ -238,6 +244,21 @@ public class KnowledgeCurationTools {
                 scope.access(), draftId, baseRevision, idempotencyKey, safeOperations, changeSummary));
     }
 
+    /** @return 正文不变且标题已更正的新审核修订 */
+    @Tool(name = "draft_rename", description = "更正 ADD 工作文档标题并生成正文不变的新修订；MODIFY 标题由正式基线固定")
+    public KnowledgeDraftService.DraftRevision draftRename(
+            @ToolParam(description = "新增工作文档 ID") Long draftId,
+            @ToolParam(description = "改名所基于的当前修订号") long baseRevision,
+            @ToolParam(description = "本次改名调用的幂等键") String idempotencyKey,
+            @ToolParam(description = "更正后的文档标题") String title,
+            @ToolParam(description = "改名原因摘要") String changeSummary,
+            ToolContext context
+    ) {
+        ToolScope scope = scope(context);
+        return draftService().rename(new KnowledgeDraftService.RenameRequest(
+                scope.access(), draftId, baseRevision, idempotencyKey, title, changeSummary));
+    }
+
     private void validateDraftSources(List<KnowledgeDraftService.UpdateOperation> operations, ToolScope scope) {
         List<Long> evidenceIds = evidence.findByRunId(scope.runId()).stream()
                 .map(AgentEvidence::id).toList();
@@ -298,6 +319,26 @@ public class KnowledgeCurationTools {
         return value == null ? 20 : value;
     }
 
+    private SelectedDraftContent selectedDraftPage(
+            KnowledgeTaskSelectedDraftEntity value,
+            Integer requestedCursor,
+            Integer requestedMaximum
+    ) {
+        String markdown = value.getMarkdown();
+        int total = markdown.codePointCount(0, markdown.length());
+        int cursor = requestedCursor == null ? 0 : requestedCursor;
+        int maximum = requestedMaximum == null ? DEFAULT_READ_CODE_POINTS : requestedMaximum;
+        if (cursor < 0 || cursor > total || maximum <= 0 || maximum > MAX_READ_CODE_POINTS) {
+            throw new IllegalArgumentException("草稿分段参数无效");
+        }
+        int end = Math.min(total, cursor + maximum);
+        String page = markdown.substring(
+                markdown.offsetByCodePoints(0, cursor), markdown.offsetByCodePoints(0, end));
+        return new SelectedDraftContent(
+                value.getDocumentId(), value.getDocumentRevision(), value.getTitle(), value.getDirectoryPath(),
+                value.getOriginalFilename(), page, cursor, end < total ? end : null, total, end < total);
+    }
+
     private ToolScope scope(ToolContext context) {
         if (context == null) {
             throw new IllegalArgumentException("知识 Tool 缺少服务端固定上下文");
@@ -349,7 +390,8 @@ public class KnowledgeCurationTools {
     /** 固定勾选草稿全文快照。 */
     public record SelectedDraftContent(
             Long documentId, long revision, String title, String directory,
-            String originalFilename, String markdown
+            String originalFilename, String markdown, int cursor, Integer nextCursor,
+            int totalCodePoints, boolean truncated
     ) { }
 
 }

@@ -131,6 +131,7 @@ describe('design components', () => {
       routes: [
         { path: '/projects', component: { template: '<div />' } },
         { path: '/knowledge', name: 'knowledge-global', component: { template: '<div />' } },
+        { path: '/search', name: 'global-search', component: { template: '<div />' } },
         { path: '/projects/:identifier', name: 'project-knowledge', component: { template: '<div />' } },
         { path: '/projects/:identifier/qa', name: 'project-qa', component: { template: '<div />' } },
       ],
@@ -145,6 +146,7 @@ describe('design components', () => {
     })
 
     expect(wrapper.get('[data-testid="global-knowledge-link"]').attributes('href')).toBe('/knowledge')
+    expect(wrapper.get('[data-testid="global-search-link"]').attributes('href')).toBe('/search')
     expect(wrapper.get('[data-testid="current-project-link"]').attributes('href')).toBe('/projects/api-project')
     expect(wrapper.get('[data-testid="sidebar-qa-link"]').attributes('href')).toBe('/projects/api-project/qa')
     expect(wrapper.get('[data-testid="sidebar-new-question-link"]').attributes('href')).toBe('/projects/api-project/qa?new=1')

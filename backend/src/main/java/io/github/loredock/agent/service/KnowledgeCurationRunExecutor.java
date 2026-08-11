@@ -503,11 +503,12 @@ public class KnowledgeCurationRunExecutor {
                 case "selected_draft_read" -> "已读取一份固定输入草稿";
                 case "knowledge_directory_list" -> "已读取知识库目录";
                 case "knowledge_document_list" -> "已读取目录下文档清单";
-                case "knowledge_document_read" -> "已读取相关文档全文";
+                case "knowledge_document_read" -> "已读取相关文档分段";
                 case "knowledge_grep" -> "已完成关键词匹配";
                 case "knowledge_search" -> "已完成近似文档检索";
                 case "workspace_document_list" -> "已恢复当前工作区文档";
                 case "draft_create" -> "已创建工作文档";
+                case "draft_rename" -> "已更正工作文档标题";
                 case "draft_read" -> "已读取工作文档";
                 case "draft_update" -> "已生成工作文档新修订";
                 case "draft_diff" -> "已生成待审核 Diff";
@@ -520,10 +521,10 @@ public class KnowledgeCurationRunExecutor {
                 case "read_skill" -> "加载整理规则";
                 case "selected_draft_list", "selected_draft_read" -> "读取选中的待处理草稿";
                 case "knowledge_directory_list", "knowledge_document_list" -> "浏览现有知识库";
-                case "knowledge_document_read" -> "核对现有文档全文";
+                case "knowledge_document_read" -> "分段核对现有文档";
                 case "knowledge_grep", "knowledge_search" -> "检索相关业务知识";
                 case "workspace_document_list" -> "恢复多文档工作区";
-                case "draft_create", "draft_read", "draft_update" -> "生成或修改工作文档";
+                case "draft_create", "draft_read", "draft_rename", "draft_update" -> "生成或修改工作文档";
                 case "draft_diff" -> "生成审核差异";
                 default -> "执行知识整理步骤";
             };

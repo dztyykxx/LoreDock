@@ -33,6 +33,8 @@ public class KnowledgeDocumentAccessServiceImpl implements KnowledgeDocumentAcce
     private static final int MAX_GREP_LIMIT = 50;
     private static final int MAX_CONTEXT_LINES = 3;
     private static final int MAX_CONTEXT_CODE_POINTS = 1200;
+    private static final int DEFAULT_READ_CODE_POINTS = 8_000;
+    private static final int MAX_READ_CODE_POINTS = 12_000;
     private final ProjectService projects;
     private final KnowledgeDocumentDataService documents;
 
@@ -101,13 +103,19 @@ public class KnowledgeDocumentAccessServiceImpl implements KnowledgeDocumentAcce
 
     @Override
     @Transactional(readOnly = true)
-    public DocumentContent readPublished(String projectIdentifier, Long documentId) {
+    public DocumentPage readPublishedPage(
+            String projectIdentifier,
+            Long documentId,
+            Integer cursor,
+            Integer maxCodePoints
+    ) {
         if (documentId == null || documentId <= 0) {
             throw new IllegalArgumentException("文档标识无效");
         }
-        return documents.findPublishedById(documentId, context(projectIdentifier))
+        DocumentContent content = documents.findPublishedById(documentId, context(projectIdentifier))
                 .map(this::content)
                 .orElseThrow(() -> new IllegalArgumentException("当前项目范围内不存在该已发布文档"));
+        return page(content, cursor, maxCodePoints);
     }
 
     @Override
@@ -167,6 +175,23 @@ public class KnowledgeDocumentAccessServiceImpl implements KnowledgeDocumentAcce
         return new DocumentContent(document.id(), document.revision().value(), document.fields().title().value(),
                 document.fields().directory().value(), document.fields().body().value(),
                 document.fields().source().originalFilename(), document.updatedAt());
+    }
+
+    private DocumentPage page(DocumentContent content, Integer requestedCursor, Integer requestedMaximum) {
+        String markdown = content.markdown();
+        int total = markdown.codePointCount(0, markdown.length());
+        int cursor = requestedCursor == null ? 0 : requestedCursor;
+        int maximum = requestedMaximum == null ? DEFAULT_READ_CODE_POINTS : requestedMaximum;
+        if (cursor < 0 || cursor > total || maximum <= 0 || maximum > MAX_READ_CODE_POINTS) {
+            throw new IllegalArgumentException("文档分段参数无效");
+        }
+        int end = Math.min(total, cursor + maximum);
+        int startIndex = markdown.offsetByCodePoints(0, cursor);
+        int endIndex = markdown.offsetByCodePoints(0, end);
+        return new DocumentPage(
+                content.documentId(), content.revision(), content.title(), content.directory(),
+                markdown.substring(startIndex, endIndex), content.originalFilename(), content.updatedAt(),
+                cursor, end < total ? end : null, total, end < total);
     }
 
     private DocumentDirectory directoryValue(String value) {

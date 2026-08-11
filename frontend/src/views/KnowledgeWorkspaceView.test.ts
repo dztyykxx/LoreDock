@@ -222,9 +222,9 @@ describe('KnowledgeWorkspaceView', () => {
 
   /**
    * 业务目的：管理员必须能在统一草稿入口看到父目录下的后代草稿并选择本页，
-   * 原始输入不得从草稿池绕过 AI 整理任务直接批量发布。
+   * 选择后必须同时提供 AI 合并与直接批量发布入口，方便按材料成熟度选择处理方式。
    */
-  it('browses and selects administrator draft subtrees without direct publication', async () => {
+  it('browses and selects administrator draft subtrees with both processing actions', async () => {
     const first = { ...published, id: 56, title: '导入草稿一', directory: '测试资料/Atlas/source', status: 'DRAFT' as const, syncStatus: 'NOT_APPLICABLE' as const }
     const second = { ...first, id: 57, title: '导入草稿二', directory: '测试资料/Atlas/runtime' }
     const directories = [
@@ -247,7 +247,36 @@ describe('KnowledgeWorkspaceView', () => {
 
     await wrapper.get('[data-testid="select-all-drafts"]').setValue(true)
     expect(wrapper.get('[data-testid="merge-selected-drafts"]').text()).toContain('AI 合并整理 2')
-    expect(wrapper.find('[data-testid="batch-publish"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="batch-publish"]').text()).toContain('批量发布 2')
+  })
+
+  /**
+   * 业务目的：成熟草稿可以跳过 AI 整理并一次原子发布，发布前必须二次确认，
+   * 防止误点或部分失败造成同一批草稿状态不一致。
+   */
+  it('confirms and publishes selected draft documents as one batch', async () => {
+    const first = { ...published, id: 56, title: '已确认规则一', status: 'DRAFT' as const, syncStatus: 'NOT_APPLICABLE' as const }
+    const second = { ...first, id: 57, title: '已确认规则二' }
+    const browseAdmin = vi.fn()
+      .mockResolvedValueOnce(browseResult([first, second]))
+      .mockResolvedValueOnce(browseResult())
+    const batchPublishDocuments = vi.fn().mockResolvedValue({ requestedCount: 2, publishedCount: 2, alreadyPublishedCount: 0 })
+    const api = createKnowledgeApi({ browseAdmin, batchPublishDocuments })
+    const { wrapper } = await mountView('/projects/network-designer/drafts', {
+      username: 'admin', displayName: '管理员', role: 'ADMIN',
+    }, api)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="select-all-drafts"]').setValue(true)
+    await wrapper.get('[data-testid="batch-publish"]').trigger('click')
+    expect(wrapper.get('[role="dialog"]').text()).toContain('跳过 AI 整理并直接发布选中的 2 篇草稿')
+
+    await wrapper.get('[data-testid="confirm-dialog-submit"]').trigger('click')
+    await flushPromises()
+
+    expect(batchPublishDocuments).toHaveBeenCalledWith([56, 57])
+    expect(wrapper.get('[data-testid="batch-publish-message"]').text()).toContain('已发布 2 篇')
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false)
   })
 
   /**

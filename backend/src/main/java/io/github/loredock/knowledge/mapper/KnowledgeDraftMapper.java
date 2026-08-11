@@ -46,6 +46,21 @@ public interface KnowledgeDraftMapper extends BaseMapper<KnowledgeDraftEntity> {
             @Param("updatedAt") Instant updatedAt
     );
 
+    /** @return ADD 工作文档的标题和审核修订指针同时更新成功的行数 */
+    @Update("""
+            update knowledge_draft
+            set title = #{title}, current_revision = #{next}, updated_at = #{updatedAt}
+            where id = #{draftId} and operation = 'ADD' and current_revision = #{expected}
+              and published_document_id is null
+            """)
+    int renameAndAdvance(
+            @Param("draftId") Long draftId,
+            @Param("expected") long expected,
+            @Param("next") long next,
+            @Param("title") String title,
+            @Param("updatedAt") Instant updatedAt
+    );
+
     /** 会话只指向其自身创建的当前草稿。 */
     @Update("""
             update knowledge_task_conversation set current_draft_id = #{draftId}, updated_at = #{updatedAt}

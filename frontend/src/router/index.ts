@@ -8,6 +8,7 @@ import KnowledgeEditorView from '../views/KnowledgeEditorView.vue'
 import ProjectQaView from '../views/ProjectQaView.vue'
 import KnowledgeTaskView from '../views/KnowledgeTaskView.vue'
 import KnowledgeTaskListView from '../views/KnowledgeTaskListView.vue'
+import GlobalSearchView from '../views/GlobalSearchView.vue'
 
 export function createLoreDockRouter(session: SessionController): Router {
   const router = createRouter({
@@ -25,6 +26,12 @@ export function createLoreDockRouter(session: SessionController): Router {
         path: '/knowledge',
         name: 'knowledge-global',
         component: KnowledgeWorkspaceView,
+        meta: { requiresAuth: true },
+      },
+      {
+        path: '/search',
+        name: 'global-search',
+        component: GlobalSearchView,
         meta: { requiresAuth: true },
       },
       {

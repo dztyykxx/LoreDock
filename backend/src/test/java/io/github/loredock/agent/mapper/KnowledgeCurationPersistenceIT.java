@@ -326,6 +326,35 @@ class KnowledgeCurationPersistenceIT {
     }
 
     /**
+     * 业务目的：ADD 工作文档改名必须和正文修订共用同一个 PostgreSQL 审核指针，
+     * 并且相同幂等键重试不能再增加修订；防止页面标题、当前修订和最终发布指针分离。
+     */
+    @Test
+    void additionRenamePersistsOneIdempotentRevisionWithUnchangedMarkdown() {
+        KnowledgeTaskService.KnowledgeTask task = tasks.start(start(
+                "draft-rename", "admin", "atlas", KnowledgeTaskService.TriggerType.MANUAL));
+        KnowledgeDraftService.AccessContext context = context(task, task.runs().getFirst().runId());
+        KnowledgeDraftService.DraftRevision created = drafts.create(
+                new KnowledgeDraftService.CreateRequest(context, "create-rename", "Atlas 旧标题", null));
+        KnowledgeDraftService.RenameRequest request = new KnowledgeDraftService.RenameRequest(
+                context, created.draftId(), created.revision(), "rename-1", "Atlas 新标题", "纠正主题名");
+
+        KnowledgeDraftService.DraftRevision renamed = drafts.rename(request);
+        KnowledgeDraftService.DraftRevision replayed = drafts.rename(request);
+
+        assertThat(renamed.revision()).isEqualTo(created.revision() + 1);
+        assertThat(replayed.revision()).isEqualTo(renamed.revision());
+        assertThat(renamed.title()).isEqualTo("Atlas 新标题");
+        assertThat(renamed.markdown()).isEqualTo(created.markdown());
+        assertThat(jdbc.queryForObject(
+                "select title from knowledge_draft where id = ?", String.class, created.draftId()))
+                .isEqualTo("Atlas 新标题");
+        assertThat(count("knowledge_draft_revision")).isEqualTo(2);
+        System.out.printf("测试证据：场景=PostgreSQL草稿改名，draft=%s，修订=%d->%d，重试新增修订=0，正文不变=true%n",
+                created.draftId(), created.revision(), renamed.revision());
+    }
+
+    /**
      * 业务目的：管理员查看某一修订 Diff 后若 Agent 又产生新修订，旧审核请求必须拒绝，
      * 防止发布用户从未查看过的内容或静默回退当前草稿。
      */
