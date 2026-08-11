@@ -40,6 +40,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import type { WebRole } from '../api/types'
 
@@ -63,10 +64,12 @@ const props = withDefaults(defineProps<{
   taskCount: null,
 })
 
-const knowledgeTarget = props.projectIdentifier ? `/projects/${props.projectIdentifier}` : '/knowledge'
-const qaTarget = `/projects/${props.projectIdentifier}/qa`
-const draftsTarget = props.projectIdentifier ? `/projects/${props.projectIdentifier}/drafts` : '/knowledge/drafts'
-const tasksTarget = props.projectIdentifier
+// 目标必须随 props 响应式更新：项目页首次渲染时项目详情尚未加载完成（projectIdentifier 为空），
+// 若用 setup 期常量固化，项目加载完成后 tab 仍会指向全局入口。
+const knowledgeTarget = computed(() => props.projectIdentifier ? `/projects/${props.projectIdentifier}` : '/knowledge')
+const qaTarget = computed(() => `/projects/${props.projectIdentifier}/qa`)
+const draftsTarget = computed(() => props.projectIdentifier ? `/projects/${props.projectIdentifier}/drafts` : '/knowledge/drafts')
+const tasksTarget = computed(() => props.projectIdentifier
   ? `/projects/${props.projectIdentifier}/knowledge-tasks`
-  : '/knowledge/knowledge-tasks'
+  : '/knowledge/knowledge-tasks')
 </script>

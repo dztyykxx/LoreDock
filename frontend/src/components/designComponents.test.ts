@@ -124,6 +124,36 @@ describe('design components', () => {
   })
 
   /**
+   * 业务目的：项目页挂载时项目详情尚未加载完成，tab 目标必须先按空标识渲染、在项目标识到达后
+   * 更新为项目范围。防止项目页的"知识文档/草稿/知识任务"在异步加载后仍然指向全局入口。
+   */
+  it('repoints tabs to the project scope after the project identifier arrives asynchronously', async () => {
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [
+        { path: '/projects/:identifier', name: 'project-knowledge', component: { template: '<div />' } },
+        { path: '/projects/:identifier/qa', name: 'project-qa', component: { template: '<div />' } },
+        { path: '/projects/:identifier/drafts', name: 'project-drafts', component: { template: '<div />' } },
+        { path: '/projects/:identifier/knowledge-tasks', name: 'project-knowledge-tasks', component: { template: '<div />' } },
+      ],
+    })
+    const wrapper = mount(ProjectTabs, {
+      props: {
+        active: 'knowledge',
+        role: 'ADMIN',
+        projectIdentifier: '',
+      },
+      global: { plugins: [router] },
+    })
+    await wrapper.setProps({ projectIdentifier: 'api-project', global: false })
+
+    expect(wrapper.get('[data-tab="knowledge"]').attributes('href')).toBe('/projects/api-project')
+    expect(wrapper.get('[data-tab="qa"]').attributes('href')).toBe('/projects/api-project/qa')
+    expect(wrapper.get('[data-tab="drafts"]').attributes('href')).toBe('/projects/api-project/drafts')
+    expect(wrapper.get('[data-tab="tasks"]').attributes('href')).toBe('/projects/api-project/knowledge-tasks')
+  })
+
+  /**
    * 业务目的：侧栏的通用知识和当前项目必须是可键盘访问的真实入口，防止继续以禁用样例控件冒充导航。
    */
   it('links the sidebar to global and current-project knowledge', () => {
