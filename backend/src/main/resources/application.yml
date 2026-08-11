@@ -30,7 +30,7 @@ spring:
       chat:
         options:
           model: ${LOREDOCK_AGENT_MODEL_NAME:deepseek-v4-flash}
-          temperature: 0.0
+          temperature: 0.7
           parallel-tool-calls: false
           internal-tool-execution-enabled: false
           stream-usage: true
