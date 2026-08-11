@@ -191,7 +191,7 @@
 - **THEN** 系统拒绝为发布幂等冲突，原发布事实保持不变
 
 ### Requirement: 知识任务 MODIFY 必须保持正式文档稳定身份
-知识任务的 MODIFY 发布 SHALL 更新固定 `baseline_document_id` 对应的同一正式文档，只修改 Markdown 正文并增加正式修订号；标题、目录、标签和 document_id SHALL 保持不变。普通 MODIFY MUST NOT 创建替代文档或归档基线。ADD SHALL 创建新正式文档 ID，并在发布时验证项目内已有目录和标题约束。
+知识任务的 MODIFY 发布 SHALL 更新固定 `baseline_document_id` 对应的同一正式文档，只修改 Markdown 正文并增加正式修订号；标题、目录、标签和 document_id SHALL 保持不变。普通 MODIFY MUST NOT 创建替代文档或归档基线。ADD SHALL 创建新正式文档 ID，并在发布时验证目录格式合法和项目内标题无冲突；ADD 允许发布到尚无已发布文档的全新逻辑目录，目录浏览树按已发布文档自然生长。
 
 #### Scenario: 发布正文修改
 - **WHEN** MODIFY 的审核正文有效且正式修订等于固定基线
@@ -200,6 +200,10 @@
 #### Scenario: 新增文档标题冲突
 - **WHEN** ADD 的最终目录与标题在项目正式知识中已经存在
 - **THEN** 整个任务发布失败且不创建新文档
+
+#### Scenario: ADD 发布到全新目录
+- **WHEN** ADD 的目录格式合法但该目录下尚无任何已发布文档
+- **THEN** 系统创建新正式文档并发布，目录树随后显示该新目录
 
 #### Scenario: Agent 尝试修改元数据
 - **WHEN** MODIFY 工作草稿请求改变标题、目录或标签
@@ -215,3 +219,18 @@
 #### Scenario: 发布提交后索引失败
 - **WHEN** 正式发布已经提交但异步索引任务失败
 - **THEN** 正式文档与任务保持 PUBLISHED，页面显示索引更新失败，上一活动索引继续可用且后台可以重试
+
+### Requirement: MCP 工具的项目范围可由部署配置锁定
+MCP 服务 SHALL 接受可选请求头 `X-LoreDock-Project` 声明部署锁定的项目标识。配置后，该 MCP server 的所有知识工具 MUST 只检索该项目的已发布知识与草稿池；工具未传 `project` 参数时 SHALL 使用锁定项目，显式传入其他项目 MUST 被拒绝且不返回任何数据。未配置时，工具的项目参数 MUST 保持必填。
+
+#### Scenario: 配置项目锁后省略项目参数
+- **WHEN** 请求头配置项目锁且工具调用未传 `project` 参数
+- **THEN** 工具使用锁定项目执行检索并返回结果
+
+#### Scenario: 配置项目锁后传入其他项目
+- **WHEN** 请求头配置项目锁且工具调用显式传入其他项目标识
+- **THEN** 工具调用返回错误且不返回任何项目数据
+
+#### Scenario: 未配置项目锁且省略项目参数
+- **WHEN** 未配置项目锁且工具调用未传 `project` 参数
+- **THEN** 工具调用返回错误提示项目参数必填

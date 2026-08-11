@@ -28,6 +28,8 @@ import io.github.loredock.knowledge.model.entity.KnowledgeDraftEntity;
 import io.github.loredock.knowledge.model.entity.KnowledgeDraftRevisionEntity;
 import io.github.loredock.knowledge.model.enums.DocumentFormat;
 import io.github.loredock.knowledge.model.enums.DocumentSourceType;
+import io.github.loredock.knowledge.model.enums.DocumentStatus;
+import io.github.loredock.project.api.ProjectScope;
 import io.github.loredock.project.api.ProjectService;
 import java.time.Clock;
 import java.time.Instant;
@@ -87,7 +89,6 @@ class KnowledgeDraftWorkspacePublicationTest {
         when(revisions.selectOne(any())).thenReturn(
                 additionRevision, modificationRevision, additionRevision, modificationRevision);
         when(documents.findAllByIdsForUpdate(List.of(100L))).thenReturn(List.of(baseline));
-        when(documents.projectDirectoryExists(10L, "团队协作")).thenReturn(true);
         when(documents.existsPublishedProjectTitle(10L, "团队协作", "新增流程")).thenReturn(false);
         when(documents.insertDraft(any(), any())).thenReturn(candidate);
         when(documents.update(any(), any())).thenReturn(true);
@@ -217,5 +218,100 @@ class KnowledgeDraftWorkspacePublicationTest {
                 new DocumentBody(body), new DocumentDirectory(directory), DocumentTags.of(List.of()),
                 new DocumentSource(DocumentSourceType.MANUAL, null, null, "测试"),
                 KnowledgeScope.project(10L));
+    }
+
+    /**
+     * 业务目的：知识任务原子发布后，原候选草稿必须归档退出待处理草稿池，
+     * 已在发布前人工归档的草稿幂等跳过；防止旧草稿继续出现在 DRAFT 草稿池被重复整理。
+     */
+    @Test
+    void archivesSelectedDraftInputsAndSkipsAlreadyArchived() {
+        KnowledgeDocument draft = KnowledgeDocument.create(7001L,
+                fields("原候选草稿", "待处理", "# 原始正文"),
+                new DocumentAudit(NOW.minusSeconds(120), "admin"));
+        KnowledgeDocument alreadyArchived = KnowledgeDocument.create(7002L,
+                fields("已人工归档草稿", "待处理", "# 归档正文"),
+                new DocumentAudit(NOW.minusSeconds(120), "admin"))
+                .archive(new DocumentAudit(NOW.minusSeconds(60), "admin"));
+        when(documents.findAllByIdsForUpdate(List.of(7001L, 7002L)))
+                .thenReturn(List.of(draft, alreadyArchived));
+        when(documents.update(any(KnowledgeDocument.class), eq(draft.revision()))).thenReturn(true);
+
+        service.archiveSelectedInputs(33L, List.of(7002L, 7001L), "admin");
+
+        ArgumentCaptor<KnowledgeDocument> captor = ArgumentCaptor.forClass(KnowledgeDocument.class);
+        verify(documents).update(captor.capture(), eq(draft.revision()));
+        assertThat(captor.getValue().status()).isEqualTo(DocumentStatus.ARCHIVED);
+        assertThat(captor.getValue().archivedBy()).isEqualTo("admin");
+        verify(documents, never()).update(any(KnowledgeDocument.class), eq(alreadyArchived.revision()));
+        System.out.println("归档原草稿测试证据：conversationId=33，DRAFT原草稿=已归档，ARCHIVED原草稿=幂等跳过");
+    }
+
+    /**
+     * 业务目的：ADD 工作草稿必须允许落在尚无已发布文档的全新逻辑目录，
+     * 不要求目录预先存在；防止整理产物被强制塞进既有目录结构。
+     */
+    @Test
+    void createsAdditionInBrandNewDirectoryWithoutExistenceRequirement() {
+        when(projects.resolveEnabledScope("atlas", null))
+                .thenReturn(new ProjectScope(10L, "atlas", "Atlas", true, null, "main"));
+        when(drafts.selectOne(any())).thenReturn(null);
+        when(drafts.selectCount(any())).thenReturn(0L);
+        org.mockito.Mockito.doAnswer(invocation -> {
+            KnowledgeDraftEntity entity = invocation.getArgument(0);
+            entity.setId(81L);
+            return 1;
+        }).when(drafts).insert(any(KnowledgeDraftEntity.class));
+        when(drafts.attachConversationDraft(41L, "admin", 10L, 81L, NOW)).thenReturn(1);
+
+        KnowledgeDraftService.DraftRevision created = service.create(
+                new KnowledgeDraftService.CreateRequest(context(), "create-new-dir-1",
+                        "全新主题", "全新目录", null));
+
+        assertThat(created.title()).isEqualTo("全新主题");
+        System.out.println("测试证据：场景=ADD全新目录创建，draft=81，目录=全新目录，目录存在性检查=无");
+    }
+
+    /**
+     * 业务目的：ADD 工作草稿发布到全新逻辑目录必须成功，只保留目录内正式标题冲突检查；
+     * 防止“目录必须先有已发布文档”阻止新知识主题建立新目录。
+     */
+    @Test
+    void publishesAdditionIntoBrandNewDirectory() {
+        KnowledgeDraftEntity addition = draft(81L, "ADD", null, null, 1L, "全新主题", "全新目录");
+        when(drafts.selectVisibleForUpdate(eq(81L), any(), any(), any())).thenReturn(addition);
+        when(drafts.selectList(any())).thenReturn(List.of(addition));
+        when(revisions.selectOne(any())).thenReturn(revision(81L, 1L, "# 全新主题\n正文"));
+        when(documents.existsPublishedProjectTitle(10L, "全新目录", "全新主题")).thenReturn(false);
+        KnowledgeDocument candidate = KnowledgeDocument.create(
+                200L, fields("全新主题", "全新目录", "# 全新主题\n正文"), new DocumentAudit(NOW, "admin"));
+        when(documents.insertDraft(any(), any())).thenReturn(candidate);
+        when(documents.update(any(), any())).thenReturn(true);
+        when(drafts.markPublished(any(), any(Long.class), any(), any())).thenReturn(1);
+
+        KnowledgeDraftService.WorkspacePublication result = service.publishWorkspace(
+                new KnowledgeDraftService.WorkspacePublishRequest(context(), List.of(
+                        new KnowledgeDraftService.ReviewedDraft(81L, 1L))));
+
+        assertThat(result.documents()).extracting(KnowledgeDraftService.Publication::documentId)
+                .containsExactly(200L);
+        System.out.println("测试证据：场景=ADD全新目录发布，draft=81，正式文档=200，目录存在性检查=无");
+    }
+
+    /**
+     * 业务目的：原候选草稿若在发布前被并发发布或处于异常状态，发布事务必须
+     * 以发布冲突整体回滚，防止撤销并发操作或产生半完成发布。
+     */
+    @Test
+    void rejectsNonDraftSelectedInputOnArchive() {
+        KnowledgeDocument published = document(7003L, "并发发布文档", "待处理", "正文", "并发", 1L);
+        when(documents.findAllByIdsForUpdate(List.of(7003L))).thenReturn(List.of(published));
+
+        assertThatThrownBy(() -> service.archiveSelectedInputs(33L, List.of(7003L), "admin"))
+                .isInstanceOf(KnowledgeDraftException.class)
+                .extracting(e -> ((KnowledgeDraftException) e).code())
+                .isEqualTo(KnowledgeDraftException.Code.DRAFT_PUBLICATION_CONFLICT);
+        verify(documents, never()).update(any(KnowledgeDocument.class), any());
+        System.out.println("并发原草稿测试证据：conversationId=33，PUBLISHED原草稿=发布冲突回滚");
     }
 }

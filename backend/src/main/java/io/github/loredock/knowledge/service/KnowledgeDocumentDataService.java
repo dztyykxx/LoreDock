@@ -154,20 +154,6 @@ public class KnowledgeDocumentDataService {
                 .apply("lower(title) = lower({0})", title)) > 0;
     }
 
-    /** 根目录始终存在；其他逻辑目录在有已发布文档位于该目录或其后代时存在。 */
-    @Transactional(readOnly = true)
-    public boolean projectDirectoryExists(Long projectId, String directory) {
-        if (directory == null || directory.isEmpty()) {
-            return true;
-        }
-        return documentMapper.selectCount(Wrappers.<KnowledgeDocumentEntity>lambdaQuery()
-                .eq(KnowledgeDocumentEntity::getProjectId, projectId)
-                .eq(KnowledgeDocumentEntity::getScopeType, KnowledgeScopeType.PROJECT.name())
-                .eq(KnowledgeDocumentEntity::getStatus, DocumentStatus.PUBLISHED.name())
-                .and(wrapper -> wrapper.eq(KnowledgeDocumentEntity::getDirectoryPath, directory)
-                        .or().likeRight(KnowledgeDocumentEntity::getDirectoryPath, directory + "/"))) > 0;
-    }
-
     public List<KnowledgeDocument> findAllByIdsForUpdate(List<Long> documentIds) {
         if (documentIds == null || documentIds.isEmpty()) {
             return List.of();

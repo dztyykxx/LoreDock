@@ -327,6 +327,14 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
         selectedDrafts.update(null, Wrappers.<KnowledgeTaskSelectedDraftEntity>lambdaUpdate()
                 .set(KnowledgeTaskSelectedDraftEntity::getCurationStatus, CurationStatus.CURATED.name())
                 .eq(KnowledgeTaskSelectedDraftEntity::getConversationId, conversationId));
+        // 原候选草稿内容已被本次发布吸收，归档使其退出待处理草稿池；
+        // 归档冲突会随事务整体回滚，不留部分正式发布。
+        List<Long> inputDocumentIds = selectedDrafts.selectList(
+                        Wrappers.<KnowledgeTaskSelectedDraftEntity>lambdaQuery()
+                                .eq(KnowledgeTaskSelectedDraftEntity::getConversationId, conversationId))
+                .stream().map(KnowledgeTaskSelectedDraftEntity::getDocumentId)
+                .distinct().sorted().toList();
+        drafts.archiveSelectedInputs(conversationId, inputDocumentIds, operator);
         insertMessage(conversationId, null, MessageRole.SYSTEM_TRIGGER, null,
                 "已原子发布 " + published.documents().size() + " 份知识文档", now);
         taskEvents.append(conversationId, null, "TASK_UPDATED", conversationId, now);

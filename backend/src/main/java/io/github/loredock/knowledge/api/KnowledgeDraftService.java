@@ -84,6 +84,20 @@ public interface KnowledgeDraftService {
     WorkspacePublication publishWorkspace(WorkspacePublishRequest request);
 
     /**
+     * 知识任务原子发布后归档原候选草稿文档，使其退出待处理草稿池。
+     *
+     * <p>原草稿内容已由发布吸收为正式文档或应用到基线，归档是唯一符合
+     * DRAFT/PUBLISHED/ARCHIVED 生命周期的终态；已在发布前归档的草稿幂等跳过，
+     * 非 DRAFT 的并发状态按发布冲突回滚整个发布事务。</p>
+     *
+     * @param conversationId 已发布的知识任务会话标识，仅用于审计日志
+     * @param documentIds 勾选草稿对应的 knowledge_document 标识
+     * @param operatorId 执行发布的操作者
+     * @throws KnowledgeDraftException 草稿缺失或并发状态冲突，调用方必须回滚整个发布事务
+     */
+    void archiveSelectedInputs(Long conversationId, List<Long> documentIds, String operatorId);
+
+    /**
      * @param operatorId 已认证管理员
      * @param projectIdentifier 服务端解析并固定的项目标识
      * @param conversationId 所属知识任务会话

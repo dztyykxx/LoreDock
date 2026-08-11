@@ -24,6 +24,7 @@ import io.github.loredock.knowledge.model.entity.KnowledgeDraftRevisionEntity;
 import io.github.loredock.knowledge.model.entity.KnowledgeDraftRevisionSourceEntity;
 import io.github.loredock.knowledge.model.enums.DocumentFormat;
 import io.github.loredock.knowledge.model.enums.DocumentSourceType;
+import io.github.loredock.knowledge.model.enums.DocumentStatus;
 import io.github.loredock.knowledge.model.result.KnowledgeDocumentView;
 import io.github.loredock.project.api.ProjectScope;
 import io.github.loredock.project.api.ProjectService;
@@ -109,10 +110,9 @@ public class KnowledgeDraftServiceImpl implements KnowledgeDraftService {
         KnowledgeDocument baseline = request.baselineDocumentId() == null ? null
                 : baseline(request.baselineDocumentId(), project.projectId());
         String title = baseline == null ? text(request.title(), 255) : baseline.fields().title().value();
+        // ADD 允许使用尚未有已发布文档的全新逻辑目录，目录格式与长度已由 directory() 校验；
+        // 目录浏览树按“已有已发布文档”自然生长，无需预先建目录。
         String directory = baseline == null ? directory(request.directory()) : baseline.fields().directory().value();
-        if (baseline == null && !documents.projectDirectoryExists(project.projectId(), directory)) {
-            throw failure(KnowledgeDraftException.Code.DRAFT_OPERATION_INVALID);
-        }
         Long baselineRevision = baseline == null ? null : baseline.revision().value();
         WorkspaceOperation operation = baseline == null ? WorkspaceOperation.ADD : WorkspaceOperation.MODIFY;
         String requestHash = hash(title + "\n" + directory + "\n"
@@ -453,9 +453,10 @@ public class KnowledgeDraftServiceImpl implements KnowledgeDraftService {
             KnowledgeDraftRevisionEntity reviewedRevision = requireRevision(draft.getId(), revision);
             KnowledgeDocument published;
             if (WorkspaceOperation.ADD.name().equals(draft.getOperation())) {
-                if (!documents.projectDirectoryExists(draft.getProjectId(), draft.getDirectoryPath())
-                        || documents.existsPublishedProjectTitle(
-                                draft.getProjectId(), draft.getDirectoryPath(), draft.getTitle())) {
+                // 允许发布到全新逻辑目录（目录格式已在创建工作草稿时校验）；仍必须防止
+                // 同一目录下的正式标题冲突，避免产生无法区分的重复正式知识。
+                if (documents.existsPublishedProjectTitle(
+                        draft.getProjectId(), draft.getDirectoryPath(), draft.getTitle())) {
                     throw failure(KnowledgeDraftException.Code.DRAFT_PUBLICATION_CONFLICT);
                 }
                 KnowledgeDocument candidate = documents.insertDraft(publicationFields(draft, reviewedRevision), audit);
@@ -487,6 +488,39 @@ public class KnowledgeDraftServiceImpl implements KnowledgeDraftService {
         log.info("knowledge_workspace published conversationId={} operatorId={} documentCount={}",
                 context.conversationId(), context.operatorId(), publications.size());
         return new WorkspacePublication(publications, now);
+    }
+
+    @Override
+    public void archiveSelectedInputs(Long conversationId, List<Long> documentIds, String operatorId) {
+        if (documentIds == null || documentIds.isEmpty()) {
+            return;
+        }
+        List<Long> lockedIds = documentIds.stream().distinct().sorted().toList();
+        List<KnowledgeDocument> locked = documents.findAllByIdsForUpdate(lockedIds);
+        if (locked.size() != lockedIds.size()) {
+            throw failure(KnowledgeDraftException.Code.DRAFT_PUBLICATION_CONFLICT);
+        }
+        Instant now = clock.instant();
+        DocumentAudit audit = new DocumentAudit(now, operatorId);
+        int archived = 0;
+        for (KnowledgeDocument current : locked) {
+            // 已归档草稿是发布前人工处理过的终态，幂等跳过；非 DRAFT 的并发状态
+            // 按发布冲突回滚整个发布事务，避免撤销并发操作或产生半完成发布。
+            if (current.status() == DocumentStatus.ARCHIVED) {
+                continue;
+            }
+            if (current.status() != DocumentStatus.DRAFT) {
+                throw failure(KnowledgeDraftException.Code.DRAFT_PUBLICATION_CONFLICT);
+            }
+            KnowledgeDocument archivedDocument = current.archive(audit);
+            if (!documents.update(archivedDocument, current.revision())) {
+                throw failure(KnowledgeDraftException.Code.DRAFT_PUBLICATION_CONFLICT);
+            }
+            archived++;
+        }
+        log.info("knowledge_draft selected inputs archived conversationId={} operatorId={} "
+                        + "requestedCount={} archivedCount={}",
+                conversationId, operatorId, lockedIds.size(), archived);
     }
 
     private KnowledgeDocumentFields publicationFields(
