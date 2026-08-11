@@ -99,6 +99,7 @@ public class AdminKnowledgeDocumentController {
      * @param project 项目标识；通用上下文必须为空
      * @param directory 可选目录子树
      * @param status 可选生命周期状态
+     * @param excludeGlobal 项目草稿池是否排除通用文档；项目草稿列表使用
      * @param page 零基页码
      * @param size 页容量
      * @return 完整目录树与当前子树摘要页
@@ -109,10 +110,11 @@ public class AdminKnowledgeDocumentController {
             @RequestParam(required = false) String project,
             @RequestParam(required = false) String directory,
             @RequestParam(required = false) io.github.loredock.knowledge.model.enums.DocumentStatus status,
+            @RequestParam(defaultValue = "false") boolean excludeGlobal,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
-        var resolved = scopes.resolveBrowse(context, project, null);
+        var resolved = scopes.resolveBrowse(context, project, null, excludeGlobal);
         return KnowledgeDocumentHttpMapper.toBrowseResponse(queries.browseAdmin(
                 new AdminBrowseKnowledgeDocumentsQuery(
                         resolved, directory == null ? null : new DocumentDirectory(directory), status, page, size)));

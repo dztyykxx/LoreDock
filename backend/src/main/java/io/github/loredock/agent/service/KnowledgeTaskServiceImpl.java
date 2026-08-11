@@ -54,6 +54,10 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
     private static final int MAX_CONTINUATION_MESSAGES = 12;
     private static final int MAX_CONTINUATION_CODE_POINTS = 12_000;
     private static final int MAX_CONTINUATION_MESSAGE_CODE_POINTS = 3_000;
+    /** 全局知识任务的哨兵项目标识；与 knowledge_draft / agent_run 的 project_identifier 一致。 */
+    private static final String GLOBAL_PROJECT_IDENTIFIER = "GLOBAL";
+    /** 全局知识任务的哨兵分支名；仅占位，不参与检索范围。 */
+    private static final String GLOBAL_BRANCH_NAME = "global";
 
     private final ProjectService projects;
     private final KnowledgeTaskConversationMapper conversations;
@@ -130,7 +134,7 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
     @Transactional
     public KnowledgeTask start(StartRequest request) {
         NormalizedStart command = normalize(request);
-        ProjectScope scope = projects.resolveEnabledScope(command.projectIdentifier(), null);
+        ProjectScope scope = scopeOf(command.projectIdentifier());
         String requestHash = hash(String.join("\n", scope.projectIdentifier(), command.triggerType().name(),
                 command.triggerReason(), command.targetSkill(), command.goal(),
                 command.selectedDraftIds().stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(","))));
@@ -141,7 +145,10 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
         }
         List<KnowledgeDocumentAccessService.DocumentContent> inputs;
         try {
-            inputs = documentAccess.readDrafts(scope.projectIdentifier(), command.selectedDraftIds());
+            // 全局知识任务只接受通用范围的待处理草稿；项目任务仍按项目范围校验。
+            inputs = scope.projectId() == null
+                    ? documentAccess.readDraftsGlobal(command.selectedDraftIds())
+                    : documentAccess.readDrafts(scope.projectIdentifier(), command.selectedDraftIds());
         } catch (IllegalArgumentException exception) {
             throw new KnowledgeTaskRequestException(
                     KnowledgeTaskRequestException.Code.KNOWLEDGE_TASK_DRAFT_SELECTION_INVALID);
@@ -204,6 +211,28 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
                         .orderByDesc(KnowledgeTaskConversationEntity::getUpdatedAt)
                         .orderByDesc(KnowledgeTaskConversationEntity::getId)
                         .last("limit 50"));
+        return summarize(visible, operator);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<KnowledgeTaskSummary> listGlobal(String operatorId) {
+        String operator = requireText(operatorId, 128);
+        // 全局任务由 project_id 为空表达，与项目任务互斥；范围条件直接进入 SQL。
+        List<KnowledgeTaskConversationEntity> visible = conversations.selectList(
+                Wrappers.<KnowledgeTaskConversationEntity>lambdaQuery()
+                        .isNull(KnowledgeTaskConversationEntity::getProjectId)
+                        .eq(KnowledgeTaskConversationEntity::getOperatorId, operator)
+                        .orderByDesc(KnowledgeTaskConversationEntity::getUpdatedAt)
+                        .orderByDesc(KnowledgeTaskConversationEntity::getId)
+                        .last("limit 50"));
+        return summarize(visible, operator);
+    }
+
+    private List<KnowledgeTaskSummary> summarize(
+            List<KnowledgeTaskConversationEntity> visible,
+            String operator
+    ) {
         if (visible.isEmpty()) {
             return List.of();
         }
@@ -446,7 +475,8 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
         Instant now = clock.instant();
         KnowledgeAgentDefinitionService.LoadedDefinition loaded = definitions.load(conversation.getTargetSkill());
         RuntimeDefinition definition = loaded.runtime();
-        ProjectScope scope = projects.resolveEnabledScope(conversation.getProjectIdentifier(), null);
+        // 全局任务会话 project_id 为空，续跑沿用哨兵范围，不再解析项目主数据。
+        ProjectScope scope = scopeOf(conversation.getProjectId() == null ? null : conversation.getProjectIdentifier());
         String previousDialogue = previousDialogue(conversationId, conversation.getTargetSkill());
         AgentRunEntity created = createRun(conversation, scope, key, definition, now);
         insertMessage(conversationId, created.getId(), MessageRole.USER, null, guidance, now);
@@ -747,10 +777,32 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
         Objects.requireNonNull(request, "request");
         return new NormalizedStart(
                 requireText(request.idempotencyKey(), 128), requireText(request.operatorId(), 128),
-                requireText(request.projectIdentifier(), 64), requireDraftIds(request.selectedDraftIds()),
+                optionalText(request.projectIdentifier(), 64), requireDraftIds(request.selectedDraftIds()),
                 Objects.requireNonNull(request.triggerType(), "triggerType"),
                 requireText(request.triggerReason(), 1000), requireText(request.targetSkill(), 64),
                 requireText(request.goal(), 2000));
+    }
+
+    /**
+     * 解析任务范围：项目标识为空表示全局知识任务（project_id 为空 + 哨兵标识），
+     * 不解析项目主数据；项目任务仍走启用项目解析。
+     */
+    private ProjectScope scopeOf(String projectIdentifier) {
+        if (projectIdentifier == null) {
+            return new ProjectScope(null, GLOBAL_PROJECT_IDENTIFIER, null, true, null, GLOBAL_BRANCH_NAME);
+        }
+        return projects.resolveEnabledScope(projectIdentifier, null);
+    }
+
+    private String optionalText(String value, int maximumCodePoints) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String normalized = value.strip();
+        if (normalized.codePointCount(0, normalized.length()) > maximumCodePoints) {
+            throw new IllegalArgumentException("知识任务文本参数无效");
+        }
+        return normalized;
     }
 
     private String requireText(String value, int maximumCodePoints) {

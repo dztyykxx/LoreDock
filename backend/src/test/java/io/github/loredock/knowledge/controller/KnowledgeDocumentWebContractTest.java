@@ -2,6 +2,7 @@ package io.github.loredock.knowledge.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.never;
@@ -159,7 +160,7 @@ class KnowledgeDocumentWebContractTest {
         mockMvc.perform(get("/api/knowledge-documents").queryParam("context", "GLOBAL"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value("AUTH_LOGIN_REQUIRED"));
-        verify(scopeResolver, never()).resolveBrowse(any(), any(), any());
+        verify(scopeResolver, never()).resolveBrowse(any(), any(), any(), anyBoolean());
         verify(queries, never()).browse(any());
     }
 
@@ -169,7 +170,7 @@ class KnowledgeDocumentWebContractTest {
     @Test
     void memberCanBrowseGlobalKnowledgeWithStablePageContract() throws Exception {
         KnowledgeBrowseContext context = new KnowledgeBrowseContext(KnowledgeBrowseContextType.GLOBAL, null, null);
-        when(scopeResolver.resolveBrowse(KnowledgeBrowseContextType.GLOBAL, null, null)).thenReturn(context);
+        when(scopeResolver.resolveBrowse(KnowledgeBrowseContextType.GLOBAL, null, null, false)).thenReturn(context);
         when(queries.browse(any())).thenReturn(new KnowledgeBrowseResult(
                 List.of(new KnowledgeDirectoryNode("guides", "guides", 1)),
                 new PageResult<>(List.of(summary()), 0, 20, 1, 1)));
@@ -183,7 +184,7 @@ class KnowledgeDocumentWebContractTest {
                 .andExpect(jsonPath("$.documents.items[0].body").doesNotExist())
                 .andExpect(jsonPath("$.documents.page").value(0))
                 .andExpect(jsonPath("$.documents.size").value(20));
-        verify(scopeResolver).resolveBrowse(KnowledgeBrowseContextType.GLOBAL, null, null);
+        verify(scopeResolver).resolveBrowse(KnowledgeBrowseContextType.GLOBAL, null, null, false);
     }
 
     /**
@@ -193,8 +194,8 @@ class KnowledgeDocumentWebContractTest {
     void projectBrowseDelegatesDefaultAndExplicitBranchResolution() throws Exception {
         KnowledgeBrowseContext context = new KnowledgeBrowseContext(
                 KnowledgeBrowseContextType.PROJECT, PROJECT_ID, BRANCH_ID);
-        when(scopeResolver.resolveBrowse(KnowledgeBrowseContextType.PROJECT, "alpha", null)).thenReturn(context);
-        when(scopeResolver.resolveBrowse(KnowledgeBrowseContextType.PROJECT, "alpha", "feature/a")).thenReturn(context);
+        when(scopeResolver.resolveBrowse(KnowledgeBrowseContextType.PROJECT, "alpha", null, false)).thenReturn(context);
+        when(scopeResolver.resolveBrowse(KnowledgeBrowseContextType.PROJECT, "alpha", "feature/a", false)).thenReturn(context);
         when(queries.browse(any())).thenReturn(new KnowledgeBrowseResult(
                 List.of(), new PageResult<>(List.of(), 0, 10, 0, 0)));
         Cookie member = loginCookie("member");
@@ -208,8 +209,8 @@ class KnowledgeDocumentWebContractTest {
                         .queryParam("branch", "feature/a").queryParam("size", "10").cookie(member))
                 .andExpect(status().isOk());
 
-        verify(scopeResolver).resolveBrowse(KnowledgeBrowseContextType.PROJECT, "alpha", null);
-        verify(scopeResolver).resolveBrowse(KnowledgeBrowseContextType.PROJECT, "alpha", "feature/a");
+        verify(scopeResolver).resolveBrowse(KnowledgeBrowseContextType.PROJECT, "alpha", null, false);
+        verify(scopeResolver).resolveBrowse(KnowledgeBrowseContextType.PROJECT, "alpha", "feature/a", false);
     }
 
     /**
@@ -218,7 +219,7 @@ class KnowledgeDocumentWebContractTest {
     @Test
     void memberCanReadCompletePublishedDocumentWithoutAdminFields() throws Exception {
         KnowledgeBrowseContext context = new KnowledgeBrowseContext(KnowledgeBrowseContextType.GLOBAL, null, null);
-        when(scopeResolver.resolveBrowse(KnowledgeBrowseContextType.GLOBAL, null, null)).thenReturn(context);
+        when(scopeResolver.resolveBrowse(KnowledgeBrowseContextType.GLOBAL, null, null, false)).thenReturn(context);
         when(queries.get(any(ReadKnowledgeDocumentQuery.class))).thenReturn(view());
 
         mockMvc.perform(get("/api/knowledge-documents/{id}", DOCUMENT_ID)
@@ -239,14 +240,14 @@ class KnowledgeDocumentWebContractTest {
     @Test
     void invalidScopeAndInvisibleDocumentUseStableSafeErrors() throws Exception {
         Cookie member = loginCookie("member");
-        when(scopeResolver.resolveBrowse(KnowledgeBrowseContextType.GLOBAL, "residual", null))
+        when(scopeResolver.resolveBrowse(KnowledgeBrowseContextType.GLOBAL, "residual", null, false))
                 .thenThrow(new KnowledgeScopeInvalidException());
         mockMvc.perform(get("/api/knowledge-documents")
                         .queryParam("context", "GLOBAL").queryParam("project", "residual").cookie(member))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("DOCUMENT_SCOPE_INVALID"));
 
-        when(scopeResolver.resolveBrowse(KnowledgeBrowseContextType.GLOBAL, null, null))
+        when(scopeResolver.resolveBrowse(KnowledgeBrowseContextType.GLOBAL, null, null, false))
                 .thenReturn(new KnowledgeBrowseContext(KnowledgeBrowseContextType.GLOBAL, null, null));
         when(queries.get(any(ReadKnowledgeDocumentQuery.class))).thenThrow(new KnowledgeDocumentNotFoundException());
         mockMvc.perform(get("/api/knowledge-documents/{id}", DOCUMENT_ID)
@@ -254,6 +255,44 @@ class KnowledgeDocumentWebContractTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("DOCUMENT_NOT_FOUND"))
                 .andExpect(jsonPath("$.body").doesNotExist());
+    }
+
+    /**
+     * 业务目的：项目文档/草稿列表排除通用知识时，excludeGlobal 开关必须原样传给范围解析器，
+     * 使目录计数、分页与详情读在同一隔离范围内执行。
+     */
+    @Test
+    void projectBrowseWithExcludeGlobalForwardsFlagToScopeResolver() throws Exception {
+        KnowledgeBrowseContext context = new KnowledgeBrowseContext(
+                KnowledgeBrowseContextType.PROJECT, PROJECT_ID, BRANCH_ID, true);
+        when(scopeResolver.resolveBrowse(KnowledgeBrowseContextType.PROJECT, "alpha", null, true))
+                .thenReturn(context);
+        when(queries.browse(any())).thenReturn(new KnowledgeBrowseResult(
+                List.of(), new PageResult<>(List.of(), 0, 20, 0, 0)));
+
+        mockMvc.perform(get("/api/knowledge-documents")
+                        .queryParam("context", "PROJECT").queryParam("project", "alpha")
+                        .queryParam("excludeGlobal", "true").cookie(loginCookie("member")))
+                .andExpect(status().isOk());
+
+        verify(scopeResolver).resolveBrowse(KnowledgeBrowseContextType.PROJECT, "alpha", null, true);
+        System.out.println("测试证据：场景=项目列表排除通用，excludeGlobal=true，范围开关已传递");
+    }
+
+    /**
+     * 业务目的：ALL 全库范围只允许 Agent 内部路径构造；公开浏览端点传入必须 400（安全边界），
+     * 防止普通成员借范围参数跨项目枚举文档。
+     */
+    @Test
+    void publicBrowseRejectsAllScopeAsInvalid() throws Exception {
+        when(scopeResolver.resolveBrowse(KnowledgeBrowseContextType.ALL, null, null, false))
+                .thenThrow(new KnowledgeScopeInvalidException());
+
+        mockMvc.perform(get("/api/knowledge-documents")
+                        .queryParam("context", "ALL").cookie(loginCookie("member")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("DOCUMENT_SCOPE_INVALID"));
+        System.out.println("测试证据：场景=公开浏览拒绝全库范围，context=ALL，稳定错误=DOCUMENT_SCOPE_INVALID");
     }
 
     /**
@@ -301,7 +340,7 @@ class KnowledgeDocumentWebContractTest {
     void adminCanBrowseSubtreeWithCombinedDirectoryContract() throws Exception {
         KnowledgeBrowseContext context = new KnowledgeBrowseContext(
                 KnowledgeBrowseContextType.PROJECT, PROJECT_ID, BRANCH_ID);
-        when(scopeResolver.resolveBrowse(KnowledgeBrowseContextType.PROJECT, "alpha", null)).thenReturn(context);
+        when(scopeResolver.resolveBrowse(KnowledgeBrowseContextType.PROJECT, "alpha", null, false)).thenReturn(context);
         when(queries.browseAdmin(any())).thenReturn(new KnowledgeBrowseResult(
                 List.of(new KnowledgeDirectoryNode("测试资料", "测试资料", 18)),
                 new PageResult<>(List.of(summary()), 0, 20, 18, 1)));
@@ -313,7 +352,7 @@ class KnowledgeDocumentWebContractTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.directories[0].documentCount").value(18))
                 .andExpect(jsonPath("$.documents.totalElements").value(18));
-        verify(scopeResolver).resolveBrowse(KnowledgeBrowseContextType.PROJECT, "alpha", null);
+        verify(scopeResolver).resolveBrowse(KnowledgeBrowseContextType.PROJECT, "alpha", null, false);
         verify(queries).browseAdmin(argThat(query -> query.status() == DocumentStatus.DRAFT));
     }
 

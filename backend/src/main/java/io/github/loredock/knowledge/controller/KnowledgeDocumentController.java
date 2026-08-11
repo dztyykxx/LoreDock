@@ -45,6 +45,7 @@ public class KnowledgeDocumentController {
      * @param branch 可选分支名，空值由项目能力解析 main
      * @param directory 可选逻辑目录；缺省表示全部文档，显式空字符串表示根目录
      * @param includeDescendants 是否同时分页返回目录后代；缺省保留精确目录兼容语义
+     * @param excludeGlobal 项目列表是否排除通用文档；项目页文档列表与草稿列表使用
      * @param page 零基页码
      * @param size 页容量
      * @return 当前上下文目录与已发布摘要
@@ -56,10 +57,11 @@ public class KnowledgeDocumentController {
             @RequestParam(required = false) String branch,
             @RequestParam(required = false) String directory,
             @RequestParam(defaultValue = "false") boolean includeDescendants,
+            @RequestParam(defaultValue = "false") boolean excludeGlobal,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
     ) {
-        KnowledgeBrowseContext resolved = scopes.resolveBrowse(context, project, branch);
+        KnowledgeBrowseContext resolved = scopes.resolveBrowse(context, project, branch, excludeGlobal);
         return KnowledgeDocumentHttpMapper.toBrowseResponse(queries.browse(
                 new BrowseKnowledgeDocumentsQuery(
                         resolved, directory == null ? null : new DocumentDirectory(directory),
@@ -71,6 +73,7 @@ public class KnowledgeDocumentController {
      * @param context 明确 GLOBAL 或 PROJECT 入口
      * @param project 项目业务标识
      * @param branch 可选分支名
+     * @param excludeGlobal 项目列表是否排除通用文档；与 browse 保持一致
      * @return 当前上下文仍可见的已发布详情
      */
     @GetMapping("/{documentId}")
@@ -78,9 +81,10 @@ public class KnowledgeDocumentController {
             @PathVariable Long documentId,
             @RequestParam KnowledgeBrowseContextType context,
             @RequestParam(required = false) String project,
-            @RequestParam(required = false) String branch
+            @RequestParam(required = false) String branch,
+            @RequestParam(defaultValue = "false") boolean excludeGlobal
     ) {
-        KnowledgeBrowseContext resolved = scopes.resolveBrowse(context, project, branch);
+        KnowledgeBrowseContext resolved = scopes.resolveBrowse(context, project, branch, excludeGlobal);
         return KnowledgeDocumentHttpMapper.toPublicResponse(
                 queries.get(new ReadKnowledgeDocumentQuery(resolved, documentId)));
     }

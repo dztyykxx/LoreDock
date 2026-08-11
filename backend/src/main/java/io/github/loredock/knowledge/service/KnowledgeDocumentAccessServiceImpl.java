@@ -47,7 +47,17 @@ public class KnowledgeDocumentAccessServiceImpl implements KnowledgeDocumentAcce
     @Override
     @Transactional(readOnly = true)
     public List<DocumentContent> readDrafts(String projectIdentifier, List<Long> documentIds) {
-        ProjectScope project = project(projectIdentifier);
+        return readDraftsInScope(project(projectIdentifier).projectId(), documentIds);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<DocumentContent> readDraftsGlobal(List<Long> documentIds) {
+        // 全局知识整理只接受通用（GLOBAL）范围的 Markdown DRAFT。
+        return readDraftsInScope(null, documentIds);
+    }
+
+    private List<DocumentContent> readDraftsInScope(Long projectId, List<Long> documentIds) {
         List<Long> requested = documentIds == null ? List.of() : List.copyOf(documentIds);
         if (requested.isEmpty() || requested.size() > MAX_SELECTED_DRAFTS
                 || requested.stream().anyMatch(id -> id == null || id <= 0)
@@ -62,12 +72,13 @@ public class KnowledgeDocumentAccessServiceImpl implements KnowledgeDocumentAcce
             throw new IllegalArgumentException("待处理草稿不存在");
         }
         return requested.stream().map(found::get).map(document -> {
-            boolean projectDraft = document.status() == DocumentStatus.DRAFT
+            boolean inScope = document.status() == DocumentStatus.DRAFT
                     && document.fields().format() == DocumentFormat.MARKDOWN
-                    && document.fields().scope().projectId() != null
-                    && Objects.equals(project.projectId(), document.fields().scope().projectId());
-            if (!projectDraft) {
-                throw new IllegalArgumentException("待处理草稿必须是当前项目的 Markdown DRAFT");
+                    && Objects.equals(projectId, document.fields().scope().projectId());
+            if (!inScope) {
+                throw new IllegalArgumentException(
+                        projectId == null ? "待处理草稿必须是通用范围的 Markdown DRAFT"
+                                : "待处理草稿必须是当前项目的 Markdown DRAFT");
             }
             return content(document);
         }).toList();
@@ -76,7 +87,16 @@ public class KnowledgeDocumentAccessServiceImpl implements KnowledgeDocumentAcce
     @Override
     @Transactional(readOnly = true)
     public List<DirectoryEntry> listPublishedDirectories(String projectIdentifier, String prefix, int limit) {
-        KnowledgeBrowseContext context = context(projectIdentifier);
+        return directories(context(projectIdentifier), prefix, limit);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<DirectoryEntry> listPublishedDirectoriesGlobal(String prefix, int limit) {
+        return directories(contextGlobal(), prefix, limit);
+    }
+
+    private List<DirectoryEntry> directories(KnowledgeBrowseContext context, String prefix, int limit) {
         String normalizedPrefix = optionalText(prefix, 255);
         int safeLimit = bounded(limit, MAX_LIST_LIMIT);
         Map<String, Long> counts = new LinkedHashMap<>();
@@ -93,9 +113,19 @@ public class KnowledgeDocumentAccessServiceImpl implements KnowledgeDocumentAcce
     @Override
     @Transactional(readOnly = true)
     public List<DocumentSummary> listPublishedDocuments(String projectIdentifier, String directory, int limit) {
+        return documentsIn(context(projectIdentifier), directory, limit);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<DocumentSummary> listPublishedDocumentsGlobal(String directory, int limit) {
+        return documentsIn(contextGlobal(), directory, limit);
+    }
+
+    private List<DocumentSummary> documentsIn(KnowledgeBrowseContext context, String directory, int limit) {
         int safeLimit = bounded(limit, MAX_LIST_LIMIT);
         var page = documents.findPublished(new BrowseKnowledgeDocumentsQuery(
-                context(projectIdentifier), directoryValue(directory), true, 0, safeLimit));
+                context, directoryValue(directory), true, 0, safeLimit));
         return page.items().stream().map(document -> new DocumentSummary(
                 document.id(), document.fields().title().value(), document.fields().directory().value(),
                 document.updatedAt())).toList();
@@ -109,12 +139,31 @@ public class KnowledgeDocumentAccessServiceImpl implements KnowledgeDocumentAcce
             Integer cursor,
             Integer maxCodePoints
     ) {
+        return readPublishedPageIn(context(projectIdentifier), documentId, cursor, maxCodePoints);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public DocumentPage readPublishedPageGlobal(
+            Long documentId,
+            Integer cursor,
+            Integer maxCodePoints
+    ) {
+        return readPublishedPageIn(contextGlobal(), documentId, cursor, maxCodePoints);
+    }
+
+    private DocumentPage readPublishedPageIn(
+            KnowledgeBrowseContext context,
+            Long documentId,
+            Integer cursor,
+            Integer maxCodePoints
+    ) {
         if (documentId == null || documentId <= 0) {
             throw new IllegalArgumentException("文档标识无效");
         }
-        DocumentContent content = documents.findPublishedById(documentId, context(projectIdentifier))
+        DocumentContent content = documents.findPublishedById(documentId, context)
                 .map(this::content)
-                .orElseThrow(() -> new IllegalArgumentException("当前项目范围内不存在该已发布文档"));
+                .orElseThrow(() -> new IllegalArgumentException("当前范围内不存在该已发布文档"));
         return page(content, cursor, maxCodePoints);
     }
 
@@ -122,6 +171,29 @@ public class KnowledgeDocumentAccessServiceImpl implements KnowledgeDocumentAcce
     @Transactional(readOnly = true)
     public List<KeywordMatch> grepPublished(
             String projectIdentifier,
+            String keyword,
+            String directory,
+            List<Long> documentIds,
+            int limit,
+            int contextLines
+    ) {
+        return grepIn(context(projectIdentifier), keyword, directory, documentIds, limit, contextLines);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<KeywordMatch> grepPublishedGlobal(
+            String keyword,
+            String directory,
+            List<Long> documentIds,
+            int limit,
+            int contextLines
+    ) {
+        return grepIn(contextGlobal(), keyword, directory, documentIds, limit, contextLines);
+    }
+
+    private List<KeywordMatch> grepIn(
+            KnowledgeBrowseContext context,
             String keyword,
             String directory,
             List<Long> documentIds,
@@ -136,7 +208,7 @@ public class KnowledgeDocumentAccessServiceImpl implements KnowledgeDocumentAcce
             throw new IllegalArgumentException("关键词匹配文档范围无效");
         }
         List<KnowledgeDocument> candidates = documents.findPublished(new BrowseKnowledgeDocumentsQuery(
-                context(projectIdentifier), directoryValue(directory), true, 0, MAX_LIST_LIMIT)).items();
+                context, directoryValue(directory), true, 0, MAX_LIST_LIMIT)).items();
         String needle = term.toLowerCase(Locale.ROOT);
         List<KeywordMatch> result = new ArrayList<>();
         for (KnowledgeDocument document : candidates) {
@@ -165,6 +237,11 @@ public class KnowledgeDocumentAccessServiceImpl implements KnowledgeDocumentAcce
     private KnowledgeBrowseContext context(String projectIdentifier) {
         ProjectScope project = project(projectIdentifier);
         return new KnowledgeBrowseContext(KnowledgeBrowseContextType.PROJECT, project.projectId(), project.branchId());
+    }
+
+    /** 全局知识整理工具的固定范围：只读通用（GLOBAL）已发布文档。 */
+    private KnowledgeBrowseContext contextGlobal() {
+        return new KnowledgeBrowseContext(KnowledgeBrowseContextType.GLOBAL, null, null);
     }
 
     private ProjectScope project(String identifier) {

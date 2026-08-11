@@ -100,7 +100,9 @@ public class KnowledgeCurationTools {
             ToolContext context
     ) {
         ToolScope scope = scope(context);
-        return documents.listPublishedDirectories(scope.projectIdentifier(), prefix, defaultLimit(limit));
+        return scope.global()
+                ? documents.listPublishedDirectoriesGlobal(prefix, defaultLimit(limit))
+                : documents.listPublishedDirectories(scope.projectIdentifier(), prefix, defaultLimit(limit));
     }
 
     /** @return 指定目录的已发布文档摘要 */
@@ -111,7 +113,9 @@ public class KnowledgeCurationTools {
             ToolContext context
     ) {
         ToolScope scope = scope(context);
-        return documents.listPublishedDocuments(scope.projectIdentifier(), directory, defaultLimit(limit));
+        return scope.global()
+                ? documents.listPublishedDocumentsGlobal(directory, defaultLimit(limit))
+                : documents.listPublishedDocuments(scope.projectIdentifier(), directory, defaultLimit(limit));
     }
 
     /** @return 指定已发布文档的有界 Markdown 分段 */
@@ -123,7 +127,9 @@ public class KnowledgeCurationTools {
             ToolContext context
     ) {
         ToolScope scope = scope(context);
-        return documents.readPublishedPage(scope.projectIdentifier(), documentId, cursor, maxCodePoints);
+        return scope.global()
+                ? documents.readPublishedPageGlobal(documentId, cursor, maxCodePoints)
+                : documents.readPublishedPage(scope.projectIdentifier(), documentId, cursor, maxCodePoints);
     }
 
     /** @return 已发布 Markdown 中的有界关键词命中 */
@@ -137,8 +143,11 @@ public class KnowledgeCurationTools {
             ToolContext context
     ) {
         ToolScope scope = scope(context);
-        return documents.grepPublished(scope.projectIdentifier(), keyword, directory, documentIds,
-                defaultLimit(limit), contextLines == null ? 1 : contextLines);
+        return scope.global()
+                ? documents.grepPublishedGlobal(keyword, directory, documentIds,
+                        defaultLimit(limit), contextLines == null ? 1 : contextLines)
+                : documents.grepPublished(scope.projectIdentifier(), keyword, directory, documentIds,
+                        defaultLimit(limit), contextLines == null ? 1 : contextLines);
     }
 
     /**
@@ -347,7 +356,7 @@ public class KnowledgeCurationTools {
         Map<String, Object> values = context.getContext();
         ToolScope scope = new ToolScope(
                 text(values, "operatorId"), text(values, "projectIdentifier"),
-                number(values, "conversationId"), number(values, "runId"));
+                number(values, "conversationId"), number(values, "runId"), false);
         AgentRunEntity run = runs.selectById(scope.runId());
         if (run == null || !scope.operatorId().equals(run.getOperatorId())
                 || !scope.projectIdentifier().equals(run.getProjectIdentifier())
@@ -356,7 +365,9 @@ public class KnowledgeCurationTools {
                 || !"RUNNING".equals(run.getStatus())) {
             throw new IllegalArgumentException("知识 Tool 上下文与运行固定范围不一致");
         }
-        return scope;
+        // 全局知识任务（project_id 为空）的文档工具只读通用范围；项目任务保持项目+通用。
+        return new ToolScope(scope.operatorId(), scope.projectIdentifier(),
+                scope.conversationId(), scope.runId(), run.getProjectId() == null);
     }
 
     private String text(Map<String, Object> values, String name) {
@@ -375,8 +386,10 @@ public class KnowledgeCurationTools {
         return number.longValue();
     }
 
-    /** ToolContext 解析后的固定范围，不暴露给模型 schema。 */
-    private record ToolScope(String operatorId, String projectIdentifier, Long conversationId, Long runId) {
+    /** ToolContext 解析后的固定范围；global 为 true 时文档工具只读通用范围，不暴露给模型 schema。 */
+    private record ToolScope(
+            String operatorId, String projectIdentifier, Long conversationId, Long runId, boolean global
+    ) {
         private KnowledgeDraftService.AccessContext access() {
             return new KnowledgeDraftService.AccessContext(operatorId, projectIdentifier, conversationId, runId);
         }

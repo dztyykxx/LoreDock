@@ -41,6 +41,14 @@ public interface KnowledgeTaskService {
      */
     List<KnowledgeTaskSummary> list(String projectIdentifier, String operatorId);
 
+    /**
+     * 列出当前操作者的全局知识任务（project_id 为空，整理通用业务知识）。
+     *
+     * @param operatorId 当前已认证操作者
+     * @return 最近更新的有限任务摘要，不加载完整消息、事件或草稿正文
+     */
+    List<KnowledgeTaskSummary> listGlobal(String operatorId);
+
     /** 按持久化游标读取任务页面增量事实。 */
     List<KnowledgeTaskEvent> events(Long conversationId, String operatorId, long after);
 
@@ -86,7 +94,7 @@ public interface KnowledgeTaskService {
     /**
      * @param idempotencyKey 当前触发范围内的稳定幂等键
      * @param operatorId 已认证操作者；系统触发使用服务端固定的系统主体
-     * @param projectIdentifier 已启用项目标识
+     * @param projectIdentifier 已启用项目标识；为空表示全局知识任务（整理通用业务知识）
      * @param selectedDraftIds 管理员勾选且需在会话中固定的待处理草稿
      * @param triggerType 人工或系统触发
      * @param triggerReason 作为首条系统消息保存的有限触发原因

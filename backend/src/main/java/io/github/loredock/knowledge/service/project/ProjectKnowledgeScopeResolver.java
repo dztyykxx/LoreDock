@@ -29,18 +29,39 @@ public class ProjectKnowledgeScopeResolver {
             String projectIdentifier,
             String branchName
     ) {
+        return resolveBrowse(type, projectIdentifier, branchName, false);
+    }
+
+    /**
+     * 带列表隔离开关的浏览范围解析。
+     *
+     * @param excludeGlobal 项目列表排除通用文档；GLOBAL 入口显式排除是非法组合
+     */
+    public KnowledgeBrowseContext resolveBrowse(
+            KnowledgeBrowseContextType type,
+            String projectIdentifier,
+            String branchName,
+            boolean excludeGlobal
+    ) {
         if (type == null) {
+            throw new KnowledgeScopeInvalidException();
+        }
+        if (type == KnowledgeBrowseContextType.ALL) {
+            // 全库范围只允许 Agent 内部检索路径构造；公开浏览端点传入一律拒绝（安全边界）。
             throw new KnowledgeScopeInvalidException();
         }
         if (type == KnowledgeBrowseContextType.GLOBAL) {
             requireAbsent(projectIdentifier, branchName);
+            if (excludeGlobal) {
+                throw new KnowledgeScopeInvalidException();
+            }
             return new KnowledgeBrowseContext(type, null, null);
         }
         if (!hasText(projectIdentifier)) {
             throw new KnowledgeScopeInvalidException();
         }
         ProjectScope project = projects.resolveEnabledScope(projectIdentifier.strip(), normalizeOptional(branchName));
-        return new KnowledgeBrowseContext(type, project.projectId(), project.branchId());
+        return new KnowledgeBrowseContext(type, project.projectId(), project.branchId(), excludeGlobal);
     }
 
     public KnowledgeScope resolveAdmin(

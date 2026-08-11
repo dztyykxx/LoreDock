@@ -59,6 +59,10 @@ public class KnowledgeDraftServiceImpl implements KnowledgeDraftService {
     private static final int MAX_OPERATIONS = 20;
     private static final int MAX_MARKDOWN_CODE_POINTS = 50_000;
     private static final int MAX_DIFF_CODE_POINTS = 20_000;
+    /** 全局知识任务的哨兵项目标识；与知识整理会话的 project_identifier 一致。 */
+    private static final String GLOBAL_PROJECT_IDENTIFIER = "GLOBAL";
+    /** 全局知识任务的哨兵分支名；仅占位，不参与检索范围。 */
+    private static final String GLOBAL_BRANCH_NAME = "global";
     private final ProjectService projects;
     private final KnowledgeDocumentDataService documents;
     private final KnowledgeDocumentLifecycleService lifecycle;
@@ -534,6 +538,9 @@ public class KnowledgeDraftServiceImpl implements KnowledgeDraftService {
         DocumentDirectory directory = baseline == null
                 ? new DocumentDirectory(draft.getDirectoryPath()) : baseline.fields().directory();
         DocumentTags tags = baseline == null ? DocumentTags.of(List.of()) : baseline.fields().tags();
+        // 全局知识任务（project_id 为空）发布为通用（GLOBAL）文档；项目任务保持项目范围。
+        KnowledgeScope scope = draft.getProjectId() == null
+                ? KnowledgeScope.global() : KnowledgeScope.project(draft.getProjectId());
         return new KnowledgeDocumentFields(
                 DocumentFormat.MARKDOWN,
                 new DocumentTitle(draft.getTitle()),
@@ -542,7 +549,7 @@ public class KnowledgeDraftServiceImpl implements KnowledgeDraftService {
                 tags,
                 new DocumentSource(DocumentSourceType.MANUAL, null, null,
                         "知识任务草稿修订 " + reviewed.getRevision()),
-                KnowledgeScope.project(draft.getProjectId()));
+                scope);
     }
 
     private void apply(List<DraftBlock> blocks, UpdateOperation operation, Set<SourceRef> usedSources) {
@@ -677,6 +684,10 @@ public class KnowledgeDraftServiceImpl implements KnowledgeDraftService {
     }
 
     private ProjectScope project(String identifier) {
+        if (GLOBAL_PROJECT_IDENTIFIER.equals(identifier)) {
+            // 全局知识任务的哨兵范围：不解析项目主数据，草稿工作区以 project_id 为空表达。
+            return new ProjectScope(null, GLOBAL_PROJECT_IDENTIFIER, null, true, null, GLOBAL_BRANCH_NAME);
+        }
         try {
             return projects.resolveEnabledScope(identifier, null);
         } catch (RuntimeException exception) {

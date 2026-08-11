@@ -61,10 +61,14 @@ public interface KnowledgeDraftMapper extends BaseMapper<KnowledgeDraftEntity> {
             @Param("updatedAt") Instant updatedAt
     );
 
-    /** 会话只指向其自身创建的当前草稿。 */
+    /** 会话只指向其自身创建的当前草稿；projectId 为空时匹配全局任务会话。 */
     @Update("""
             update knowledge_task_conversation set current_draft_id = #{draftId}, updated_at = #{updatedAt}
-            where id = #{conversationId} and operator_id = #{operatorId} and project_id = #{projectId}
+            where id = #{conversationId} and operator_id = #{operatorId}
+              and (
+                (#{projectId} is null and project_id is null)
+                or (#{projectId} is not null and project_id = #{projectId})
+              )
             """)
     int attachConversationDraft(
             @Param("conversationId") Long conversationId,

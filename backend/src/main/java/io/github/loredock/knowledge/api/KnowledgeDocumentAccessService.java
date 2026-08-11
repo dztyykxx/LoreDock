@@ -21,11 +21,26 @@ public interface KnowledgeDocumentAccessService {
      */
     List<DocumentContent> readDrafts(String projectIdentifier, List<Long> documentIds);
 
+    /**
+     * 校验并读取通用范围内的待处理草稿（全局知识整理的固定输入）。
+     *
+     * @param documentIds 通用待处理草稿标识
+     * @return 按请求顺序返回的草稿正文
+     * @throws IllegalArgumentException 选择为空、重复、非通用范围、状态错误或文档不存在
+     */
+    List<DocumentContent> readDraftsGlobal(List<Long> documentIds);
+
     /** @return 当前项目和通用范围内已发布文档的目录统计 */
     List<DirectoryEntry> listPublishedDirectories(String projectIdentifier, String prefix, int limit);
 
+    /** @return 通用范围内已发布文档的目录统计（全局知识整理工具） */
+    List<DirectoryEntry> listPublishedDirectoriesGlobal(String prefix, int limit);
+
     /** @return 当前项目和通用范围内指定目录的已发布文档摘要 */
     List<DocumentSummary> listPublishedDocuments(String projectIdentifier, String directory, int limit);
+
+    /** @return 通用范围内指定目录的已发布文档摘要（全局知识整理工具） */
+    List<DocumentSummary> listPublishedDocumentsGlobal(String directory, int limit);
 
     /**
      * 按 Unicode 码点游标分段读取当前项目和通用范围内的已发布文档。
@@ -43,9 +58,25 @@ public interface KnowledgeDocumentAccessService {
             Integer maxCodePoints
     );
 
+    /** 按 Unicode 码点游标分段读取通用范围内的已发布文档（全局知识整理工具）。 */
+    DocumentPage readPublishedPageGlobal(
+            Long documentId,
+            Integer cursor,
+            Integer maxCodePoints
+    );
+
     /** @return 当前项目和通用范围内已发布 Markdown 的大小写不敏感关键词匹配 */
     List<KeywordMatch> grepPublished(
             String projectIdentifier,
+            String keyword,
+            String directory,
+            List<Long> documentIds,
+            int limit,
+            int contextLines
+    );
+
+    /** @return 通用范围内已发布 Markdown 的大小写不敏感关键词匹配（全局知识整理工具） */
+    List<KeywordMatch> grepPublishedGlobal(
             String keyword,
             String directory,
             List<Long> documentIds,

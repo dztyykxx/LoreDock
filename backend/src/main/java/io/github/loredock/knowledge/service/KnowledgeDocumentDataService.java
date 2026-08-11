@@ -281,8 +281,19 @@ public class KnowledgeDocumentDataService {
         if (context.type() == KnowledgeBrowseContextType.GLOBAL) {
             return wrapper.eq(KnowledgeDocumentEntity::getScopeType, KnowledgeScopeType.GLOBAL.name());
         }
+        if (context.type() == KnowledgeBrowseContextType.ALL) {
+            // 全库范围只允许 Agent 内部检索路径构造，浏览路径不得到达这里。
+            throw new IllegalArgumentException("all-scope browse context is not allowed");
+        }
         if (context.projectId() == null || context.branchId() == null) {
             throw new IllegalArgumentException("project browse context is incomplete");
+        }
+        if (context.excludeGlobal()) {
+            // 项目列表隔离：文档/草稿列表只显示项目自身文档，不含通用知识；
+            // 目录树计数、分页、详情读与批量资格复核都经过本方法，同步隔离。
+            return wrapper.and(project -> project
+                    .eq(KnowledgeDocumentEntity::getScopeType, KnowledgeScopeType.PROJECT.name())
+                    .eq(KnowledgeDocumentEntity::getProjectId, context.projectId()));
         }
         // 联合范围属于授权边界，必须直接进入 SQL，不能先跨项目加载后在 Java 中删除。
         return wrapper.and(scope -> scope
