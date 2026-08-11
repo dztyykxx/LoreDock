@@ -11,6 +11,7 @@ import io.github.loredock.agent.model.entity.KnowledgeTaskMessageEntity;
 import io.github.loredock.agent.model.entity.KnowledgeTaskSelectedDraftEntity;
 import io.github.loredock.knowledge.api.KnowledgeDocumentAccessService;
 import io.github.loredock.knowledge.api.KnowledgeDraftService;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import org.springframework.ai.chat.model.ToolContext;
@@ -173,10 +174,10 @@ public class KnowledgeCurationTools {
      * @param title 草稿标题
      * @param baselineDocumentId 可选基线文档
      * @param context 服务端运行范围
-     * @return 初始草稿修订
+     * @return 不包含正文的创建回执
      */
-    @Tool(name = "draft_create", description = "创建空基线或绑定正式文档的版本化待审核草稿；没有正式基线时省略 baselineDocumentId 或传 0")
-    public KnowledgeDraftService.DraftRevision draftCreate(
+    @Tool(name = "draft_create", description = "创建空基线或绑定正式文档的版本化待审核草稿；没有正式基线时省略 baselineDocumentId 或传 0；返回回执不含正文")
+    public DraftWriteResult draftCreate(
             @ToolParam(description = "本次创建调用的幂等键") String idempotencyKey,
             @ToolParam(description = "草稿标题") String title,
             @ToolParam(description = "新增文档使用的已有知识目录；修改正式文档时传空字符串") String directory,
@@ -187,12 +188,12 @@ public class KnowledgeCurationTools {
         // 部分模型会用 0 表达可选 ID 为空；只在 Agent Tool 边界归一化，不放宽草稿核心契约。
         Long normalizedBaselineId = baselineDocumentId != null && baselineDocumentId == 0
                 ? null : baselineDocumentId;
-        return draftService().create(new KnowledgeDraftService.CreateRequest(
-                scope.access(), idempotencyKey, title, directory, normalizedBaselineId));
+        return new DraftWriteResult(draftService().create(new KnowledgeDraftService.CreateRequest(
+                scope.access(), idempotencyKey, title, directory, normalizedBaselineId)));
     }
 
     /** 兼容既有 Java 调用；模型 schema 使用带目录的 Tool 方法。 */
-    public KnowledgeDraftService.DraftRevision draftCreate(
+    public DraftWriteResult draftCreate(
             String idempotencyKey, String title, Long baselineDocumentId, ToolContext context
     ) {
         return draftCreate(idempotencyKey, title, "", baselineDocumentId, context);
@@ -225,10 +226,10 @@ public class KnowledgeCurationTools {
      * @param operations 有界区块操作
      * @param changeSummary 修改摘要
      * @param context 服务端运行范围
-     * @return 新草稿修订
+     * @return 不包含正文的更新回执，保留新分配的稳定区块 ID
      */
-    @Tool(name = "draft_update", description = "基于已读取修订原子应用可直接发布的知识区块；禁止把待确认问题、警告或执行过程写入文档；空草稿首次写入必须用 INSERT_AFTER 且 targetBlockId=null（不要传空字符串）；其他操作逐字复制 draft_read 返回的区块 ID；不支持全文覆盖")
-    public KnowledgeDraftService.DraftRevision draftUpdate(
+    @Tool(name = "draft_update", description = "基于已读取修订原子应用可直接发布的知识区块；禁止把待确认问题、警告或执行过程写入文档；空草稿首次写入必须用 INSERT_AFTER 且 targetBlockId=null（不要传空字符串）；其他操作逐字复制 draft_read 返回的区块 ID；不支持全文覆盖；回执不含正文，需要正文时调用 draft_read")
+    public DraftWriteResult draftUpdate(
             @ToolParam(description = "草稿 ID") Long draftId,
             @ToolParam(description = "更新所基于的修订号") long baseRevision,
             @ToolParam(description = "本次更新调用的幂等键") String idempotencyKey,
@@ -240,13 +241,13 @@ public class KnowledgeCurationTools {
         List<KnowledgeDraftService.UpdateOperation> safeOperations = operations == null
                 ? List.of() : List.copyOf(operations);
         validateDraftSources(safeOperations, scope);
-        return draftService().update(new KnowledgeDraftService.UpdateRequest(
-                scope.access(), draftId, baseRevision, idempotencyKey, safeOperations, changeSummary));
+        return new DraftWriteResult(draftService().update(new KnowledgeDraftService.UpdateRequest(
+                scope.access(), draftId, baseRevision, idempotencyKey, safeOperations, changeSummary)));
     }
 
-    /** @return 正文不变且标题已更正的新审核修订 */
-    @Tool(name = "draft_rename", description = "更正 ADD 工作文档标题并生成正文不变的新修订；MODIFY 标题由正式基线固定")
-    public KnowledgeDraftService.DraftRevision draftRename(
+    /** @return 正文不变且标题已更正、不包含正文的改名回执 */
+    @Tool(name = "draft_rename", description = "更正 ADD 工作文档标题并生成正文不变的新修订；MODIFY 标题由正式基线固定；返回回执不含正文")
+    public DraftWriteResult draftRename(
             @ToolParam(description = "新增工作文档 ID") Long draftId,
             @ToolParam(description = "改名所基于的当前修订号") long baseRevision,
             @ToolParam(description = "本次改名调用的幂等键") String idempotencyKey,
@@ -255,8 +256,8 @@ public class KnowledgeCurationTools {
             ToolContext context
     ) {
         ToolScope scope = scope(context);
-        return draftService().rename(new KnowledgeDraftService.RenameRequest(
-                scope.access(), draftId, baseRevision, idempotencyKey, title, changeSummary));
+        return new DraftWriteResult(draftService().rename(new KnowledgeDraftService.RenameRequest(
+                scope.access(), draftId, baseRevision, idempotencyKey, title, changeSummary)));
     }
 
     private void validateDraftSources(List<KnowledgeDraftService.UpdateOperation> operations, ToolScope scope) {
@@ -393,5 +394,27 @@ public class KnowledgeCurationTools {
             String originalFilename, String markdown, int cursor, Integer nextCursor,
             int totalCodePoints, boolean truncated
     ) { }
+
+    /**
+     * 写类工具（创建/更新/改名）的轻量回执。只包含修订标识、稳定区块 ID 与元数据，
+     * 不包含正文，避免把模型刚写入的内容原样回传占用 Agent 上下文；
+     * 模型需要正文时必须显式调用 draft_read，不能依赖写结果回读。
+     */
+    public record DraftWriteResult(
+            Long draftId,
+            long revision,
+            KnowledgeDraftService.WorkspaceOperation operation,
+            String title,
+            String directory,
+            List<String> blockIds,
+            String changeSummary,
+            Instant createdAt
+    ) {
+        private DraftWriteResult(KnowledgeDraftService.DraftRevision value) {
+            this(value.draftId(), value.revision(), value.operation(), value.title(), value.directory(),
+                    value.blocks().stream().map(KnowledgeDraftService.DraftBlock::blockId).toList(),
+                    value.changeSummary(), value.createdAt());
+        }
+    }
 
 }

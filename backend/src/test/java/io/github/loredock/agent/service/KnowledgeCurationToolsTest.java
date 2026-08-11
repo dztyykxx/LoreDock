@@ -14,6 +14,7 @@ import io.github.loredock.agent.model.entity.AgentRunEntity;
 import io.github.loredock.agent.model.entity.KnowledgeTaskSelectedDraftEntity;
 import io.github.loredock.knowledge.api.KnowledgeDraftService;
 import io.github.loredock.knowledge.api.KnowledgeDocumentAccessService;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -125,6 +126,11 @@ class KnowledgeCurationToolsTest {
                 .id(61L).operatorId("admin").projectIdentifier("atlas")
                 .knowledgeTaskConversationId(41L).taskType("knowledge_curation").status("RUNNING").build());
         when(provider.getIfAvailable(org.mockito.ArgumentMatchers.any())).thenReturn(drafts);
+        when(drafts.rename(org.mockito.ArgumentMatchers.any())).thenReturn(new KnowledgeDraftService.DraftRevision(
+                51L, 3, KnowledgeDraftService.WorkspaceOperation.ADD, null, null,
+                "退款审批规则", "交易/售后", "标题纠正后的完整正文",
+                List.of(new KnowledgeDraftService.DraftBlock("b-1", "标题纠正后的完整正文")),
+                List.of(), "纠正文档标题", 61L, Instant.now()));
         KnowledgeCurationTools tools = new KnowledgeCurationTools(
                 mock(ProjectQaToolService.class), mock(AgentEvidenceService.class), provider, runs,
                 mock(KnowledgeTaskMessageMapper.class), mock(KnowledgeTaskSelectedDraftMapper.class),
@@ -132,13 +138,17 @@ class KnowledgeCurationToolsTest {
         ToolContext context = new ToolContext(Map.of(
                 "operatorId", "admin", "projectIdentifier", "atlas", "conversationId", 41L, "runId", 61L));
 
-        tools.draftRename(51L, 2, "rename-1", "退款审批规则", "纠正文档标题", context);
+        KnowledgeCurationTools.DraftWriteResult result = tools.draftRename(
+                51L, 2, "rename-1", "退款审批规则", "纠正文档标题", context);
 
+        assertThat(result.revision()).isEqualTo(3);
+        assertThat(result.title()).isEqualTo("退款审批规则");
+        assertThat(result.toString()).doesNotContain("标题纠正后的完整正文");
         verify(drafts).rename(org.mockito.ArgumentMatchers.argThat(request ->
                 request.draftId().equals(51L) && request.baseRevision() == 2
                         && request.title().equals("退款审批规则")
                         && request.context().conversationId().equals(41L)));
-        System.out.println("测试证据：场景=工作文档改名，draft=51，baseRevision=2，会话=41");
+        System.out.println("测试证据：场景=工作文档改名回执，draft=51，新修订=3，回传正文=0");
     }
 
     /**
@@ -217,6 +227,9 @@ class KnowledgeCurationToolsTest {
                 .id(61L).operatorId("admin").projectIdentifier("atlas")
                 .knowledgeTaskConversationId(41L).taskType("knowledge_curation").status("RUNNING").build());
         when(provider.getIfAvailable(org.mockito.ArgumentMatchers.any())).thenReturn(drafts);
+        when(drafts.create(org.mockito.ArgumentMatchers.any())).thenReturn(new KnowledgeDraftService.DraftRevision(
+                61L, 0, KnowledgeDraftService.WorkspaceOperation.ADD, null, null,
+                "新的业务知识", "", "初始基线正文", List.of(), List.of(), "初始基线", 61L, Instant.now()));
         KnowledgeCurationTools tools = new KnowledgeCurationTools(
                 mock(ProjectQaToolService.class), mock(AgentEvidenceService.class), provider, runs,
                 mock(KnowledgeTaskMessageMapper.class), mock(KnowledgeTaskSelectedDraftMapper.class),
@@ -224,11 +237,60 @@ class KnowledgeCurationToolsTest {
         ToolContext context = new ToolContext(Map.of(
                 "operatorId", "admin", "projectIdentifier", "atlas", "conversationId", 41L, "runId", 61L));
 
-        tools.draftCreate("create-gap-1", "新的业务知识", 0L, context);
+        KnowledgeCurationTools.DraftWriteResult result = tools.draftCreate("create-gap-1", "新的业务知识", 0L, context);
 
+        assertThat(result.draftId()).isEqualTo(61L);
+        assertThat(result.revision()).isZero();
+        assertThat(result.blockIds()).isEmpty();
+        assertThat(result.toString()).doesNotContain("初始基线正文");
         verify(drafts).create(org.mockito.ArgumentMatchers.argThat(request ->
                 request.baselineDocumentId() == null && request.context().projectIdentifier().equals("atlas")));
-        System.out.println("测试证据：场景=空基线草稿，模型baseline=0，服务端baseline=null，项目=atlas");
+        System.out.println("测试证据：场景=空基线创建回执，模型baseline=0，服务端baseline=null，回传正文=0");
+    }
+
+    /**
+     * 业务目的：写类工具结果不得把模型刚提交的正文原样回传，避免大段内容反复占用 Agent 上下文；
+     * 同时必须保留服务端新分配的稳定区块 ID，供后续 INSERT_AFTER/REPLACE_BLOCK 继续引用。
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void draftUpdateReturnsLightReceiptWithoutEchoedMarkdown() {
+        AgentRunMapper runs = mock(AgentRunMapper.class);
+        AgentEvidenceService evidence = mock(AgentEvidenceService.class);
+        KnowledgeTaskMessageMapper messages = mock(KnowledgeTaskMessageMapper.class);
+        KnowledgeTaskSelectedDraftMapper selected = mock(KnowledgeTaskSelectedDraftMapper.class);
+        ObjectProvider<KnowledgeDraftService> provider = mock(ObjectProvider.class);
+        KnowledgeDraftService drafts = mock(KnowledgeDraftService.class);
+        when(provider.getIfAvailable(org.mockito.ArgumentMatchers.any())).thenReturn(drafts);
+        when(runs.selectById(61L)).thenReturn(AgentRunEntity.builder()
+                .id(61L).operatorId("admin").projectIdentifier("atlas")
+                .knowledgeTaskConversationId(41L).taskType("knowledge_curation").status("RUNNING").build());
+        when(evidence.findByRunId(61L)).thenReturn(List.of());
+        when(messages.selectList(org.mockito.ArgumentMatchers.any())).thenReturn(List.of());
+        when(selected.selectList(org.mockito.ArgumentMatchers.any())).thenReturn(List.of());
+        String insertedMarkdown = "已插入的大段业务正文";
+        when(drafts.update(org.mockito.ArgumentMatchers.any())).thenReturn(new KnowledgeDraftService.DraftRevision(
+                51L, 3, KnowledgeDraftService.WorkspaceOperation.MODIFY, 91L, 2L,
+                "退款规则", "交易/售后", insertedMarkdown,
+                List.of(new KnowledgeDraftService.DraftBlock("b-1", "既有区块"),
+                        new KnowledgeDraftService.DraftBlock("b-2", insertedMarkdown)),
+                List.of(), "补充退款时限事实", 61L, Instant.now()));
+        KnowledgeCurationTools tools = new KnowledgeCurationTools(
+                mock(ProjectQaToolService.class), evidence, provider, runs, messages, selected,
+                mock(KnowledgeDocumentAccessService.class));
+        ToolContext context = new ToolContext(Map.of(
+                "operatorId", "admin", "projectIdentifier", "atlas", "conversationId", 41L, "runId", 61L));
+
+        KnowledgeCurationTools.DraftWriteResult result = tools.draftUpdate(
+                51L, 2, "call-3",
+                List.of(new KnowledgeDraftService.UpdateOperation(
+                        KnowledgeDraftService.OperationType.INSERT_AFTER, null, insertedMarkdown, List.of())),
+                "补充退款时限事实", context);
+
+        assertThat(result.revision()).isEqualTo(3);
+        assertThat(result.blockIds()).containsExactly("b-1", "b-2");
+        assertThat(result.toString()).doesNotContain(insertedMarkdown);
+        System.out.println("测试证据：场景=写更新轻量回执，新修订=3，稳定区块ID=2，回传正文=0");
     }
 
     @SuppressWarnings("unchecked")
