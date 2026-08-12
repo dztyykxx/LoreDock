@@ -16,6 +16,8 @@ public enum AgentErrorCode {
     AGENT_MODEL_CALL_LIMIT_EXCEEDED,
     AGENT_RUN_TIMEOUT,
     AGENT_RUN_INTERRUPTED,
+    /** 管理员主动停止知识整理运行（AgentRunMapper.cancelKnowledge 写入）。 */
+    AGENT_RUN_CANCELLED,
     AGENT_CITATION_INVALID,
     AGENT_INTERNAL_ERROR
 }

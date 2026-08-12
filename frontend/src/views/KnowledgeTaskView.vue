@@ -120,8 +120,19 @@ async function refresh(): Promise<void> {
   try { await load() } catch { error.value = '知识任务刷新失败，请稍后重试。' }
 }
 
-async function stop(runId: number): Promise<void> { await knowledgeTaskApi.stop(identifier, conversationId, runId); await refresh() }
-async function continueTask(guidance: string): Promise<void> { await knowledgeTaskApi.continueTask(identifier, conversationId, guidance); await refresh(); schedulePoll() }
+async function stop(runId: number): Promise<void> {
+  try {
+    await knowledgeTaskApi.stop(identifier, conversationId, runId)
+    await refresh()
+  } catch { error.value = '停止本轮失败，请刷新后重试。' }
+}
+async function continueTask(guidance: string): Promise<void> {
+  try {
+    await knowledgeTaskApi.continueTask(identifier, conversationId, guidance)
+    await refresh()
+    schedulePoll()
+  } catch { error.value = '消息发送失败，请重试。' }
+}
 
 async function publish(): Promise<void> {
   if (!task.value) return

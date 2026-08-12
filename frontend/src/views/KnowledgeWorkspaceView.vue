@@ -502,7 +502,7 @@ onMounted(initialize)
 watch(() => route.name, async (current, previous) => {
   const workspaceRoutes = new Set([
     'project-knowledge', 'project-knowledge-detail', 'project-drafts', 'project-draft-detail',
-    'knowledge-global-drafts', 'knowledge-global-draft-detail',
+    'knowledge-global', 'knowledge-global-detail', 'knowledge-global-drafts', 'knowledge-global-draft-detail',
   ])
   if (current === previous || !workspaceRoutes.has(String(current)) || !workspaceRoutes.has(String(previous))) return
   const currentIsDraft = current === 'project-drafts' || current === 'project-draft-detail'
