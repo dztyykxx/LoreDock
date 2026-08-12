@@ -15,6 +15,7 @@ import io.github.loredock.project.api.ProjectScope;
 import io.github.loredock.project.api.ProjectService;
 import io.github.loredock.qa.api.QaQuestion;
 import io.github.loredock.qa.api.QaService;
+import io.github.loredock.qa.model.result.WebQaConversationRecord;
 import io.github.loredock.qa.service.DefaultWebQaAssistantMessageMaterializer;
 import io.github.loredock.qa.service.QaServiceImpl;
 import io.github.loredock.qa.service.WebQaMessageDataService;
@@ -160,6 +161,29 @@ class WebQaPersistenceIT {
         assertThat(count("agent_run")).isZero();
         assertThat(count("agent_run_event")).isZero();
         System.out.println("测试证据：场景=消息失败回滚，问答/消息/运行/首事件=0/0/0/0");
+    }
+
+    /**
+     * 业务目的：GLOBAL 全局问答会话的 project_id 为 NULL，追加轮次前的会话锁定必须匹配全局会话；
+     * 防止空项目参数让 PostgreSQL 无法推断参数类型导致全局问答无法继续。
+     */
+    @Test
+    void locksGlobalConversationWithNullProjectId() {
+        java.sql.Timestamp now = java.sql.Timestamp.from(NOW);
+        jdbcTemplate.update("""
+                insert into web_qa_conversation
+                    (operator_id, project_id, project_identifier, title, created_at, updated_at, last_question_at)
+                values ('admin', null, 'GLOBAL', '全局问答', ?, ?, ?)
+                """, now, now, now);
+        Long conversationId = jdbcTemplate.queryForObject(
+                "select id from web_qa_conversation where operator_id = 'admin'", Long.class);
+
+        WebQaConversationRecord locked = conversations.lockVisible(conversationId, "admin", null).orElseThrow();
+
+        assertThat(locked.projectId()).isNull();
+        assertThat(locked.projectIdentifier()).isEqualTo("GLOBAL");
+        System.out.printf("测试证据：场景=GLOBAL会话锁定，conversationId=%s，projectId=null，哨兵=%s%n",
+                conversationId, locked.projectIdentifier());
     }
 
     private QaServiceImpl service(

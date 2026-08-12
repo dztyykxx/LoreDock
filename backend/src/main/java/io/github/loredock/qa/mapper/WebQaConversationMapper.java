@@ -27,6 +27,7 @@ public interface WebQaConversationMapper extends BaseMapper<WebQaConversationEnt
     /**
      * 追加轮次前锁定同一操作者与范围可见的会话，串行化“检查活动轮次—创建新轮次”；
      * projectId 为空时只匹配 GLOBAL 会话（project_id IS NULL），与项目会话互斥。
+     * projectId 必须显式声明 jdbcType：为 NULL 时若不带类型，PostgreSQL 无法推断参数类型而拒绝执行。
      */
     @Select("""
             select id, operator_id as "operatorId", project_id as "projectId",
@@ -36,8 +37,8 @@ public interface WebQaConversationMapper extends BaseMapper<WebQaConversationEnt
             from web_qa_conversation
             where id = #{conversationId} and operator_id = #{operatorId}
               and (
-                (#{projectId} is null and project_id is null)
-                or (#{projectId} is not null and project_id = #{projectId})
+                (#{projectId,jdbcType=BIGINT} is null and project_id is null)
+                or (#{projectId,jdbcType=BIGINT} is not null and project_id = #{projectId,jdbcType=BIGINT})
               )
             for update
             """)
