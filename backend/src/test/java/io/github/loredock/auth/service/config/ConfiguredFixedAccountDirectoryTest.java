@@ -20,7 +20,7 @@ class ConfiguredFixedAccountDirectoryTest {
     private final BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
 
     /**
-     * 业务目的：生产就绪要求固定目录恰好包含一个管理员和一个共享成员，防止权限账号缺失或角色配错后继续启动。
+     * 业务目的：管理员加共享只读成员的双账号配置仍然合法，角色代码保留双角色语义。
      */
     @Test
     void validAdminAndMemberConfigurationBuildsDirectory() {
@@ -67,10 +67,11 @@ class ConfiguredFixedAccountDirectoryTest {
     }
 
     /**
-     * 业务目的：账号目录缺少任一固定角色时不能进入就绪状态，防止部署后无法满足管理员或只读入口。
+     * 业务目的：账号目录不允许出现两个管理员，角色重复必须在就绪前被拒绝，
+     * 防止审计身份和授权判定产生歧义。
      */
     @Test
-    void missingRequiredRoleRejectsReadiness() {
+    void duplicateAdminRoleRejectsReadiness() {
         FixedAccountsProperties properties = new FixedAccountsProperties(List.of(
                 account("admin-one", WebRole.ADMIN, encoder.encode("one")),
                 account("admin-two", WebRole.ADMIN, encoder.encode("two"))
@@ -78,6 +79,23 @@ class ConfiguredFixedAccountDirectoryTest {
 
         assertThatThrownBy(() -> new AccountService(properties, encoder))
                 .isInstanceOf(IdentityConfigurationException.class);
+    }
+
+    /**
+     * 业务目的：单管理员部署只配置一个 ADMIN 账号也必须就绪，MEMBER 只读账号是可选配置；
+     * 防止要求恰好两个账号的旧校验阻止单管理员部署启动。
+     */
+    @Test
+    void adminOnlyConfigurationBuildsDirectory() {
+        AccountService directory = new AccountService(new FixedAccountsProperties(List.of(
+                account("admin", WebRole.ADMIN, encoder.encode("admin-secret")))), encoder);
+
+        assertThat(directory.configuredAccounts())
+                .extracting(account -> account.role())
+                .containsExactly(WebRole.ADMIN);
+        System.out.printf("测试证据：场景=单管理员配置，账号数=%d，角色=%s%n",
+                directory.configuredAccounts().size(),
+                directory.configuredAccounts().iterator().next().role());
     }
 
     private FixedAccountsProperties validProperties() {

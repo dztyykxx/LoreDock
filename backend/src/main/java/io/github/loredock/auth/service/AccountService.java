@@ -32,13 +32,15 @@ public class AccountService {
     private final BCryptPasswordEncoder passwordEncoder;
 
     /**
-     * @param properties 两个固定账号的强类型配置
+     * @param properties 固定账号的强类型配置；单管理员部署可以只配置一个 ADMIN，共享只读账号可选
      * @param passwordEncoder Spring Security BCrypt 实现
      * @throws IdentityConfigurationException 账号数量、角色或哈希格式无效
      */
     public AccountService(FixedAccountsProperties properties, BCryptPasswordEncoder passwordEncoder) {
         this.passwordEncoder = passwordEncoder;
-        if (properties == null || properties.accounts() == null || properties.accounts().size() != 2) {
+        // 单管理员部署只配置一个 ADMIN 账号，MEMBER 只读账号可选；最多两个账号由角色唯一性兜底。
+        if (properties == null || properties.accounts() == null
+                || properties.accounts().size() < 1 || properties.accounts().size() > 2) {
             throw new IdentityConfigurationException("required account count");
         }
 
@@ -55,7 +57,8 @@ public class AccountService {
                 throw new IdentityConfigurationException("duplicate role");
             }
         }
-        if (!roles.equals(EnumSet.of(WebRole.ADMIN, WebRole.MEMBER))) {
+        // 必须恰好存在一个管理员；MEMBER 只读账号允许缺席，重复角色已在上面拒绝。
+        if (!roles.contains(WebRole.ADMIN)) {
             throw new IdentityConfigurationException("required roles");
         }
         this.accountsByUsername = Map.copyOf(mutableAccounts);

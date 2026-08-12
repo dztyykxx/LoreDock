@@ -145,10 +145,11 @@ loredock:
           display-name: ${LOREDOCK_ADMIN_DISPLAY_NAME:}
           role: ADMIN
           password-hash: ${LOREDOCK_ADMIN_PASSWORD_HASH:}
-        - username: ${LOREDOCK_MEMBER_USERNAME:}
-          display-name: ${LOREDOCK_MEMBER_DISPLAY_NAME:}
-          role: MEMBER
-          password-hash: ${LOREDOCK_MEMBER_PASSWORD_HASH:}
+        # 单管理员部署无需配置；需要组内共享只读账号时取消注释并设置对应环境变量。
+        # - username: ${LOREDOCK_MEMBER_USERNAME:}
+        #   display-name: ${LOREDOCK_MEMBER_DISPLAY_NAME:}
+        #   role: MEMBER
+        #   password-hash: ${LOREDOCK_MEMBER_PASSWORD_HASH:}
   storage:
     root: ${LOREDOCK_STORAGE_ROOT:./data/objects}
   code:

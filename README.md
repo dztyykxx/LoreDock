@@ -143,7 +143,7 @@ cp .env.example .env
 
 ### 认证配置
 
-后端必须恰好配置一个 `ADMIN` 和一个 `MEMBER`。用户名由 `LOREDOCK_ADMIN_USERNAME` / `LOREDOCK_MEMBER_USERNAME` 指定，密码只允许以带盐 BCrypt 哈希形式保存。可在本机使用 Apache `htpasswd` 交互生成（输出中仅有哈希）：
+后端必须配置一个 `ADMIN` 管理员账号，`MEMBER` 组内共享只读账号可选（单管理员部署无需配置）。用户名由 `LOREDOCK_ADMIN_USERNAME` / `LOREDOCK_MEMBER_USERNAME` 指定，密码只允许以带盐 BCrypt 哈希形式保存。可在本机使用 Apache `htpasswd` 交互生成（输出中仅有哈希）：
 
 ```bash
 read -rsp "Password: " LOREDOCK_HASH_INPUT; echo

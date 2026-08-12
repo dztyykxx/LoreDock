@@ -7,14 +7,14 @@
 ## Requirements
 
 ### Requirement: 固定 Web 账号可以安全登录
-系统 SHALL 仅接受已配置的一个管理员账号和一个组内共享只读账号。`POST /api/auth/login` SHALL 接收账号与密码；凭据正确时建立 Web 会话并返回账号显示名及 `ADMIN` 或 `MEMBER` 角色，凭据错误时返回 HTTP 401 和稳定错误码 `AUTH_INVALID_CREDENTIALS`，且响应不得暴露账号是否存在。
+系统 SHALL 接受已配置的一个管理员账号（必配）和一个组内共享只读账号（可选；单管理员部署可以不配置，此时系统只提供管理员登录）。`POST /api/auth/login` SHALL 接收账号与密码；凭据正确时建立 Web 会话并返回账号显示名及 `ADMIN` 或 `MEMBER` 角色，凭据错误时返回 HTTP 401 和稳定错误码 `AUTH_INVALID_CREDENTIALS`，且响应不得暴露账号是否存在。
 
 #### Scenario: 管理员使用正确凭据登录
 - **WHEN** 管理员提交正确的账号和密码
 - **THEN** 系统建立管理员 Web 会话，并返回不包含密码哈希或会话密钥的管理员身份摘要
 
 #### Scenario: 组内成员使用正确凭据登录
-- **WHEN** 组内共享只读账号提交正确的账号和密码
+- **WHEN** 已配置组内共享只读账号，且该账号提交正确的账号和密码
 - **THEN** 系统建立只读 Web 会话，并返回角色为 `MEMBER` 的身份摘要
 
 #### Scenario: 错误凭据被统一拒绝
