@@ -2,6 +2,7 @@ package io.github.loredock.agent.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -19,6 +20,7 @@ import io.github.loredock.agent.mapper.KnowledgeTaskPublicationMapper;
 import io.github.loredock.agent.mapper.KnowledgeTaskSelectedDraftMapper;
 import io.github.loredock.agent.model.entity.AgentRunEntity;
 import io.github.loredock.agent.model.entity.KnowledgeTaskConversationEntity;
+import io.github.loredock.agent.model.entity.KnowledgeTaskSelectedDraftEntity;
 import io.github.loredock.knowledge.api.KnowledgeDocumentAccessService;
 import io.github.loredock.knowledge.api.KnowledgeDraftService;
 import io.github.loredock.knowledge.api.KnowledgeSearchService;
@@ -157,6 +159,52 @@ class KnowledgeTaskGlobalTest {
         verify(conversations, never()).insertIfAbsent(any());
         verify(runs, never()).insertKnowledgeRun(any());
         System.out.println("测试证据：场景=全局任务草稿范围校验，项目草稿=拒绝，会话创建=0，运行创建=0");
+    }
+
+    /**
+     * 业务目的：确认无变更必须像发布一样归档候选草稿，使其退出待处理草稿池；
+     * 防止草稿列表残留已整理草稿、或再次被选入新任务（回归：closeNoChange 此前只标记 CURATED 不归档）。
+     */
+    @Test
+    void closeNoChangeArchivesSelectedInputsOutOfDraftPool() {
+        // 单元测试没有 MyBatis 运行时，先注册实体表元数据使 LambdaUpdateWrapper 可求值。
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
+                new org.apache.ibatis.builder.MapperBuilderAssistant(
+                        new com.baomidou.mybatisplus.core.MybatisConfiguration(), ""),
+                KnowledgeTaskSelectedDraftEntity.class);
+        KnowledgeTaskConversationEntity conversation = KnowledgeTaskConversationEntity.builder()
+                .id(CONVERSATION_ID).operatorId("admin")
+                .triggerType(KnowledgeTaskService.TriggerType.MANUAL.name())
+                .targetSkill("knowledge-curator").goal("整理通用知识")
+                .status(KnowledgeTaskService.TaskStatus.PROCESSING.name())
+                .createdAt(NOW).updatedAt(NOW).build();
+        when(conversations.selectVisibleForUpdate(CONVERSATION_ID, "admin")).thenReturn(conversation);
+        AgentRunEntity completedRun = AgentRunEntity.builder()
+                .id(RUN_ID).operatorId("admin").taskType("knowledge_curation")
+                .agentName("knowledge-curator").modelName("fake-model")
+                .status(KnowledgeTaskService.RunStatus.COMPLETED.name())
+                .checkpointSavedAt(NOW).stepCount(1).modelCallCount(1).toolCallCount(1)
+                .acceptedAt(NOW).startedAt(NOW).finishedAt(NOW).build();
+        when(runs.selectList(any(Wrapper.class))).thenReturn(List.of(completedRun));
+        // 工作区没有有效工作文档，满足确认无变更的前置条件。
+        when(drafts.listWorkspace(any())).thenReturn(List.of());
+        when(drafts.patchSet(any(), any()))
+                .thenReturn(new KnowledgeDraftService.RunPatchSet(RUN_ID, List.of(), 0, 0));
+        KnowledgeTaskSelectedDraftEntity selected = KnowledgeTaskSelectedDraftEntity.builder()
+                .id(1L).conversationId(CONVERSATION_ID).documentId(DRAFT_DOCUMENT_ID).documentRevision(1L)
+                .title("通用草稿").directoryPath("guides").originalFilename("draft.md")
+                .curationStatus(KnowledgeTaskService.CurationStatus.PROCESSING.name()).createdAt(NOW).build();
+        when(selectedDrafts.selectList(any(Wrapper.class))).thenReturn(List.of(selected));
+
+        KnowledgeTaskService.KnowledgeTask result = service.closeNoChange(
+                new KnowledgeTaskService.CloseRequest(CONVERSATION_ID, "admin", "已核对，现有知识无需调整"));
+
+        assertThat(result.status()).isEqualTo(KnowledgeTaskService.TaskStatus.CLOSED_NO_CHANGE);
+        ArgumentCaptor<List<Long>> archivedIds = ArgumentCaptor.forClass(List.class);
+        verify(drafts).archiveSelectedInputs(eq(CONVERSATION_ID), archivedIds.capture(), eq("admin"));
+        assertThat(archivedIds.getValue()).containsExactly(DRAFT_DOCUMENT_ID);
+        System.out.printf("测试证据：场景=确认无变更，任务状态=%s，候选归档文档=%s%n",
+                result.status(), archivedIds.getValue());
     }
 
     private KnowledgeAgentDefinitionService.LoadedDefinition loaded() {

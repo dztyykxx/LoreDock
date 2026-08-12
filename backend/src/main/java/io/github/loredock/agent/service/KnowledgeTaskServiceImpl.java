@@ -693,6 +693,17 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
         selectedDrafts.update(null, Wrappers.<KnowledgeTaskSelectedDraftEntity>lambdaUpdate()
                 .set(KnowledgeTaskSelectedDraftEntity::getCurationStatus, selectedStatus.name())
                 .eq(KnowledgeTaskSelectedDraftEntity::getConversationId, conversationId));
+        // 确认无变更与发布一样吸收候选草稿：归档使其退出待处理草稿池，防止草稿列表
+        // 残留已整理草稿或再次被选入新任务；归档冲突随事务整体回滚。放弃不归档，
+        // 因为放弃时候选恢复 PENDING，草稿必须留在池中等待重新整理。
+        if (targetStatus == TaskStatus.CLOSED_NO_CHANGE) {
+            List<Long> inputDocumentIds = selectedDrafts.selectList(
+                            Wrappers.<KnowledgeTaskSelectedDraftEntity>lambdaQuery()
+                                    .eq(KnowledgeTaskSelectedDraftEntity::getConversationId, conversationId))
+                    .stream().map(KnowledgeTaskSelectedDraftEntity::getDocumentId)
+                    .distinct().sorted().toList();
+            drafts.archiveSelectedInputs(conversationId, inputDocumentIds, operator);
+        }
         insertMessage(conversationId, null, MessageRole.SYSTEM_TRIGGER, null,
                 targetStatus == TaskStatus.ABANDONED ? "任务已放弃：" + reason : "管理员确认无需变更：" + reason, now);
         taskEvents.append(conversationId, null, "TASK_UPDATED", conversationId, now);
