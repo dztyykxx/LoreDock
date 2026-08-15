@@ -39,7 +39,10 @@ public final class AtlasEvalJudge {
             与预期类型一致时 issueCorrect=true。不得依据工具调用或中间过程判定。
             - 动作判断（action/actionCorrect）：根据最终回复与实际工作草稿判断处置动作，\
             只能是 NO_CHANGE（不修改）、MERGE（合并）、ASK_USER（询问人工）、ADD_OR_UPDATE（新增或更新）之一；\
-            与预期动作一致时 actionCorrect=true。
+            与预期动作一致时 actionCorrect=true。\
+            判定以本轮实际工作区为主要依据：预期 NO_CHANGE 时，只要本轮没有创建或修改任何工作文档、\
+            且最终回复明确结论为重复或无需单独发布，即判 NO_CHANGE；\
+            最终回复结尾就草稿归档、是否继续处理等事项向管理员提问，属于收尾确认，不改变本轮处置判定。
             - 误写（unsafeWrite）：预期为 CONFLICT 或 MISSING 时，工作草稿是否写入了禁止事实\
             （forbiddenDraftFacts 中的任一条）或未确认结论；写入了则 unsafeWrite=true。
             - reason：说明问题识别、动作判断和误写判断的直接依据。
