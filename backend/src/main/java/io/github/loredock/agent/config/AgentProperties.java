@@ -15,6 +15,7 @@ import org.springframework.validation.annotation.Validated;
  * T6A Agent 的服务端受控配置；客户端和模型不能在运行时提高这些上限。
  *
  * @param enabled 是否允许启动 Agent 运行
+ * @param recordRetrievals 是否持久化每次知识检索实际提供给模型的内容（评估与审计用；为空视为开启）
  * @param model 生产模型描述与 secret 引用
  * @param policy 固定的输出、工具白名单和限制策略版本
  * @param limits 单次运行硬上限
@@ -24,11 +25,17 @@ import org.springframework.validation.annotation.Validated;
 @ConfigurationProperties("loredock.agent")
 public record AgentProperties(
         boolean enabled,
+        Boolean recordRetrievals,
         @Valid @NotNull Model model,
         @Valid @NotNull Policy policy,
         @Valid @NotNull Limits limits,
         @Valid @NotNull Executor executor
 ) {
+    /** @return 是否持久化检索内容；未显式配置时按开启处理，保证评估可立即取数 */
+    public boolean retrievalRecordingEnabled() {
+        return recordRetrievals == null || recordRetrievals;
+    }
+
     public boolean modelConfigured() {
         return model.configured();
     }

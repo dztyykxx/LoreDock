@@ -100,6 +100,7 @@ loredock:
     write-token: ${LOREDOCK_MCP_WRITE_TOKEN:}
   agent:
     enabled: ${LOREDOCK_AGENT_ENABLED:false}
+    record-retrievals: ${LOREDOCK_AGENT_RECORD_RETRIEVALS:true}
     model:
       provider: openai-compatible
       name: ${LOREDOCK_AGENT_MODEL_NAME:deepseek-v4-flash}

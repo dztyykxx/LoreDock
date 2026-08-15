@@ -9,6 +9,7 @@ import io.github.loredock.agent.model.enums.AgentEventType;
 import io.github.loredock.agent.model.enums.AgentRunStatus;
 import io.github.loredock.agent.model.enums.EvidenceSourceType;
 import io.github.loredock.agent.model.result.AgentEvidence;
+import io.github.loredock.agent.model.result.AgentRunRetrieval;
 import io.github.loredock.agent.model.result.AgentToolResult;
 import io.github.loredock.agent.model.snapshot.AgentRunSnapshot;
 import io.github.loredock.agent.model.snapshot.EvidenceSourceMetadata;
@@ -40,6 +41,7 @@ public class ProjectQaToolService {
     private final AgentProperties configuration;
     private final AgentEvidenceService evidence;
     private final AgentEventService events;
+    private final AgentRetrievalService retrievals;
     private final Clock timeProvider;
 
     /**
@@ -48,6 +50,7 @@ public class ProjectQaToolService {
      * @param configuration 服务端工具上限和最低相关度
      * @param evidence 运行证据即时持久化端口
      * @param events 已提交公开事件端口
+     * @param retrievals 知识检索评估记录端口
      * @param timeProvider UTC 时间源
      */
     public ProjectQaToolService(
@@ -56,6 +59,7 @@ public class ProjectQaToolService {
             AgentProperties configuration,
             AgentEvidenceService evidence,
             AgentEventService events,
+            AgentRetrievalService retrievals,
             Clock timeProvider
     ) {
         this.runs = runs;
@@ -63,6 +67,7 @@ public class ProjectQaToolService {
         this.configuration = configuration;
         this.evidence = evidence;
         this.events = events;
+        this.retrievals = retrievals;
         this.timeProvider = timeProvider;
     }
 
@@ -93,7 +98,13 @@ public class ProjectQaToolService {
             values.add(new EvidenceContent(knowledgeEvidence(run, result, relevant), result.snippet(), relevant,
                     "title=" + safeLine(result.title())));
         }
-        AgentToolResult result = boundedContext(runId, values);
+        BoundedContext bounded = boundedContext(runId, values);
+        if (configuration.retrievalRecordingEnabled()) {
+            // 评估与审计需要还原模型本轮实际看到的检索原文；空结果也记录，供拒答与忠实度判定。
+            retrievals.append(runId, request.query(), bounded.retrieved());
+        }
+        AgentToolResult result = new AgentToolResult(
+                bounded.context(), bounded.saved(), bounded.retainedCount(), bounded.trimmed());
         log.info("agent_tool completed runId={} tool=knowledge_search project={} branch={} indexVersionId={} "
                         + "resultCount={} evidenceCount={} trimmedCharacters={}",
                 runId, run.scope().projectIdentifier(), run.scope().branch(), run.scope().knowledgeGenerationId(),
@@ -219,11 +230,11 @@ public class ProjectQaToolService {
                 null, null, result.title(), result.sourceUpdatedAt(), metadata);
     }
 
-    private AgentToolResult boundedContext(Long runId, List<EvidenceContent> input) {
+    private BoundedContext boundedContext(Long runId, List<EvidenceContent> input) {
         AgentRuntimeLimits limits = configuration.runtimeLimits();
         int contextLimit = limits.maxContextCharacters();
         int snippetLimit = limits.maxSnippetCharacters();
-        List<EvidenceContent> drafts = new ArrayList<>(input.size());
+        List<Draft> drafts = new ArrayList<>(input.size());
         List<AgentEvidence> pending = new ArrayList<>(input.size());
         int trimmed = 0;
         int retainedCount = 0;
@@ -231,6 +242,7 @@ public class ProjectQaToolService {
         for (EvidenceContent item : input) {
             String original = item.content() == null ? "" : item.content();
             String snippet = truncate(original, snippetLimit);
+            boolean truncated = codePoints(original) > codePoints(snippet);
             trimmed += codePoints(original) - codePoints(snippet);
             // 先用占位 ID 估算块长决定是否保留，保持与旧行为一致的裁剪边界；
             // 真实证据 ID 在落库后替换进上下文，模型才能引用真实来源。
@@ -249,7 +261,7 @@ public class ProjectQaToolService {
                     value.relevance(), value.documentId(), value.snapshotId(), value.projectIdentifier(),
                     value.branch(), value.commit(), value.repositoryPath(), value.title(), value.sourceUpdatedAt(),
                     value.sourceMetadata()));
-            drafts.add(new EvidenceContent(value, snippet, retain, item.header()));
+            drafts.add(new Draft(item.header(), snippet, truncated));
         }
         // 先落库取得数据库生成的证据 ID，再以真实 ID 重建模型上下文，保证模型可以引用真实证据。
         List<AgentEvidence> saved = evidence.saveAll(runId, pending);
@@ -260,7 +272,18 @@ public class ProjectQaToolService {
                 context.append(block(value.id(), drafts.get(index).header(), drafts.get(index).content()));
             }
         }
-        return new AgentToolResult(context.toString(), saved, retainedCount, trimmed);
+        // 按检索顺序记录全部候选：保留项 content 为模型实际看到的片段，过滤项为空；保留项未被裁剪时 truncated=false。
+        List<AgentRunRetrieval.RetrievedDocument> retrieved = new ArrayList<>(saved.size());
+        for (int index = 0; index < saved.size(); index++) {
+            AgentEvidence value = saved.get(index);
+            Draft draft = drafts.get(index);
+            boolean retained = value.retained();
+            retrieved.add(new AgentRunRetrieval.RetrievedDocument(
+                    value.id(), value.documentId(), value.title(), value.relevance(), retained,
+                    retained ? draft.content() : null,
+                    retained ? draft.truncated() : true));
+        }
+        return new BoundedContext(context.toString(), saved, retainedCount, trimmed, List.copyOf(retrieved));
     }
 
     private String block(Long evidenceId, String header, String content) {
@@ -305,6 +328,22 @@ public class ProjectQaToolService {
         return new AgentToolException(AgentErrorCode.AGENT_EVIDENCE_VERSION_CHANGED);
     }
 
-    private record EvidenceContent(AgentEvidence evidence, String content, boolean candidate, String header) {
+    /** 构建后的模型上下文、持久化证据、保留统计与按序检索记录。 */
+    private record BoundedContext(
+            String context,
+            List<AgentEvidence> saved,
+            int retainedCount,
+            int trimmed,
+            List<AgentRunRetrieval.RetrievedDocument> retrieved
+    ) {
+    }
+
+    /** 检索候选经片段裁剪后的草稿，供重建模型上下文与评估记录使用。 */
+    private record Draft(String header, String content, boolean truncated) {
+    }
+
+    private record EvidenceContent(
+            AgentEvidence evidence, String content, boolean candidate, String header
+    ) {
     }
 }

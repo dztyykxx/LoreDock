@@ -266,6 +266,7 @@ class AgentServiceStartTest {
     private AgentProperties configuration(boolean enabled, boolean modelConfigured, String modelName) {
         return new AgentProperties(
                 enabled,
+                true,
                 new AgentProperties.Model("openai-compatible", modelName,
                         modelConfigured ? "https://example.invalid" : "",
                         modelConfigured ? "test-key" : "",

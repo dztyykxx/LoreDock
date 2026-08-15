@@ -42,7 +42,7 @@ class BoundedAgentRunSchedulerTest {
     }
 
     private AgentProperties properties() {
-        return new AgentProperties(true,
+        return new AgentProperties(true, true,
                 new AgentProperties.Model("openai-compatible", "deepseek-v4-flash", "https://api.deepseek.com",
                         "process-only", Duration.ofSeconds(2), Duration.ofSeconds(10), 0),
                 new AgentProperties.Policy("project-qa-v1"),
