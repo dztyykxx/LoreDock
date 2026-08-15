@@ -60,7 +60,9 @@ class AtlasEvalJudgeTest {
         assertThat(userText).contains("用户问题：").contains(QA_INPUT.question())
                 .contains("预期参考回答：预期参考回答").contains("实际回答：实际回答")
                 .contains("人工审核与正式发布规则：候选内容发布前不进入普通检索")
-                .contains("[710007]");
+                .contains("[710007]")
+                // 锚定分档标准必须随提示词下发，防止裁判模型自由发挥导致跨用例分数口径不一致。
+                .contains("96-100").contains("0-39").contains("先按下列可观察条件定档");
         assertThat(judgement.faithfulness()).isEqualTo(100);
         assertThat(judgement.relevance()).isEqualTo(94);
         assertThat(judgement.reason()).contains("检索原文支持");

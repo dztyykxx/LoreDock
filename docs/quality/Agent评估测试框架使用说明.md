@@ -97,7 +97,7 @@ JAVA_HOME=<jdk21> LOREDOCK_AGENT_MODEL_API_KEY=<密钥> ./mvnw \
 ```
 
 - 读取 `loredock.agent-eval.output` 指定的评估报告（默认 `target/atlas-agent-eval-report.json`），逐条调用 ChatModel 评判后写入评判报告（默认 `target/atlas-agent-eval-report-judged.json`，可用 `-Dloredock.agent-eval.judge-output` 覆盖）；
-- QA Judge 输出忠实度/相关性（0-100）与理由，知识整理 Judge 输出问题识别/动作/误写判定与理由，并重算问题识别正确率与各问题类型 F1；
+- QA Judge 输出忠实度/相关性（0-100 整数）与理由，按《数据构造要求》8.1 的锚定分档评分（先按可观察条件定档，再在档内给分，保证跨用例口径一致）；知识整理 Judge 输出问题识别/动作/误写判定与理由，并重算问题识别正确率与各问题类型 F1；
 - 评判温度固定为 0，同一报告可换模型反复评判；评判额外消耗约 1 次模型调用/用例；
 - 裁判模型独立配置：环境变量 `LOREDOCK_EVAL_JUDGE_MODEL`（或 `-Dloredock.agent-eval.judge-model`）指定，默认与 Agent 模型相同；建议使用与 Agent 不同源的更强模型（如 `qwen3.7-plus`）避免同模型自评偏差；
 - 评判前必须先有完整评估报告：冒烟报告（`-Dloredock.agent-eval.output=target/atlas-agent-eval-report-smoke.json`）或全量报告均可直接评判。
@@ -123,7 +123,7 @@ JAVA_HOME=<jdk21> ./mvnw test -Dtest='AtlasAgentEvalFixtureTest,AtlasEvalMetrics
 - QA：Top-5 候选 = 跨全部检索按相关度降序去重取前 5；准确率/召回率只统计可回答用例（`ANSWER`），拒答用例不参与；
 - 知识整理（未评判报告）：动作正确率采用确定性近似（NO_CHANGE/MERGE/ADD_OR_UPDATE 按工作区匹配，ASK_USER 额外要求最终回复请求人工确认）；误写率按禁止事实是否写入工作草稿判定；
 - 知识整理（评判报告）：动作正确率、误写率、问题识别正确率与 DUPLICATE/CONFLICT/MISSING 的 Precision/Recall/F1 均采用 LLM Judge 判定（问题识别只看最终回复，动作与误写结合工作草稿）；
-- QA 忠实度/相关性（评判报告）：LLM Judge 百分制平均分，忠实度只判断实际回答是否由本轮检索原文支持，相关性判断是否直接解决用户问题；
+- QA 忠实度/相关性（评判报告）：LLM Judge 百分制平均分，按《数据构造要求》8.1 锚定分档评分；忠实度只判断实际回答是否由本轮检索原文支持，相关性判断是否直接解决用户问题；
 - Judge 温度固定为 0，只依据评判输入中的原文，不使用模型常识补充 Atlas 事实。
 
 ## 5. 常见问题
