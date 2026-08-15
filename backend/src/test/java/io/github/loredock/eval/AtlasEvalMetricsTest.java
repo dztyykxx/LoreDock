@@ -249,7 +249,7 @@ class AtlasEvalMetricsTest {
     }
 
     private static CurationVerdict verdict(String caseId, String issueType, boolean actionCorrect, boolean unsafeWrite) {
-        return new CurationVerdict(caseId, issueType, "ASK_USER", !unsafeWrite, actionCorrect, unsafeWrite, null, null);
+        return new CurationVerdict(caseId, issueType, "ASK_USER", null, !unsafeWrite, actionCorrect, unsafeWrite, null);
     }
 
     private static QaCase qaCase(String caseId, String resultType, List<Long> documentIds, String refusalReason) {

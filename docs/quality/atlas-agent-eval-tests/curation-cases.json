@@ -3,12 +3,13 @@
     "caseId": "CUR-001",
     "input": {
       "projectIdentifier": "atlas",
-      "selectedDraftId": 720001,
-      "goal": "整理候选材料，已有同主题正式知识时优先合并。"
+      "selectedDraftId": 720001
     },
     "expected": {
       "issueType": "DUPLICATE",
-      "relatedDocumentIds": [710007],
+      "relatedDocumentIds": [
+        710007
+      ],
       "action": "NO_CHANGE",
       "finalResponse": "本次候选材料与已有的《人工审核与正式发布规则》内容重复，没有形成需要单独发布的新知识，因此本轮不创建重复工作文档。",
       "workspace": null,
@@ -19,12 +20,13 @@
     "caseId": "CUR-002",
     "input": {
       "projectIdentifier": "atlas",
-      "selectedDraftId": 720002,
-      "goal": "整理候选材料，与既有校验规则合并，保留有效的补充内容。"
+      "selectedDraftId": 720002
     },
     "expected": {
       "issueType": "DUPLICATE",
-      "relatedDocumentIds": [710004],
+      "relatedDocumentIds": [
+        710004
+      ],
       "action": "MERGE",
       "finalResponse": "候选材料大部分与已有的《场景包格式与内容校验规则》重复，但包含一条有效的补充规则：清单文件必须声明幂等键字段，幂等键为空或格式不对时内容校验失败。将以修改现有校验规则文档的方式合并，并保留这条新增事实。",
       "workspace": {
@@ -38,12 +40,13 @@
     "caseId": "CUR-003",
     "input": {
       "projectIdentifier": "atlas",
-      "selectedDraftId": 720003,
-      "goal": "核对候选材料与已发布知识，无法确定时向管理员说明。"
+      "selectedDraftId": 720003
     },
     "expected": {
       "issueType": "CONFLICT",
-      "relatedDocumentIds": [710006],
+      "relatedDocumentIds": [
+        710006
+      ],
       "action": "ASK_USER",
       "finalResponse": "候选材料称自动重试 5 次，但现有正式规则规定最多重试 2 次，两者冲突。当前无法判断哪一方有效，本轮不写入该结论，请管理员确认正确次数。",
       "workspace": null,
@@ -56,12 +59,14 @@
     "caseId": "CUR-004",
     "input": {
       "projectIdentifier": "atlas",
-      "selectedDraftId": 720004,
-      "goal": "核对候选材料与已发布的权限与审核规则，越权内容不得写入正式知识。"
+      "selectedDraftId": 720004
     },
     "expected": {
       "issueType": "CONFLICT",
-      "relatedDocumentIds": [710002, 710007],
+      "relatedDocumentIds": [
+        710002,
+        710007
+      ],
       "action": "ASK_USER",
       "finalResponse": "候选材料声称成员可以勾选低风险快速发布并跳过审核，与已发布的权限规则和审核规则冲突：正式发布只能由管理员执行，MEMBER 没有任何跳过审核的入口。本轮不把该越权结论写入正式知识，请管理员确认。",
       "workspace": null,
@@ -75,12 +80,13 @@
     "caseId": "CUR-005",
     "input": {
       "projectIdentifier": "atlas",
-      "selectedDraftId": 720005,
-      "goal": "整理候选材料，关键条件缺失时向管理员确认。"
+      "selectedDraftId": 720005
     },
     "expected": {
       "issueType": "MISSING",
-      "relatedDocumentIds": [710010],
+      "relatedDocumentIds": [
+        710010
+      ],
       "action": "ASK_USER",
       "finalResponse": "候选材料只说明草稿可以删除，但没有说明操作者角色和允许删除的状态。已发布文档只能归档，未发布草稿由管理员删除，具体允许删除的状态和删除前提仍需确认。本轮不把不完整的删除规则写入正式知识，请管理员补充条件。",
       "workspace": null,
@@ -94,12 +100,13 @@
     "caseId": "CUR-006",
     "input": {
       "projectIdentifier": "atlas",
-      "selectedDraftId": 720006,
-      "goal": "整理候选材料，规则不可执行时不要写入正式知识，向管理员确认。"
+      "selectedDraftId": 720006
     },
     "expected": {
       "issueType": "MISSING",
-      "relatedDocumentIds": [710003],
+      "relatedDocumentIds": [
+        710003
+      ],
       "action": "ASK_USER",
       "finalResponse": "候选材料只笼统提到较大的场景包需要特殊处理，缺少大小阈值、具体处理动作和失败行为，无法作为可执行规则发布。本轮不把该模糊建议写入正式知识，请管理员补充明确的适用条件和处理步骤。",
       "workspace": null,
@@ -112,12 +119,13 @@
     "caseId": "CUR-007",
     "input": {
       "projectIdentifier": "atlas",
-      "selectedDraftId": 720007,
-      "goal": "整理候选材料，无重复、矛盾或缺失时作为新增知识补充到对应主题。"
+      "selectedDraftId": 720007
     },
     "expected": {
       "issueType": null,
-      "relatedDocumentIds": [710009],
+      "relatedDocumentIds": [
+        710009
+      ],
       "action": "ADD_OR_UPDATE",
       "finalResponse": "候选材料提供了导出包校验和的验证步骤，与已有的《场景包导出与交付内容》一致且互补，不存在重复、矛盾或缺失。将以新增文档的方式补充到导出主题，正文写明校验和比对的完整步骤。",
       "workspace": {
@@ -131,12 +139,13 @@
     "caseId": "CUR-008",
     "input": {
       "projectIdentifier": "atlas",
-      "selectedDraftId": 720008,
-      "goal": "整理候选材料，无重复、矛盾或缺失时作为新增知识补充到对应主题。"
+      "selectedDraftId": 720008
     },
     "expected": {
       "issueType": null,
-      "relatedDocumentIds": [710011],
+      "relatedDocumentIds": [
+        710011
+      ],
       "action": "ADD_OR_UPDATE",
       "finalResponse": "候选材料是发布完成后的通知模板，与已发布的审计与通知规则在关键词上有重叠，但主题是通知内容和接收人，无重复、矛盾或缺失。将以新增文档的方式补充到通知主题，保留模板正文和接收人范围。",
       "workspace": {

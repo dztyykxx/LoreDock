@@ -156,8 +156,10 @@ public final class AtlasAgentEvalFixture {
             } else if (!curatedDraftIds.add(draftId)) {
                 violations.add(curationCase.caseId() + " 草稿 " + draftId + " 被多条用例复用");
             }
-            if (curationCase.input().goal() == null || curationCase.input().goal().isBlank()) {
-                violations.add(curationCase.caseId() + " 缺少 goal");
+            // 知识整理目标必须是系统统一配置的通用提示词；用例数据携带特化 goal 会把预期处置
+            // 泄漏给被评估 Agent，属于数据污染，直接拒绝。
+            if (curationCase.input().goal() != null && !curationCase.input().goal().isBlank()) {
+                violations.add(curationCase.caseId() + " 不得携带特化 goal，goal 由系统统一配置（AtlasCurationEvalRunner.DEFAULT_GOAL）");
             }
             if (curationCase.expected().finalResponse() == null || curationCase.expected().finalResponse().isBlank()) {
                 violations.add(curationCase.caseId() + " 缺少完整参考最终回答");
@@ -296,6 +298,12 @@ public final class AtlasAgentEvalFixture {
     public record CurationCase(String caseId, CurationInput input, CurationExpected expected) {
     }
 
+    /**
+     * @param projectIdentifier 项目标识
+     * @param selectedDraftId 勾选的候选草稿固定 Long ID
+     * @param goal 必须为空：知识整理目标是系统统一配置的通用提示词（见 {@code AtlasCurationEvalRunner}），
+     *             数据集不得携带特化 goal，校验会拒绝非空值
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record CurationInput(String projectIdentifier, Long selectedDraftId, String goal) {
     }

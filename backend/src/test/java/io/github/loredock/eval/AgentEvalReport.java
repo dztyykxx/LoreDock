@@ -52,6 +52,13 @@ public final class AgentEvalReport {
                 .map(actual -> {
                     QaCase qaCase = data.qaCases().stream()
                             .filter(candidate -> candidate.caseId().equals(actual.caseId())).findFirst().orElseThrow();
+                    // 数据完整性：实际回答与期望逐字相同说明期望答案可能泄漏给了 Agent，
+                    // 或运行器/脚本伪造了结果，必须显式失败而不是让报告带病通过。
+                    if (qaCase.expected().resultText() != null
+                            && qaCase.expected().resultText().equals(actual.resultText())) {
+                        throw new IllegalStateException("QA 用例 " + actual.caseId()
+                                + " 实际回答与期望参考回答逐字相同，疑似期望泄漏或结果伪造");
+                    }
                     QaVerdict verdict = qaVerdicts.stream()
                             .filter(candidate -> candidate.caseId().equals(actual.caseId())).findFirst().orElseThrow();
                     return new QaCaseResult(qaCase.caseId(), qaCase.caseType(), qaCase.input(), qaCase.expected(),
@@ -62,6 +69,11 @@ public final class AgentEvalReport {
                 .map(actual -> {
                     CurationCase curationCase = data.curationCases().stream()
                             .filter(candidate -> candidate.caseId().equals(actual.caseId())).findFirst().orElseThrow();
+                    if (curationCase.expected().finalResponse() != null
+                            && curationCase.expected().finalResponse().equals(actual.finalResponse())) {
+                        throw new IllegalStateException("知识整理用例 " + actual.caseId()
+                                + " 实际最终回复与期望参考回答逐字相同，疑似期望泄漏或结果伪造");
+                    }
                     CurationVerdict verdict = curationVerdicts.stream()
                             .filter(candidate -> candidate.caseId().equals(actual.caseId())).findFirst().orElseThrow();
                     return new CurationCaseResult(curationCase.caseId(), curationCase.input(), curationCase.expected(),

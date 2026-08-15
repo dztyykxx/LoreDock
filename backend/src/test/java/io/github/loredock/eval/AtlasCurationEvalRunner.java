@@ -19,17 +19,34 @@ public final class AtlasCurationEvalRunner {
     public static final String OPERATOR_ID = "admin";
     private static final String TRIGGER_REASON = "Agent 评估";
     private static final String TARGET_SKILL = "knowledge-curator";
+    /** 评估目标系统配置属性；默认使用统一通用提示词，不随用例特化。 */
+    public static final String GOAL_PROPERTY = "loredock.agent-eval.curation-goal";
+    /** 通用知识整理目标：对所有用例一致，不泄漏预期处置，与 knowledge-curator Skill 职责对齐。 */
+    public static final String DEFAULT_GOAL = "整理候选材料：核对候选草稿与已发布正式知识的关系，识别重复、矛盾、过期与关键缺失；"
+            + "内容完整且与正式知识一致时按规范整理为工作文档，重复内容不重复创建，"
+            + "无法确定时向管理员说明并等待确认，不写入未经确认的结论。";
 
     private final KnowledgeTaskService tasks;
     private final KnowledgeDraftService drafts;
+    private final String goal;
 
     /**
      * @param tasks 知识任务统一契约入口
      * @param drafts 工作草稿读取端口
      */
     public AtlasCurationEvalRunner(KnowledgeTaskService tasks, KnowledgeDraftService drafts) {
+        this(tasks, drafts, System.getProperty(GOAL_PROPERTY, DEFAULT_GOAL));
+    }
+
+    /**
+     * @param tasks 知识任务统一契约入口
+     * @param drafts 工作草稿读取端口
+     * @param goal 系统统一配置的知识整理目标提示词
+     */
+    public AtlasCurationEvalRunner(KnowledgeTaskService tasks, KnowledgeDraftService drafts, String goal) {
         this.tasks = tasks;
         this.drafts = drafts;
+        this.goal = goal;
     }
 
     /**
@@ -74,7 +91,7 @@ public final class AtlasCurationEvalRunner {
                 curationCase.caseId(), OPERATOR_ID, curationCase.input().projectIdentifier(),
                 List.of(curationCase.input().selectedDraftId()),
                 KnowledgeTaskService.TriggerType.MANUAL, TRIGGER_REASON, TARGET_SKILL,
-                curationCase.input().goal()));
+                goal));
         KnowledgeTaskService.KnowledgeTask terminal = awaitTerminal(started.conversationId(), perCaseTimeout);
         KnowledgeTaskService.KnowledgeTaskRun run = terminal.runs().getLast();
         String finalResponse = terminal.messages().stream()

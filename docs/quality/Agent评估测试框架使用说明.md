@@ -11,7 +11,7 @@
 | `AtlasAgentEvalFixture` | 读取 `docs/quality/atlas-agent-eval-tests` 与 `atlas-eval-documents` 数据集，执行最小质量检查（用例数量、类型分布、文档 ID 反查、参考回答完整等） |
 | `AtlasAgentEvalSeeder` | 按 manifest 固定 Long ID 写入 atlas 项目、main 分支、14 篇正式知识与 8 篇候选草稿，并真实重建知识索引 |
 | `AtlasQaEvalRunner` | 逐条执行 QA 用例：`caseId` 作幂等键创建问答，等待终态，读取 `agent_run_retrieval` 中模型本轮实际看到的检索原文，计算 Top-5 候选 |
-| `AtlasCurationEvalRunner` | 逐条执行知识整理用例：单草稿启动任务，等待终态，提取最后一条 `COORDINATOR_AGENT` 最终回复与实际工作区正文 |
+| `AtlasCurationEvalRunner` | 逐条执行知识整理用例：单草稿启动任务，等待终态，提取最后一条 `COORDINATOR_AGENT` 最终回复与实际工作区正文；知识整理目标使用系统统一配置的通用提示词（`AtlasCurationEvalRunner.DEFAULT_GOAL`，可用 `loredock.agent-eval.curation-goal` 覆盖），不随用例特化 |
 | `AtlasEvalMetrics` | 客观指标：QA Top-5 准确率/召回率、结果类型与拒答原因匹配、引用覆盖；知识整理工作区匹配、动作正确率（确定性近似）、误写率；LLM Judge 字段保留为扩展点 |
 | `AgentEvalReport` | 组装机器报告（数据集版本、逐条实际结果与判定、汇总指标、门禁），写入 JSON 并输出逐条 stdout 证据 |
 

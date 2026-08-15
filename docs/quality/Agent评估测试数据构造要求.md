@@ -195,8 +195,7 @@ atlas-agent-eval-tests/
   "caseId": "CUR-001",
   "input": {
     "projectIdentifier": "atlas",
-    "selectedDraftId": 720001,
-    "goal": "整理候选材料，已有同主题正式知识时优先合并。"
+    "selectedDraftId": 720001
   },
   "expected": {
     "issueType": "DUPLICATE",
@@ -209,6 +208,10 @@ atlas-agent-eval-tests/
 }
 ```
 
+`goal` 不放进测试数据：知识整理目标是**系统统一配置的通用提示词**，对全部用例一致，
+不随用例特化。用例数据携带特化 goal（如"已有同主题正式知识时优先合并"）会把预期处置
+泄漏给被评估 Agent，属于数据污染；评估框架加载数据时会拒绝携带非空 goal 的用例。
+
 矛盾用例：
 
 ```json
@@ -216,8 +219,7 @@ atlas-agent-eval-tests/
   "caseId": "CUR-003",
   "input": {
     "projectIdentifier": "atlas",
-    "selectedDraftId": 720003,
-    "goal": "核对候选材料与已发布知识，无法确定时向管理员说明。"
+    "selectedDraftId": 720003
   },
   "expected": {
     "issueType": "CONFLICT",
@@ -256,7 +258,6 @@ atlas-agent-eval-tests/
 |---|---|
 | `projectIdentifier` | Knowledge Task Controller 路径参数 |
 | `selectedDraftId` | 转成 `StartBody.selectedDraftIds=[selectedDraftId]` |
-| `goal` | `StartBody.goal` |
 | `expected.finalResponse` | 最后一条非空、无 Tool Call 的 `COORDINATOR_AGENT` 消息 |
 | `workspace.operation` | `WorkspaceDocument.operation`，值为 `ADD/MODIFY` |
 | `workspace.baselineDocumentId` | `WorkspaceDocument.baselineDocumentId` |
@@ -265,6 +266,7 @@ atlas-agent-eval-tests/
 
 - `idempotencyKey`：使用 `caseId` 生成；
 - `triggerReason`：固定为“Agent 评估”；
+- `goal`：系统统一配置的通用知识整理提示词（评估框架 `AtlasCurationEvalRunner.DEFAULT_GOAL`，可用 `loredock.agent-eval.curation-goal` 覆盖），对全部用例一致，不随用例特化；
 - `selectedDraftIds`：由单个 `selectedDraftId` 转为单元素数组；
 - 任务和运行状态：从实际 `KnowledgeTask` 读取。
 
@@ -421,6 +423,7 @@ Top-5 检索召回率
 - [ ] QA 和知识整理输入、预期输出保存在同一 JSON 对象；
 - [ ] 8 篇草稿与 8 条知识整理用例一一对应；
 - [ ] 每条知识整理用例只有一个 `selectedDraftId`；
+- [ ] 知识整理用例不携带 `goal`（goal 为系统统一配置的通用提示词）；
 - [ ] 每条用例都有完整参考最终回答；
 - [ ] 所有文档 Long ID 都能从 manifest 反查业务键；
 - [ ] QA 实际结果包含 Agent 本轮看到的检索 `content`；

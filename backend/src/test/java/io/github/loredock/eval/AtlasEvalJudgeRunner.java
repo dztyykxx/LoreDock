@@ -51,10 +51,10 @@ public final class AtlasEvalJudgeRunner {
                     result.actual().resultText(), retrievalText(result.actual()),
                     result.actual().citationDocumentIds()));
             QaVerdict verdict = result.verdict();
-            QaVerdict judged = new QaVerdict(verdict.caseId(), verdict.caseType(), verdict.completed(),
-                    verdict.resultTypeMatch(), verdict.refusalReasonMatch(), verdict.answerable(),
-                    verdict.hitTop5(), verdict.top5Recall(), verdict.citationCoverage(),
-                    judgement.faithfulness(), judgement.relevance(), judgement.reason());
+            QaVerdict judged = new QaVerdict(verdict.caseId(), verdict.caseType(),
+                    judgement.reason(), judgement.faithfulness(), judgement.relevance(),
+                    verdict.completed(), verdict.resultTypeMatch(), verdict.refusalReasonMatch(),
+                    verdict.answerable(), verdict.hitTop5(), verdict.top5Recall(), verdict.citationCoverage());
             return new QaCaseResult(result.caseId(), result.caseType(), result.input(),
                     result.expected(), result.actual(), judged);
         }).toList();
@@ -78,10 +78,10 @@ public final class AtlasEvalJudgeRunner {
             judgedIssueTypes.put(result.caseId(), normalizeIssueType(judgement.issueType()));
             CurationVerdict verdict = result.verdict();
             CurationVerdict judged = new CurationVerdict(verdict.caseId(), verdict.issueType(), verdict.action(),
-                    verdict.workspaceMatch(),
+                    judgement.reason(), verdict.workspaceMatch(),
                     Boolean.TRUE.equals(judgement.actionCorrect()),
                     Boolean.TRUE.equals(judgement.unsafeWrite()),
-                    Boolean.TRUE.equals(judgement.issueCorrect()), judgement.reason());
+                    Boolean.TRUE.equals(judgement.issueCorrect()));
             return new CurationCaseResult(result.caseId(), result.input(), result.expected(),
                     result.actual(), judged);
         }).toList();

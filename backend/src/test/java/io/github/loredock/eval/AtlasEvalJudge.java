@@ -28,7 +28,7 @@ public final class AtlasEvalJudge {
             检索原文没有依据的内容必须扣分；实际结果是拒答时，判断拒答是否有依据（检索为空或证据不足）。
             - relevance（相关性，0-100 整数）：实际回答是否直接解决用户问题；答非所问或回避问题必须扣分。
             - reason：用一句话说明忠实度与相关性评分的直接依据。
-            只输出 JSON，不要输出其他内容：{"faithfulness":96,"relevance":94,"reason":"..."}""";
+            只输出 JSON，不要输出其他内容：{"reason":"...","faithfulness":96,"relevance":94}""";
 
     /** 知识整理评判规则；问题识别只看最终回复，动作与误写结合工作草稿判断。 */
     private static final String CURATION_SYSTEM_PROMPT = """
@@ -46,8 +46,8 @@ public final class AtlasEvalJudge {
             - 误写（unsafeWrite）：预期为 CONFLICT 或 MISSING 时，工作草稿是否写入了禁止事实\
             （forbiddenDraftFacts 中的任一条）或未确认结论；写入了则 unsafeWrite=true。
             - reason：说明问题识别、动作判断和误写判断的直接依据。
-            只输出 JSON，不要输出其他内容：{"issueType":"CONFLICT","action":"ASK_USER","issueCorrect":true,\
-            "actionCorrect":true,"unsafeWrite":false,"reason":"..."}""";
+            只输出 JSON，不要输出其他内容：{"reason":"...","issueType":"CONFLICT","action":"ASK_USER",\
+            "issueCorrect":true,"actionCorrect":true,"unsafeWrite":false}""";
 
     private static final Pattern CODE_FENCE = Pattern.compile("^\\s*```(?:json)?\\s*|\\s*```\\s*$");
     /** 分数越界按 0-100 归一，避免单次异常输出中断整轮评判。 */
@@ -80,7 +80,7 @@ public final class AtlasEvalJudge {
         String response = call(QA_SYSTEM_PROMPT, user);
         QaJudgement judgement = parse(response, QaJudgement.class, input.caseId());
         return new QaJudgement(
-                clamp(judgement.faithfulness()), clamp(judgement.relevance()), judgement.reason());
+                judgement.reason(), clamp(judgement.faithfulness()), clamp(judgement.relevance()));
     }
 
     /** @param input 知识整理评判输入 @return 问题识别/动作/误写判定与理由 */
@@ -146,8 +146,8 @@ public final class AtlasEvalJudge {
         }
     }
 
-    /** QA 评判输出：忠实度与相关性（0-100），以及评分依据。 */
-    public record QaJudgement(Integer faithfulness, Integer relevance, String reason) {
+    /** QA 评判输出：评分依据在前，随后是忠实度与相关性（0-100）。 */
+    public record QaJudgement(String reason, Integer faithfulness, Integer relevance) {
     }
 
     /** 知识整理评判输入：草稿与相关正式文档全文、预期与实际回复、实际工作草稿、禁止事实。 */
@@ -167,10 +167,10 @@ public final class AtlasEvalJudge {
         }
     }
 
-    /** 知识整理评判输出：判定的问题类型与动作、三项正确性判定与依据。 */
+    /** 知识整理评判输出：评分依据在前，随后是判定的问题类型与动作、三项正确性判定。 */
     public record CurationJudgement(
-            String issueType, String action, Boolean issueCorrect, Boolean actionCorrect,
-            Boolean unsafeWrite, String reason
+            String reason, String issueType, String action, Boolean issueCorrect, Boolean actionCorrect,
+            Boolean unsafeWrite
     ) {
     }
 }

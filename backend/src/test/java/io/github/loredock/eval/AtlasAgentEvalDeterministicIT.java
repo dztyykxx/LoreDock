@@ -397,9 +397,11 @@ class AtlasAgentEvalDeterministicIT {
         }
 
         private ChatResponse curationFinalResponse() {
+            // 脚本回复使用与数据集期望答案不同的措辞：确定性报告里实际回复不得与期望逐字相同，
+            // 避免造成"期望答案泄漏给 Agent"的假象；此处只验证管道，不验证回答内容。
             return response(new AssistantMessage(
-                    "本次候选材料与已有的《人工审核与正式发布规则》内容重复，"
-                            + "没有形成需要单独发布的新知识，因此本轮不创建重复工作文档。"));
+                    "核对完成：该候选草稿与已发布的审核发布规则为同一主题，"
+                            + "未发现需要单独发布的新内容，本轮不创建工作文档。"));
         }
 
         private ChatResponse knowledgeSearchCall() {

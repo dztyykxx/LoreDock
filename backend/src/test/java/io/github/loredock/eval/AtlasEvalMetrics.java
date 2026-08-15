@@ -74,8 +74,9 @@ public final class AtlasEvalMetrics {
         boolean citationCoverage = answerable && completed && !expected.isEmpty()
                 && actual.citationDocumentIds().containsAll(expected);
         return new QaVerdict(
-                actual.caseId(), qaCase.caseType(), completed, resultTypeMatch, refusalReasonMatch,
-                answerable, hitTop5, top5Recall, citationCoverage, null, null, null);
+                actual.caseId(), qaCase.caseType(), null, null, null,
+                completed, resultTypeMatch, refusalReasonMatch,
+                answerable, hitTop5, top5Recall, citationCoverage);
     }
 
     /** @param verdicts 逐条 QA 判定 @return 汇总指标；Judge 分数无结果时平均值为空 */
@@ -113,7 +114,7 @@ public final class AtlasEvalMetrics {
         boolean actionCorrect = actionCorrect(curationCase, actual, workspaceMatch);
         return new CurationVerdict(
                 actual.caseId(), curationCase.expected().issueType(), curationCase.expected().action(),
-                workspaceMatch, actionCorrect, unsafeWrite, null, null);
+                null, workspaceMatch, actionCorrect, unsafeWrite, null);
     }
 
     /**
@@ -226,20 +227,20 @@ public final class AtlasEvalMetrics {
         return values.isEmpty() ? null : values.stream().mapToInt(Integer::intValue).average().orElseThrow();
     }
 
-    /** 单条 QA 用例判定；faithfulness/relevance/reason 由 LLM Judge 填充，未接入时为空。 */
+    /** 单条 QA 用例判定；reason/faithfulness/relevance 由 LLM Judge 填充，未接入时为空。 */
     public record QaVerdict(
             String caseId,
             String caseType,
+            String reason,
+            Integer faithfulness,
+            Integer relevance,
             boolean completed,
             boolean resultTypeMatch,
             boolean refusalReasonMatch,
             boolean answerable,
             boolean hitTop5,
             double top5Recall,
-            boolean citationCoverage,
-            Integer faithfulness,
-            Integer relevance,
-            String reason
+            boolean citationCoverage
     ) {
     }
 
@@ -258,16 +259,16 @@ public final class AtlasEvalMetrics {
     ) {
     }
 
-    /** 单条知识整理用例判定；issueCorrect/reason 由 LLM Judge 填充，未接入时为空。 */
+    /** 单条知识整理用例判定；reason/issueCorrect 由 LLM Judge 填充，未接入时为空。 */
     public record CurationVerdict(
             String caseId,
             String issueType,
             String action,
+            String reason,
             boolean workspaceMatch,
             boolean actionCorrect,
             boolean unsafeWrite,
-            Boolean issueCorrect,
-            String reason
+            Boolean issueCorrect
     ) {
     }
 
