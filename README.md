@@ -243,6 +243,25 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./mvnw 
 
 缺少显式开关时正式基准按条件跳过；设置开关却缺少模型、查询失败、运行中 generation/配置变化、HYBRID Top-5 低于 80%、发生范围/生命周期泄漏或预热查询超过 3 秒时，执行会失败而不会生成伪通过结果。最新人工审查报告见 [T5 知识混合检索基准报告](docs/quality/T5知识混合检索基准报告.md)。
 
+Agent 评估框架（数据与用例见 `docs/quality/atlas-agent-eval-tests/`）同样提供两条运行路径：
+
+```bash
+cd backend
+# 确定性框架验证：脚本模型，无外部调用，验证 种子→运行→采集→指标→报告 全链路
+JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home ./mvnw \
+  -Dit.test=AtlasAgentEvalDeterministicIT \
+  test-compile failsafe:integration-test failsafe:verify
+
+# 真实模型全量评估：40 条 QA + 8 条知识整理，机器报告写入 target/atlas-agent-eval-report.json
+JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home LOREDOCK_AGENT_MODEL_API_KEY=<密钥> ./mvnw \
+  -Dloredock.agent-eval=true \
+  -Dloredock.agent-eval.model-dir=/path/to/bge-small-zh-v1.5 \
+  -Dit.test=AtlasAgentEvalRealModelIT \
+  test-compile failsafe:integration-test failsafe:verify
+```
+
+使用说明与指标口径见 [Agent 评估测试框架使用说明](docs/quality/Agent评估测试框架使用说明.md)。
+
 ```bash
 cd frontend
 PATH=/opt/homebrew/opt/node@24/bin:$PATH npm test
