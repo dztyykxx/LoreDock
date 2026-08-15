@@ -1,0 +1,602 @@
+[
+  {
+    "caseId": "QA-001",
+    "caseType": "SINGLE_DOCUMENT",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "Atlas 里的候选内容和正式知识有什么区别？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "候选内容是完成校验、等待管理员审核的正文，正式发布前不会进入普通用户检索，也不会进入正式导出包；正式知识是管理员确认并正式发布的正文，普通用户可以通过 LoreDock 检索和引用。",
+      "documentIds": [710001]
+    }
+  },
+  {
+    "caseId": "QA-002",
+    "caseType": "SINGLE_DOCUMENT",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "普通成员（MEMBER）在 Atlas 里能执行正式发布吗？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "不能。正式发布只能由管理员执行，MEMBER 可以上传场景包、查看批次和查询已发布知识，但没有任何入口可以跳过审核或直接发布，候选内容必须等管理员人工确认后才能成为正式知识。",
+      "documentIds": [710002]
+    }
+  },
+  {
+    "caseId": "QA-003",
+    "caseType": "SINGLE_DOCUMENT",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "上传一个场景包大致要经过哪些步骤？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "先整理正文和清单文件，把清单与正文打成 ZIP 包通过上传入口提交；平台随后执行格式校验和内容校验，校验通过后批次进入等待人工审核状态；管理员审核通过并发布后，正文才会进入普通用户检索和导出。",
+      "documentIds": [710003]
+    }
+  },
+  {
+    "caseId": "QA-004",
+    "caseType": "SINGLE_DOCUMENT",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "场景包的格式校验会检查哪些内容？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "格式校验主要检查：包内是否包含清单文件和至少一份业务正文、正文是否为 Markdown 或 UTF-8 纯文本、包是否超过 50 MB、清单声明与实际文件是否一致。缺少必要文件、格式不支持或清单不一致都会校验失败。",
+      "documentIds": [710004]
+    }
+  },
+  {
+    "caseId": "QA-005",
+    "caseType": "SINGLE_DOCUMENT",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "同一个场景包重复上传会发生什么？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "相同项目、相同幂等键的重复请求不会创建新批次，平台会返回已经存在的原批次及其当前状态，重复请求不会重新触发校验或审核。幂等键由清单声明，以项目为范围判定重复。",
+      "documentIds": [710005]
+    }
+  },
+  {
+    "caseId": "QA-006",
+    "caseType": "SINGLE_DOCUMENT",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "导入失败后平台会自动重试几次？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "导入失败最多自动重试 2 次，第一次失败后等待 30 秒，第二次失败后等待 120 秒；两次重试后仍失败，批次进入 FAILED 状态，之后只能由管理员发起人工重试。",
+      "documentIds": [710006]
+    }
+  },
+  {
+    "caseId": "QA-007",
+    "caseType": "SINGLE_DOCUMENT",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "为什么候选内容在发布前不能进入普通检索？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "因为格式校验和内容校验只能发现结构问题和明显敏感内容，无法判断业务内容是否正确、完整或与既有知识是否矛盾；正式知识一旦发布就会被当作事实引用，所以候选内容必须先由管理员人工审核确认，发布前处于隔离状态，不进入普通检索和导出包。",
+      "documentIds": [710007]
+    }
+  },
+  {
+    "caseId": "QA-008",
+    "caseType": "SINGLE_DOCUMENT",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "场景包批次有哪些状态？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "批次状态包括 UPLOADED（已上传）、VALIDATING（校验中）、PENDING_REVIEW（待审核）、PUBLISHED（已发布）、REJECTED（审核拒绝）和 FAILED（处理失败待人工处理）。状态由平台流程驱动，普通成员不能手动改写。",
+      "documentIds": [710008]
+    }
+  },
+  {
+    "caseId": "QA-009",
+    "caseType": "SINGLE_DOCUMENT",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "导出包会包含哪些内容？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "导出包只包含已发布的业务正文、来源元数据、清单文件和校验和清单；不包含未发布的草稿和候选内容、服务端日志以及系统内部配置。校验和用于接收方验证交付内容的完整性。",
+      "documentIds": [710009]
+    }
+  },
+  {
+    "caseId": "QA-010",
+    "caseType": "SINGLE_DOCUMENT",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "已正式发布的文档能物理删除吗？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "不能。已发布的文档只能由管理员归档，不能物理删除；归档后文档退出普通用户检索和导出，但正文和审计记录仍保留用于追溯。未发布的草稿可以由管理员删除。",
+      "documentIds": [710010]
+    }
+  },
+  {
+    "caseId": "QA-011",
+    "caseType": "SINGLE_DOCUMENT",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "哪些业务动作需要记录审计事件？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "上传场景包、审核候选内容（通过或拒绝）、正式发布、拒绝、归档文档和人工重试失败批次都需要记录审计事件。审计字段包括操作人、动作类型、操作对象、操作时间和操作结果与前后状态。",
+      "documentIds": [710011]
+    }
+  },
+  {
+    "caseId": "QA-012",
+    "caseType": "SINGLE_DOCUMENT",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "场景包正文里禁止出现哪些敏感数据？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "正文和场景包中不得保存密码、访问令牌、私钥、内部服务器地址或连接串。内容校验会扫描这些敏感数据，命中的正文会被标记为不可信并拒绝进入候选内容。",
+      "documentIds": [710012]
+    }
+  },
+  {
+    "caseId": "QA-013",
+    "caseType": "SINGLE_DOCUMENT",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "MEMBER 角色在 Atlas 中可以做哪些事情？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "MEMBER 可以上传场景包并发起导入流程、查看自己有权限访问的批次及处理状态、在审核拒绝后修改内容并重新提交，以及查询已发布的正式知识。MEMBER 不能审核候选内容、发布、归档或发起人工重试。",
+      "documentIds": [710002]
+    }
+  },
+  {
+    "caseId": "QA-014",
+    "caseType": "SINGLE_DOCUMENT",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "导入失败自动重试的等待间隔是多少？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "自动重试的等待间隔固定为第一次失败后 30 秒、第二次失败后 120 秒，最多自动重试 2 次；重试后仍失败则批次进入 FAILED 状态。",
+      "documentIds": [710006]
+    }
+  },
+  {
+    "caseId": "QA-015",
+    "caseType": "MULTI_DOCUMENT",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "场景包从上传到正式发布要经过哪些环节？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "上传场景包后，平台先做格式校验和内容校验，校验通过后批次进入等待人工审核状态；管理员审核通过后正式发布，正文进入普通用户检索。发布前的候选内容不进入普通检索，只有发布后才是正式知识。",
+      "documentIds": [710003, 710007]
+    }
+  },
+  {
+    "caseId": "QA-016",
+    "caseType": "MULTI_DOCUMENT",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "上传校验会拦下哪些内容？正文里不能带什么？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "格式校验会拦下缺少清单或正文、格式不受支持、超过 50 MB、清单与文件不一致的包；内容校验会扫描敏感数据。正文中不得携带密码、访问令牌、私钥、内部服务器地址或连接串，命中的正文会被判为不可信并拒绝进入候选。",
+      "documentIds": [710004, 710012]
+    }
+  },
+  {
+    "caseId": "QA-017",
+    "caseType": "MULTI_DOCUMENT",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "批次被审核拒绝后想重新提交，要怎么做？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "批次被拒绝后进入 REJECTED 状态，原批次保留在历史记录中。要重新进入流程，需要用新的幂等键重新上传形成新批次，因为相同项目和幂等键的重复提交会返回原批次。新批次会重新走校验和审核。",
+      "documentIds": [710005, 710008]
+    }
+  },
+  {
+    "caseId": "QA-018",
+    "caseType": "MULTI_DOCUMENT",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "导入失败且自动重试后仍失败，批次会怎样？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "导入失败最多自动重试 2 次，重试后仍失败的批次进入 FAILED 状态，只有管理员可以发起人工重试。人工重试后批次重新进入校验或处理流程，处理成功则继续后续审核，再次失败仍保持 FAILED。",
+      "documentIds": [710006, 710008]
+    }
+  },
+  {
+    "caseId": "QA-019",
+    "caseType": "MULTI_DOCUMENT",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "为什么普通成员不能直接发布正式知识？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "因为权限边界规定正式发布只能由管理员执行，MEMBER 没有任何跳过审核的入口；同时，机器校验无法判断业务内容是否正确完整，正式知识一旦发布就会被当作事实引用，所以候选内容必须由管理员人工审核确认后才能发布。",
+      "documentIds": [710002, 710007]
+    }
+  },
+  {
+    "caseId": "QA-020",
+    "caseType": "MULTI_DOCUMENT",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "候选内容在正式发布前会被排除在哪些地方？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "候选内容在发布前处于隔离状态：不进入普通用户检索结果，也不进入正式导出包。导出包只包含已发布的正文，未发布的草稿和候选内容都不会被带出平台。",
+      "documentIds": [710007, 710009]
+    }
+  },
+  {
+    "caseId": "QA-021",
+    "caseType": "MULTI_DOCUMENT",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "归档和删除分别适用于什么状态的文档？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "归档适用于已发布文档：正式发布的文档不能物理删除，只能归档退出检索，正文和审计记录仍保留。删除适用于未发布草稿：由管理员删除。两者都只能由管理员执行并记录审计事件。",
+      "documentIds": [710010, 710008]
+    }
+  },
+  {
+    "caseId": "QA-022",
+    "caseType": "MULTI_DOCUMENT",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "哪些状态变化会通知相关人员？状态和审计有什么关系？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "审核通过并发布、审核拒绝、批次进入 FAILED 和人工重试结果这些状态变化会通知相关人员。状态变化先记录审计事件再发送通知，上传者和管理员可以通过批次详情查看状态转换路径，通知发送失败不影响审计记录。",
+      "documentIds": [710011, 710008]
+    }
+  },
+  {
+    "caseId": "QA-023",
+    "caseType": "MULTI_DOCUMENT",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "上传包大小有什么限制？重复提交会不会重新走流程？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "单个上传包的大小上限是 50 MB，超过限制会直接上传失败。重复提交不会重新走流程：相同项目、相同幂等键的重复请求会返回原批次，不会重新触发校验或审核。",
+      "documentIds": [710003, 710005]
+    }
+  },
+  {
+    "caseId": "QA-024",
+    "caseType": "MULTI_DOCUMENT",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "文档归档和草稿删除分别由谁执行？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "都由管理员执行。管理员可以归档已发布的文档、删除未发布的草稿，普通成员没有这两类操作的入口。归档是移出普通检索但保留记录，删除是物理移除未发布草稿，两者都记录审计事件。",
+      "documentIds": [710002, 710010]
+    }
+  },
+  {
+    "caseId": "QA-025",
+    "caseType": "PARAPHRASE",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "我上传的材料为什么同事在平台上搜不到？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "因为上传的材料在通过校验后仍是候选内容，处于隔离状态：正式发布前不进入普通用户检索，也不进入导出包。必须等管理员人工审核并正式发布后，正文才会进入普通检索被同事搜到。",
+      "documentIds": [710007]
+    }
+  },
+  {
+    "caseId": "QA-026",
+    "caseType": "PARAPHRASE",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "同一个包我传了两遍，会不会产生两份内容？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "不会。相同项目和相同幂等键的重复提交会被幂等处理，平台返回原批次，不会创建新批次，也不会重新触发校验或审核，所以不会产生两份内容。",
+      "documentIds": [710005]
+    }
+  },
+  {
+    "caseId": "QA-027",
+    "caseType": "PARAPHRASE",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "包传上去处理失败了，系统会不会自己再试几回？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "会。导入失败最多自动重试 2 次，间隔分别是 30 秒和 120 秒；重试后仍失败进入 FAILED 状态，只能由管理员发起人工重试。",
+      "documentIds": [710006]
+    }
+  },
+  {
+    "caseId": "QA-028",
+    "caseType": "PARAPHRASE",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "传的包要是太大、超过 50 兆，是不是就传不上去？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "是的。上传入口只接收 ZIP 格式的场景包，单个上传包的大小上限是 50 MB，超过限制会直接上传失败，不会进入后续校验。",
+      "documentIds": [710003]
+    }
+  },
+  {
+    "caseId": "QA-029",
+    "caseType": "PARAPHRASE",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "已经发布出去的知识还能删掉吗？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "不能物理删除。已发布的文档只能由管理员归档，归档后退出普通检索和导出，但正文和审计记录保留用于追溯。未发布的草稿可以由管理员删除。",
+      "documentIds": [710010]
+    }
+  },
+  {
+    "caseId": "QA-030",
+    "caseType": "PARAPHRASE",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "正文里能不能放数据库连接串当示例？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "不能。正文和场景包中不得保存密码、访问令牌、私钥、内部服务器地址或连接串。内容校验会扫描这些敏感数据，命中的正文会被标记为不可信并拒绝进入候选内容。整理材料时应使用明显虚构的占位符代替。",
+      "documentIds": [710012]
+    }
+  },
+  {
+    "caseId": "QA-031",
+    "caseType": "SCOPE_OR_LIFECYCLE",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "Atlas 会把用户本地工作区的最新代码当成平台知识吗？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "不会。Atlas 只负责场景包的流转与正式知识的管理，不替代本地的代码阅读，也不接收真实代码正文；本地 Agent 以用户工作区中的最新代码为实现事实，平台知识不是当前代码事实的依据。",
+      "documentIds": [710001]
+    }
+  },
+  {
+    "caseId": "QA-032",
+    "caseType": "SCOPE_OR_LIFECYCLE",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "已发布的批次还能回到待审核状态继续处理吗？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "不能。PUBLISHED 是正式知识状态，之后不再回到校验或待审核；已发布文档只能通过归档退出检索，不能删除或重新进入审核流程。",
+      "documentIds": [710008]
+    }
+  },
+  {
+    "caseId": "QA-033",
+    "caseType": "SCOPE_OR_LIFECYCLE",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "还在待审核或已失败的批次能参与导出吗？归档后的文档还能进新的导出包吗？"
+    },
+    "expected": {
+      "resultType": "ANSWER",
+      "refusalReason": null,
+      "resultText": "不能。导出只包含已发布的内容，处于 PENDING_REVIEW、REJECTED 或 FAILED 状态的批次不参与导出；归档后的文档退出普通检索，也不再进入新导出的交付包。",
+      "documentIds": [710009, 710010]
+    }
+  },
+  {
+    "caseId": "QA-034",
+    "caseType": "INSUFFICIENT_EVIDENCE",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "Atlas 是否会对接企业微信或钉钉发送通知？"
+    },
+    "expected": {
+      "resultType": "REFUSAL",
+      "refusalReason": "INSUFFICIENT_EVIDENCE",
+      "resultText": "当前知识库没有足够依据确认 Atlas 会对接企业微信或钉钉发送通知。",
+      "documentIds": []
+    }
+  },
+  {
+    "caseId": "QA-035",
+    "caseType": "INSUFFICIENT_EVIDENCE",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "Atlas 是否会自动把场景包翻译成西班牙语？"
+    },
+    "expected": {
+      "resultType": "REFUSAL",
+      "refusalReason": "INSUFFICIENT_EVIDENCE",
+      "resultText": "当前知识库没有足够依据确认 Atlas 支持场景包自动翻译。",
+      "documentIds": []
+    }
+  },
+  {
+    "caseId": "QA-036",
+    "caseType": "INSUFFICIENT_EVIDENCE",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "Atlas 支持在线编辑场景包正文吗？"
+    },
+    "expected": {
+      "resultType": "REFUSAL",
+      "refusalReason": "INSUFFICIENT_EVIDENCE",
+      "resultText": "当前知识库没有足够依据确认 Atlas 提供在线编辑场景包正文的功能。",
+      "documentIds": []
+    }
+  },
+  {
+    "caseId": "QA-037",
+    "caseType": "INSUFFICIENT_EVIDENCE",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "同一个项目每天最多能上传多少个场景包？"
+    },
+    "expected": {
+      "resultType": "REFUSAL",
+      "refusalReason": "INSUFFICIENT_EVIDENCE",
+      "resultText": "当前知识库没有足够依据确认 Atlas 对场景包上传数量有限额。",
+      "documentIds": []
+    }
+  },
+  {
+    "caseId": "QA-038",
+    "caseType": "SOURCE_CONFLICT",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "场景包的审计记录究竟保留多少天？"
+    },
+    "expected": {
+      "resultType": "REFUSAL",
+      "refusalReason": "SOURCE_CONFLICT",
+      "resultText": "两篇已发布材料对审计记录保留期限给出了不同结论，一篇写明保留 180 天，另一篇写明保留 365 天，当前缺少权威性或替代关系说明，无法确定唯一答案。",
+      "documentIds": [710013, 710014]
+    }
+  },
+  {
+    "caseId": "QA-039",
+    "caseType": "SOURCE_CONFLICT",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "Atlas 的审计事件要保存 180 天还是 365 天？"
+    },
+    "expected": {
+      "resultType": "REFUSAL",
+      "refusalReason": "SOURCE_CONFLICT",
+      "resultText": "已发布知识对审计保留期限存在矛盾：一份写明 180 天，另一份写明 365 天，且没有说明哪份更新或替代另一份，当前无法确定唯一保留期限。",
+      "documentIds": [710013, 710014]
+    }
+  },
+  {
+    "caseId": "QA-040",
+    "caseType": "SOURCE_CONFLICT",
+    "input": {
+      "projectIdentifier": "atlas",
+      "branch": "main",
+      "question": "上传、审核、发布这些操作的审计日志需要留存多久？"
+    },
+    "expected": {
+      "resultType": "REFUSAL",
+      "refusalReason": "SOURCE_CONFLICT",
+      "resultText": "关于审计日志留存期限，已发布材料存在冲突：一份规定保留 180 天，另一份规定保留 365 天，两份均未说明替代关系，当前不能确定唯一答案。",
+      "documentIds": [710013, 710014]
+    }
+  }
+]

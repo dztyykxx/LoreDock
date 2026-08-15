@@ -1,0 +1,31 @@
+{
+  "datasetVersion": "atlas-agent-eval-v1",
+  "projectIdentifier": "atlas",
+  "qaCaseCount": 40,
+  "curationCaseCount": 8,
+  "reviewedByHuman": false,
+  "documentIdMappings": {
+    "DOC-01": 710001,
+    "DOC-02": 710002,
+    "DOC-03": 710003,
+    "DOC-04": 710004,
+    "DOC-05": 710005,
+    "DOC-06": 710006,
+    "DOC-07": 710007,
+    "DOC-08": 710008,
+    "DOC-09": 710009,
+    "DOC-10": 710010,
+    "DOC-11": 710011,
+    "DOC-12": 710012,
+    "DOC-13": 710013,
+    "DOC-14": 710014,
+    "DRAFT-01": 720001,
+    "DRAFT-02": 720002,
+    "DRAFT-03": 720003,
+    "DRAFT-04": 720004,
+    "DRAFT-05": 720005,
+    "DRAFT-06": 720006,
+    "DRAFT-07": 720007,
+    "DRAFT-08": 720008
+  }
+}

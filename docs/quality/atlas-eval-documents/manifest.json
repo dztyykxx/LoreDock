@@ -1,0 +1,246 @@
+{
+  "datasetVersion": "atlas-agent-eval-v1",
+  "project": "atlas",
+  "documents": [
+    {
+      "documentId": "DOC-01",
+      "title": "Atlas 产品概览与核心术语",
+      "directory": "产品介绍",
+      "status": "PUBLISHED",
+      "scope": "PROJECT",
+      "project": "atlas",
+      "updatedAt": "2026-08-15",
+      "file": "published/DOC-01.md"
+    },
+    {
+      "documentId": "DOC-02",
+      "title": "用户角色与操作权限",
+      "directory": "权限与安全",
+      "status": "PUBLISHED",
+      "scope": "PROJECT",
+      "project": "atlas",
+      "updatedAt": "2026-08-15",
+      "file": "published/DOC-02.md"
+    },
+    {
+      "documentId": "DOC-03",
+      "title": "场景包上传与导入流程",
+      "directory": "场景包管理/导入",
+      "status": "PUBLISHED",
+      "scope": "PROJECT",
+      "project": "atlas",
+      "updatedAt": "2026-08-15",
+      "file": "published/DOC-03.md"
+    },
+    {
+      "documentId": "DOC-04",
+      "title": "场景包格式与内容校验规则",
+      "directory": "场景包管理/校验",
+      "status": "PUBLISHED",
+      "scope": "PROJECT",
+      "project": "atlas",
+      "updatedAt": "2026-08-15",
+      "file": "published/DOC-04.md"
+    },
+    {
+      "documentId": "DOC-05",
+      "title": "重复提交与幂等处理",
+      "directory": "场景包管理/导入",
+      "status": "PUBLISHED",
+      "scope": "PROJECT",
+      "project": "atlas",
+      "updatedAt": "2026-08-15",
+      "file": "published/DOC-05.md"
+    },
+    {
+      "documentId": "DOC-06",
+      "title": "导入失败与重试策略",
+      "directory": "场景包管理/异常处理",
+      "status": "PUBLISHED",
+      "scope": "PROJECT",
+      "project": "atlas",
+      "updatedAt": "2026-08-15",
+      "file": "published/DOC-06.md"
+    },
+    {
+      "documentId": "DOC-07",
+      "title": "人工审核与正式发布规则",
+      "directory": "知识治理/审核发布",
+      "status": "PUBLISHED",
+      "scope": "PROJECT",
+      "project": "atlas",
+      "updatedAt": "2026-08-15",
+      "file": "published/DOC-07.md"
+    },
+    {
+      "documentId": "DOC-08",
+      "title": "场景包状态生命周期",
+      "directory": "场景包管理/状态",
+      "status": "PUBLISHED",
+      "scope": "PROJECT",
+      "project": "atlas",
+      "updatedAt": "2026-08-15",
+      "file": "published/DOC-08.md"
+    },
+    {
+      "documentId": "DOC-09",
+      "title": "场景包导出与交付内容",
+      "directory": "场景包管理/导出",
+      "status": "PUBLISHED",
+      "scope": "PROJECT",
+      "project": "atlas",
+      "updatedAt": "2026-08-15",
+      "file": "published/DOC-09.md"
+    },
+    {
+      "documentId": "DOC-10",
+      "title": "文档归档与删除规则",
+      "directory": "知识治理/生命周期",
+      "status": "PUBLISHED",
+      "scope": "PROJECT",
+      "project": "atlas",
+      "updatedAt": "2026-08-15",
+      "file": "published/DOC-10.md"
+    },
+    {
+      "documentId": "DOC-11",
+      "title": "审计记录与通知规则",
+      "directory": "运维与审计",
+      "status": "PUBLISHED",
+      "scope": "PROJECT",
+      "project": "atlas",
+      "updatedAt": "2026-08-15",
+      "file": "published/DOC-11.md"
+    },
+    {
+      "documentId": "DOC-12",
+      "title": "数据安全与不可信内容边界",
+      "directory": "权限与安全",
+      "status": "PUBLISHED",
+      "scope": "PROJECT",
+      "project": "atlas",
+      "updatedAt": "2026-08-15",
+      "file": "published/DOC-12.md"
+    },
+    {
+      "documentId": "DOC-13",
+      "title": "审计记录保留期限说明",
+      "directory": "运维与审计",
+      "status": "PUBLISHED",
+      "scope": "PROJECT",
+      "project": "atlas",
+      "updatedAt": "2026-08-15",
+      "file": "published/DOC-13.md"
+    },
+    {
+      "documentId": "DOC-14",
+      "title": "审计记录保留期限与清理规则",
+      "directory": "运维与审计",
+      "status": "PUBLISHED",
+      "scope": "PROJECT",
+      "project": "atlas",
+      "updatedAt": "2026-08-15",
+      "file": "published/DOC-14.md"
+    },
+    {
+      "documentId": "DRAFT-01",
+      "title": "导入材料为什么需要审核",
+      "directory": "知识治理/审核发布",
+      "status": "DRAFT",
+      "scope": "PROJECT",
+      "project": "atlas",
+      "updatedAt": "2026-08-15",
+      "file": "drafts/DRAFT-01.md"
+    },
+    {
+      "documentId": "DRAFT-02",
+      "title": "上传包校验补充说明",
+      "directory": "场景包管理/校验",
+      "status": "DRAFT",
+      "scope": "PROJECT",
+      "project": "atlas",
+      "updatedAt": "2026-08-15",
+      "file": "drafts/DRAFT-02.md"
+    },
+    {
+      "documentId": "DRAFT-03",
+      "title": "导入任务自动重试方案",
+      "directory": "场景包管理/异常处理",
+      "status": "DRAFT",
+      "scope": "PROJECT",
+      "project": "atlas",
+      "updatedAt": "2026-08-15",
+      "file": "drafts/DRAFT-03.md"
+    },
+    {
+      "documentId": "DRAFT-04",
+      "title": "场景包快速发布操作",
+      "directory": "知识治理/审核发布",
+      "status": "DRAFT",
+      "scope": "PROJECT",
+      "project": "atlas",
+      "updatedAt": "2026-08-15",
+      "file": "drafts/DRAFT-04.md"
+    },
+    {
+      "documentId": "DRAFT-05",
+      "title": "草稿删除操作说明",
+      "directory": "知识治理/生命周期",
+      "status": "DRAFT",
+      "scope": "PROJECT",
+      "project": "atlas",
+      "updatedAt": "2026-08-15",
+      "file": "drafts/DRAFT-05.md"
+    },
+    {
+      "documentId": "DRAFT-06",
+      "title": "大型场景包处理建议",
+      "directory": "场景包管理/导入",
+      "status": "DRAFT",
+      "scope": "PROJECT",
+      "project": "atlas",
+      "updatedAt": "2026-08-15",
+      "file": "drafts/DRAFT-06.md"
+    },
+    {
+      "documentId": "DRAFT-07",
+      "title": "导出包校验和验证方法",
+      "directory": "场景包管理/导出",
+      "status": "DRAFT",
+      "scope": "PROJECT",
+      "project": "atlas",
+      "updatedAt": "2026-08-15",
+      "file": "drafts/DRAFT-07.md"
+    },
+    {
+      "documentId": "DRAFT-08",
+      "title": "发布完成后的通知模板",
+      "directory": "运维与审计",
+      "status": "DRAFT",
+      "scope": "PROJECT",
+      "project": "atlas",
+      "updatedAt": "2026-08-15",
+      "file": "drafts/DRAFT-08.md"
+    },
+    {
+      "documentId": "DRAFT-09",
+      "title": "审核拒绝后的修订流程",
+      "directory": "知识治理/审核发布",
+      "status": "DRAFT",
+      "scope": "PROJECT",
+      "project": "atlas",
+      "updatedAt": "2026-08-15",
+      "file": "drafts/DRAFT-09.md"
+    },
+    {
+      "documentId": "DRAFT-10",
+      "title": "自动发布与系统操作指南",
+      "directory": "知识治理/审核发布",
+      "status": "DRAFT",
+      "scope": "PROJECT",
+      "project": "atlas",
+      "updatedAt": "2026-08-15",
+      "file": "drafts/DRAFT-10.md"
+    }
+  ]
+}
