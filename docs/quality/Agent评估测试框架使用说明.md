@@ -45,7 +45,28 @@ JAVA_HOME=<jdk21> LOREDOCK_AGENT_MODEL_API_KEY=<密钥> ./mvnw \
 - `LOREDOCK_AGENT_MODEL_API_KEY`：ChatModel 密钥，也可用 `-Dloredock.agent-eval.api-key` 指定；
 - 完整运行 40 条 QA + 8 条知识整理用例，单条用例等待终态上限 5 分钟，全量运行可能持续数小时。
 
-### 2.3 单元测试
+### 2.3 真实模型冒烟验证（先确认链路再全量执行）
+
+Agent 运行本身消耗 token，先用少量真实案例确认链路可运行，再投入全量：
+
+```bash
+cd backend
+JAVA_HOME=<jdk21> LOREDOCK_AGENT_MODEL_API_KEY=<密钥> ./mvnw \
+  -Dloredock.agent-eval=true \
+  -Dloredock.agent-eval.model-dir=/path/to/bge-small-zh-v1.5 \
+  -Dloredock.agent-eval.qa-cases=1 \
+  -Dloredock.agent-eval.curation-cases=1 \
+  -Dloredock.agent-eval.output=target/atlas-agent-eval-report-smoke.json \
+  -Dit.test=AtlasAgentEvalRealModelIT \
+  test-compile failsafe:integration-test failsafe:verify
+```
+
+- `loredock.agent-eval.qa-cases`：执行前 N 条 QA 用例（默认全部 40）；
+- `loredock.agent-eval.curation-cases`：执行前 N 条知识整理用例（默认全部 8）；
+- `loredock.agent-eval.output`：报告输出路径，冒烟验证建议单独指定，避免覆盖全量报告；
+- 冒烟通过（门禁全部通过、stdout 逐条证据符合预期）后再去掉限制参数执行全量评估。
+
+### 2.4 单元测试
 
 ```bash
 cd backend

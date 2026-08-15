@@ -39,7 +39,9 @@ import org.testcontainers.utility.DockerImageName;
  *
  * <p>仅在显式设置 {@code -Dloredock.agent-eval=true} 时运行，避免日常测试产生外部调用费用；
  * 语义检索模型目录通过 {@code -Dloredock.agent-eval.model-dir} 指定，
- * ChatModel 密钥读取环境变量 {@code LOREDOCK_AGENT_MODEL_API_KEY}。</p>
+ * ChatModel 密钥读取环境变量 {@code LOREDOCK_AGENT_MODEL_API_KEY}。
+ * 冒烟验证可用 {@code -Dloredock.agent-eval.qa-cases=N} 与
+ * {@code -Dloredock.agent-eval.curation-cases=N} 限制用例数量，先确认链路再全量执行。</p>
  */
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.NONE,
@@ -107,18 +109,24 @@ class AtlasAgentEvalRealModelIT {
     }
 
     /**
-     * 业务目的：真实模型评估必须完整跑完 40 条 QA 与 8 条知识整理用例并写出机器报告，
+     * 业务目的：真实模型评估必须完整跑完数据集声明的 QA 与知识整理用例并写出机器报告，
      * 全部运行达到完成终态、报告可反序列化；逐条证据输出到 stdout 供人工核验。
+     *
+     * <p>支持冒烟验证：通过 {@code -Dloredock.agent-eval.qa-cases=N} 与
+     * {@code -Dloredock.agent-eval.curation-cases=N} 限制执行前 N 条用例，
+     * 先用少量真实案例确认链路可运行，避免在流程未验证前消耗全量模型调用。</p>
      */
     @Test
     void fullAtlasAgentEvaluationCompletesAndWritesReport() throws Exception {
         long startedNanos = System.nanoTime();
         EvalData data = AtlasAgentEvalFixture.load();
+        int qaLimit = Integer.getInteger("loredock.agent-eval.qa-cases", data.qaCases().size());
+        int curationLimit = Integer.getInteger("loredock.agent-eval.curation-cases", data.curationCases().size());
         AtlasQaEvalRunner qaRunner = new AtlasQaEvalRunner(questions, retrievals);
         AtlasCurationEvalRunner curationRunner = new AtlasCurationEvalRunner(tasks, drafts);
 
-        List<QaActual> qaActuals = qaRunner.runAll(data, PER_CASE_TIMEOUT);
-        List<CurationActual> curationActuals = curationRunner.runAll(data, PER_CASE_TIMEOUT);
+        List<QaActual> qaActuals = qaRunner.runAll(data, PER_CASE_TIMEOUT, qaLimit);
+        List<CurationActual> curationActuals = curationRunner.runAll(data, PER_CASE_TIMEOUT, curationLimit);
 
         List<QaVerdict> qaVerdicts = new ArrayList<>();
         for (int index = 0; index < qaActuals.size(); index++) {
@@ -138,14 +146,16 @@ class AtlasAgentEvalRealModelIT {
 
         long totalMillis = Duration.ofNanos(System.nanoTime() - startedNanos).toMillis();
         assertThat(written.gates().allPassed())
-                .as("全部 QA 与知识整理用例必须达到完成终态；失败用例见 stdout 逐条证据")
+                .as("实际执行的 QA 与知识整理用例必须全部达到完成终态；失败用例见 stdout 逐条证据")
                 .isTrue();
         assertThat(Files.isRegularFile(output)).isTrue();
-        assertThat(Files.readString(output)).contains("QA-040").contains("CUR-008");
-        System.out.printf("测试证据：场景=真实模型评估完成，数据集=%s，QA=%d，知识整理=%d，"
+        String reportJson = Files.readString(output);
+        assertThat(reportJson).contains(qaActuals.getLast().caseId()).contains(curationActuals.getLast().caseId());
+        System.out.printf("测试证据：场景=真实模型评估完成，数据集=%s，实际QA=%d/%d，实际知识整理=%d/%d，"
                         + "QA Top5准确率=%.2f%%，Top5平均召回=%.2f%%，结果类型匹配率=%.2f%%，"
                         + "知识整理动作正确率=%.2f%%，误写率=%.2f%%，报告=%s，总耗时毫秒=%d%n",
-                report.datasetVersion(), report.qaMetrics().caseCount(), report.curationMetrics().caseCount(),
+                report.datasetVersion(), qaActuals.size(), data.qaCases().size(),
+                curationActuals.size(), data.curationCases().size(),
                 report.qaMetrics().top5Accuracy() * 100.0D, report.qaMetrics().averageTop5Recall() * 100.0D,
                 report.qaMetrics().resultTypeMatchRate() * 100.0D,
                 report.curationMetrics().actionCorrectRate() * 100.0D,

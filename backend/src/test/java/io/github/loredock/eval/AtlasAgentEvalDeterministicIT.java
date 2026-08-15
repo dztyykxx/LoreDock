@@ -159,6 +159,12 @@ class AtlasAgentEvalDeterministicIT {
         assertThat(curationActual.finalResponse()).isNotBlank();
         assertThat(curationActual.workspace()).isEmpty();
 
+        // 冒烟限制路径：runAll 按前 N 条执行；幂等复用已完成运行，不产生新的模型调用。
+        List<QaActual> limitedQa = qaRunner.runAll(data, timeout, 2);
+        List<CurationActual> limitedCuration = curationRunner.runAll(data, timeout, 1);
+        assertThat(limitedQa).extracting(QaActual::caseId).containsExactly("QA-001", "QA-002");
+        assertThat(limitedCuration).extracting(CurationActual::caseId).containsExactly("CUR-001");
+
         List<QaVerdict> qaVerdicts = qaActuals.stream()
                 .map(actual -> AtlasEvalMetrics.qaVerdict(actual, qaSubset.stream()
                         .filter(qaCase -> qaCase.caseId().equals(actual.caseId())).findFirst().orElseThrow()))

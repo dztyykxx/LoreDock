@@ -41,8 +41,21 @@ public final class AtlasQaEvalRunner {
      * @return 与数据集顺序一致的逐条实际结果
      */
     public List<QaActual> runAll(AtlasAgentEvalFixture.EvalData data, Duration perCaseTimeout) {
+        return runAll(data, perCaseTimeout, data.qaCases().size());
+    }
+
+    /**
+     * 串行执行数据集前 N 条 QA 用例；冒烟验证时用少量真实案例确认链路可运行，
+     * 避免在流程未验证前消耗全量模型调用。
+     *
+     * @param data 已校验的评估数据集
+     * @param perCaseTimeout 单条用例等待终态的超时
+     * @param caseLimit 最多执行的用例数，按数据集顺序取前 N 条
+     * @return 与数据集顺序一致的逐条实际结果
+     */
+    public List<QaActual> runAll(AtlasAgentEvalFixture.EvalData data, Duration perCaseTimeout, int caseLimit) {
         List<QaActual> actuals = new ArrayList<>();
-        for (AtlasAgentEvalFixture.QaCase qaCase : data.qaCases()) {
+        for (AtlasAgentEvalFixture.QaCase qaCase : data.qaCases().stream().limit(caseLimit).toList()) {
             actuals.add(runCase(qaCase, perCaseTimeout));
         }
         return List.copyOf(actuals);

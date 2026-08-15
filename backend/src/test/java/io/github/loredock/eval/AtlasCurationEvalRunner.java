@@ -40,8 +40,22 @@ public final class AtlasCurationEvalRunner {
      * @return 与数据集顺序一致的逐条实际结果
      */
     public List<CurationActual> runAll(AtlasAgentEvalFixture.EvalData data, Duration perCaseTimeout) {
+        return runAll(data, perCaseTimeout, data.curationCases().size());
+    }
+
+    /**
+     * 串行执行数据集前 N 条知识整理用例；冒烟验证时用少量真实案例确认链路可运行，
+     * 避免在流程未验证前消耗全量模型调用。
+     *
+     * @param data 已校验的评估数据集
+     * @param perCaseTimeout 单条用例等待终态的超时
+     * @param caseLimit 最多执行的用例数，按数据集顺序取前 N 条
+     * @return 与数据集顺序一致的逐条实际结果
+     */
+    public List<CurationActual> runAll(AtlasAgentEvalFixture.EvalData data, Duration perCaseTimeout, int caseLimit) {
         List<CurationActual> actuals = new ArrayList<>();
-        for (AtlasAgentEvalFixture.CurationCase curationCase : data.curationCases()) {
+        for (AtlasAgentEvalFixture.CurationCase curationCase
+                : data.curationCases().stream().limit(caseLimit).toList()) {
             actuals.add(runCase(curationCase, perCaseTimeout));
         }
         return List.copyOf(actuals);

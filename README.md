@@ -258,6 +258,16 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home LOREDOC
   -Dloredock.agent-eval.model-dir=/path/to/bge-small-zh-v1.5 \
   -Dit.test=AtlasAgentEvalRealModelIT \
   test-compile failsafe:integration-test failsafe:verify
+
+# 真实模型冒烟验证：只跑 1 条 QA + 1 条知识整理，先确认链路再全量执行（省 token）
+JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home LOREDOCK_AGENT_MODEL_API_KEY=<密钥> ./mvnw \
+  -Dloredock.agent-eval=true \
+  -Dloredock.agent-eval.model-dir=/path/to/bge-small-zh-v1.5 \
+  -Dloredock.agent-eval.qa-cases=1 \
+  -Dloredock.agent-eval.curation-cases=1 \
+  -Dloredock.agent-eval.output=target/atlas-agent-eval-report-smoke.json \
+  -Dit.test=AtlasAgentEvalRealModelIT \
+  test-compile failsafe:integration-test failsafe:verify
 ```
 
 使用说明与指标口径见 [Agent 评估测试框架使用说明](docs/quality/Agent评估测试框架使用说明.md)。
