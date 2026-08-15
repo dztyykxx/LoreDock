@@ -82,6 +82,7 @@ class AtlasAgentEvalDeterministicIT {
     @Autowired private io.github.loredock.knowledge.service.KnowledgeDocumentDataService documents;
     @Autowired private io.github.loredock.knowledge.service.KnowledgeIndexRebuildService rebuilder;
     @Autowired private DataSource dataSource;
+    @Autowired private ObjectMapper objectMapper;
     @Autowired private EvalScriptedChatModel scriptedModel;
     @MockitoBean private KnowledgeEmbeddingService embedding;
 
@@ -184,9 +185,24 @@ class AtlasAgentEvalDeterministicIT {
         assertThat(Files.isRegularFile(reportPath)).isTrue();
         String json = Files.readString(reportPath);
         assertThat(json).contains("QA-001").contains("QA-035").contains("CUR-001");
+
+        // 离线评判链路：读回报告 JSON → 脚本裁判逐条回填 → 写出评判报告，全程无外部调用。
+        AgentEvalReport.Report readBack = objectMapper.readValue(reportPath.toFile(), AgentEvalReport.Report.class);
+        AgentEvalReport.Report judged = AtlasEvalJudgeRunner.judge(
+                readBack, data, new AtlasEvalJudge(scriptedModel, objectMapper));
+        Path judgedPath = Path.of("target", "atlas-agent-eval-report-judged-deterministic.json")
+                .toAbsolutePath().normalize();
+        AgentEvalReport.Report judgedWritten = AgentEvalReport.write(judged, judgedPath);
+        assertThat(judgedWritten.qaResults())
+                .extracting(result -> result.verdict().faithfulness()).containsExactly(95, 95, 95);
+        assertThat(judgedWritten.qaMetrics().averageFaithfulness()).isEqualTo(95.0D);
+        assertThat(judgedWritten.curationResults().getFirst().verdict().issueCorrect()).isTrue();
+        assertThat(judgedWritten.curationMetrics().issueTypeF1()).containsKey("DUPLICATE");
+        assertThat(Files.isRegularFile(judgedPath)).isTrue();
+
         System.out.printf("测试证据：场景=评估框架确定性链路，QA=%d，知识整理=%d，报告=%s，"
-                        + "门禁=%s，Top5候选样本=%s%n",
-                qaActuals.size(), 1, reportPath, written.gates(), answer.top5DocumentIds());
+                        + "评判报告=%s，门禁=%s，Top5候选样本=%s%n",
+                qaActuals.size(), 1, reportPath, judgedPath, written.gates(), answer.top5DocumentIds());
     }
 
     private float[] vector() {
@@ -225,6 +241,7 @@ class AtlasAgentEvalDeterministicIT {
         private static final Pattern EVIDENCE_ID = Pattern.compile("evidenceId=(\\d+)");
         private static final String CURATION_GOAL_SIGNAL = "整理候选材料";
         private static final String REFUSAL_QUESTION_SIGNAL = "翻译成西班牙语";
+        private static final String JUDGE_SIGNAL = "评估裁判";
 
         @Override
         public ChatResponse call(Prompt prompt) {
@@ -237,11 +254,14 @@ class AtlasAgentEvalDeterministicIT {
         }
 
         private ChatResponse next(Prompt prompt) {
+            String text = allText(prompt);
+            if (text.contains(JUDGE_SIGNAL)) {
+                return text.contains("忠实度") ? qaJudgeResponse() : curationJudgeResponse();
+            }
             Long evidenceId = firstEvidenceId(prompt);
             if (evidenceId != null) {
                 return answer(evidenceId);
             }
-            String text = allText(prompt);
             if (text.contains(CURATION_GOAL_SIGNAL)) {
                 return curationFinalResponse();
             }
@@ -249,6 +269,18 @@ class AtlasAgentEvalDeterministicIT {
                 return refusal();
             }
             return knowledgeSearchCall();
+        }
+
+        private ChatResponse qaJudgeResponse() {
+            return response(new AssistantMessage(
+                    "{\"faithfulness\":95,\"relevance\":90,\"reason\":\"确定性裁判：回答有检索原文支持\"}"));
+        }
+
+        private ChatResponse curationJudgeResponse() {
+            return response(new AssistantMessage(
+                    "{\"issueType\":\"DUPLICATE\",\"action\":\"NO_CHANGE\",\"issueCorrect\":true,"
+                            + "\"actionCorrect\":true,\"unsafeWrite\":false,"
+                            + "\"reason\":\"确定性裁判：最终回复识别重复且未写入\"}"));
         }
 
         private Long firstEvidenceId(Prompt prompt) {

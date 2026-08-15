@@ -66,7 +66,24 @@ JAVA_HOME=<jdk21> LOREDOCK_AGENT_MODEL_API_KEY=<密钥> ./mvnw \
 - `loredock.agent-eval.output`：报告输出路径，冒烟验证建议单独指定，避免覆盖全量报告；
 - 冒烟通过（门禁全部通过、stdout 逐条证据符合预期）后再去掉限制参数执行全量评估。
 
-### 2.4 单元测试
+### 2.4 离线 LLM Judge（忠实度/相关性/问题识别评判）
+
+评估报告生成后，可单独对已采集的实际结果做 LLM 评判，不重跑 Agent、不需要数据库：
+
+```bash
+cd backend
+JAVA_HOME=<jdk21> LOREDOCK_AGENT_MODEL_API_KEY=<密钥> ./mvnw \
+  -Dloredock.agent-eval.judge=true \
+  -Dit.test=AtlasEvalJudgeIT \
+  test-compile failsafe:integration-test failsafe:verify
+```
+
+- 读取 `loredock.agent-eval.output` 指定的评估报告（默认 `target/atlas-agent-eval-report.json`），逐条调用 ChatModel 评判后写入评判报告（默认 `target/atlas-agent-eval-report-judged.json`，可用 `-Dloredock.agent-eval.judge-output` 覆盖）；
+- QA Judge 输出忠实度/相关性（0-100）与理由，知识整理 Judge 输出问题识别/动作/误写判定与理由，并重算问题识别正确率与各问题类型 F1；
+- 评判温度固定为 0，同一报告可换模型反复评判；评判额外消耗约 1 次模型调用/用例；
+- 评判前必须先有完整评估报告：冒烟报告（`-Dloredock.agent-eval.output=target/atlas-agent-eval-report-smoke.json`）或全量报告均可直接评判。
+
+### 2.5 单元测试
 
 ```bash
 cd backend
@@ -78,17 +95,21 @@ JAVA_HOME=<jdk21> ./mvnw test -Dtest='AtlasAgentEvalFixtureTest,AtlasEvalMetrics
 ## 3. 报告与证据
 
 - 机器报告：`backend/target/atlas-agent-eval-report.json`（可用 `-Dloredock.agent-eval.output` 覆盖路径）；
+- 评判报告：`backend/target/atlas-agent-eval-report-judged.json`（可用 `-Dloredock.agent-eval.judge-output` 覆盖路径），在原始报告基础上回填 Judge 判定并重算指标；
 - 逐条证据：运行 stdout 输出每个用例的场景、范围、终态、Top-5 候选、引用数、工作区结果、耗时与判定，与报告内容一致；
-- 报告字段与《Agent 评估测试数据构造要求》第 5、7 节的实际结果格式对应。
+- 报告字段与《Agent 评估测试数据构造要求》第 5、7 节的实际结果格式对应（检索记录含模型实际看到的 `content` 与裁剪标记）。
 
 ## 4. 指标口径
 
 - QA：Top-5 候选 = 跨全部检索按相关度降序去重取前 5；准确率/召回率只统计可回答用例（`ANSWER`），拒答用例不参与；
-- 知识整理：动作正确率采用确定性近似（NO_CHANGE/MERGE/ADD_OR_UPDATE 按工作区匹配，ASK_USER 额外要求最终回复请求人工确认）；误写率按禁止事实是否写入工作草稿判定；
-- 忠实度、相关性、问题识别（F1）依赖 LLM Judge，当前报告保留为空字段，后续在 `AtlasEvalMetrics` 的 Judge 扩展点接入。
+- 知识整理（未评判报告）：动作正确率采用确定性近似（NO_CHANGE/MERGE/ADD_OR_UPDATE 按工作区匹配，ASK_USER 额外要求最终回复请求人工确认）；误写率按禁止事实是否写入工作草稿判定；
+- 知识整理（评判报告）：动作正确率、误写率、问题识别正确率与 DUPLICATE/CONFLICT/MISSING 的 Precision/Recall/F1 均采用 LLM Judge 判定（问题识别只看最终回复，动作与误写结合工作草稿）；
+- QA 忠实度/相关性（评判报告）：LLM Judge 百分制平均分，忠实度只判断实际回答是否由本轮检索原文支持，相关性判断是否直接解决用户问题；
+- Judge 温度固定为 0，只依据评判输入中的原文，不使用模型常识补充 Atlas 事实。
 
 ## 5. 常见问题
 
 - 找不到数据目录：确认从仓库内运行 Maven，或设置 `-Dloredock.agent-eval.data-dir=<docs/quality 绝对路径>`；
 - 真实模型评估启动失败：检查模型目录文件与校验和、ChatModel 密钥是否配置；
+- 离线评判提示找不到报告：先运行真实模型评估（全量或冒烟）生成报告，再运行 `AtlasEvalJudgeIT`；
 - 用例超时：查看 stdout 中该用例的终态与错误码，通常是模型不可用或运行受限，而不是框架问题。

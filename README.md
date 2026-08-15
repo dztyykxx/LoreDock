@@ -268,6 +268,12 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home LOREDOC
   -Dloredock.agent-eval.output=target/atlas-agent-eval-report-smoke.json \
   -Dit.test=AtlasAgentEvalRealModelIT \
   test-compile failsafe:integration-test failsafe:verify
+
+# 离线 LLM Judge：对已生成报告评判忠实度/相关性/问题识别，不重跑 Agent
+JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home LOREDOCK_AGENT_MODEL_API_KEY=<密钥> ./mvnw \
+  -Dloredock.agent-eval.judge=true \
+  -Dit.test=AtlasEvalJudgeIT \
+  test-compile failsafe:integration-test failsafe:verify
 ```
 
 使用说明与指标口径见 [Agent 评估测试框架使用说明](docs/quality/Agent评估测试框架使用说明.md)。

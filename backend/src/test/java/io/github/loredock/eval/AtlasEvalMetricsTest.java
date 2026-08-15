@@ -282,6 +282,6 @@ class AtlasEvalMetricsTest {
     }
 
     private static RetrievedActual retrieved(Long documentId, double relevance) {
-        return new RetrievedActual(documentId, "标题", relevance, true, false);
+        return new RetrievedActual(documentId, "标题", relevance, true, false, null);
     }
 }

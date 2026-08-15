@@ -81,7 +81,7 @@ public final class AtlasQaEvalRunner {
                         record.documents().stream()
                                 .map(document -> new RetrievedActual(
                                         document.documentId(), document.title(), document.relevance(),
-                                        document.retained(), document.truncated()))
+                                        document.retained(), document.truncated(), document.content()))
                                 .toList()))
                 .toList();
         List<Long> top5 = AtlasEvalMetrics.top5DocumentIds(retrievalActuals);
@@ -123,9 +123,9 @@ public final class AtlasQaEvalRunner {
         }
     }
 
-    /** 单个候选文档实际记录；retained=false 表示未进入模型上下文。 */
+    /** 单个候选文档实际记录；retained=false 表示未进入模型上下文，content 为模型实际看到的片段。 */
     public record RetrievedActual(
-            Long documentId, String title, double relevance, boolean retained, boolean truncated
+            Long documentId, String title, double relevance, boolean retained, boolean truncated, String content
     ) {
     }
 

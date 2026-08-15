@@ -75,14 +75,21 @@ public final class AgentEvalReport {
         Gates gates = new Gates(qaAllCompleted, curationAllCompleted, false);
         return new Report(
                 data.manifest().datasetVersion(), data.manifest().projectIdentifier(), executedAt, environment,
-                qaResults, curationResults,
-                new QaMetrics(qaSummary.caseCount(), qaSummary.answerableCount(), qaSummary.top5Accuracy(),
-                        qaSummary.averageTop5Recall(), qaSummary.resultTypeMatchRate(),
-                        qaSummary.averageFaithfulness(), qaSummary.averageRelevance()),
-                new CurationMetrics(curationSummary.caseCount(), curationSummary.issueCaseCount(),
-                        curationSummary.actionCorrectRate(), curationSummary.unsafeWriteRate(),
-                        curationSummary.issueTypeF1()),
-                gates);
+                qaResults, curationResults, qaMetrics(qaSummary), curationMetrics(curationSummary), gates);
+    }
+
+    /** @param summary QA 汇总 @return 报告 QA 指标段 */
+    public static QaMetrics qaMetrics(QaSummary summary) {
+        return new QaMetrics(summary.caseCount(), summary.answerableCount(), summary.top5Accuracy(),
+                summary.averageTop5Recall(), summary.resultTypeMatchRate(),
+                summary.averageFaithfulness(), summary.averageRelevance());
+    }
+
+    /** @param summary 知识整理汇总 @return 报告知识整理指标段 */
+    public static CurationMetrics curationMetrics(CurationSummary summary) {
+        return new CurationMetrics(summary.caseCount(), summary.issueCaseCount(),
+                summary.actionCorrectRate(), summary.unsafeWriteRate(),
+                summary.issueCorrectRate(), summary.issueTypeF1());
     }
 
     /** @return 报告输出路径；可通过系统属性 {@code loredock.agent-eval.output} 覆盖 */
@@ -192,10 +199,10 @@ public final class AgentEvalReport {
     ) {
     }
 
-    /** 知识整理汇总指标（与文档第 9.2 节对应；问题识别 F1 需要 Judge）。 */
+    /** 知识整理汇总指标（与文档第 9.2 节对应；问题识别相关指标需要 Judge）。 */
     public record CurationMetrics(
             int caseCount, int issueCaseCount, double actionCorrectRate, double unsafeWriteRate,
-            Map<String, AtlasEvalMetrics.IssueTypeF1> issueTypeF1
+            Double issueCorrectRate, Map<String, AtlasEvalMetrics.IssueTypeF1> issueTypeF1
     ) {
         public CurationMetrics {
             issueTypeF1 = issueTypeF1 == null ? Map.of() : Map.copyOf(issueTypeF1);
