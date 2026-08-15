@@ -25,6 +25,10 @@ import org.springframework.test.context.DynamicPropertySource;
  * 评判报告输出 {@code loredock.agent-eval.judge-output}（默认
  * target/atlas-agent-eval-report-judged.json），ChatModel 密钥与环境变量
  * {@code LOREDOCK_AGENT_MODEL_API_KEY} 一致。</p>
+ *
+ * <p>裁判模型独立于 Agent 模型：环境变量 {@code LOREDOCK_EVAL_JUDGE_MODEL}（或系统属性
+ * {@code loredock.agent-eval.judge-model}）指定，默认与 Agent 相同；建议使用与 Agent
+ * 不同源的更强模型（如 qwen3.7-plus）避免同模型自评偏差。</p>
  */
 @SpringBootTest(
         webEnvironment = SpringBootTest.WebEnvironment.NONE,
@@ -40,8 +44,18 @@ class AtlasEvalJudgeIT {
         registry.add("spring.ai.openai.api-key", AtlasEvalJudgeIT::requireApiKey);
         registry.add("spring.ai.openai.base-url", () -> System.getenv().getOrDefault(
                 "LOREDOCK_AGENT_MODEL_BASE_URL", "https://api.deepseek.com"));
-        registry.add("spring.ai.openai.chat.options.model", () -> System.getenv().getOrDefault(
-                "LOREDOCK_AGENT_MODEL_NAME", "deepseek-v4-flash"));
+        registry.add("spring.ai.openai.chat.options.model", AtlasEvalJudgeIT::judgeModel);
+    }
+
+    /** @return 裁判模型：系统属性 loredock.agent-eval.judge-model > 环境变量 LOREDOCK_EVAL_JUDGE_MODEL > Agent 模型 */
+    static String judgeModel() {
+        String property = System.getProperty("loredock.agent-eval.judge-model");
+        if (property != null && !property.isBlank()) {
+            return property;
+        }
+        String env = System.getenv("LOREDOCK_EVAL_JUDGE_MODEL");
+        return env != null && !env.isBlank() ? env
+                : System.getenv().getOrDefault("LOREDOCK_AGENT_MODEL_NAME", "deepseek-v4-flash");
     }
 
     /**
@@ -82,9 +96,9 @@ class AtlasEvalJudgeIT {
         assertThat(written.curationMetrics().issueTypeF1()).isNotEmpty();
         assertThat(Files.isRegularFile(output)).isTrue();
         assertThat(Files.readString(output)).contains("faithfulness").contains("issueCorrect");
-        System.out.printf("测试证据：场景=离线评判完成，报告=%s，评判报告=%s，QA=%d，知识整理=%d，"
+        System.out.printf("测试证据：场景=离线评判完成，裁判模型=%s，报告=%s，评判报告=%s，QA=%d，知识整理=%d，"
                         + "平均忠实度=%s，平均相关性=%s，问题类型F1=%s%n",
-                reportPath, output, written.qaResults().size(), written.curationResults().size(),
+                judgeModel(), reportPath, output, written.qaResults().size(), written.curationResults().size(),
                 written.qaMetrics().averageFaithfulness(), written.qaMetrics().averageRelevance(),
                 written.curationMetrics().issueTypeF1());
     }

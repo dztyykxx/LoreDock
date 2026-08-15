@@ -270,9 +270,18 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home LOREDOC
   test-compile failsafe:integration-test failsafe:verify
 
 # 离线 LLM Judge：对已生成报告评判忠实度/相关性/问题识别，不重跑 Agent
+# 裁判模型默认与 Agent 相同，可用环境变量 LOREDOCK_EVAL_JUDGE_MODEL 指定（如 qwen3.7-plus）
 JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home LOREDOCK_AGENT_MODEL_API_KEY=<密钥> ./mvnw \
   -Dloredock.agent-eval.judge=true \
   -Dit.test=AtlasEvalJudgeIT \
+  test-compile failsafe:integration-test failsafe:verify
+
+# 断点续跑：长跑中断后只重跑未完成用例，已完成的复用上一轮报告结果
+JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home LOREDOCK_AGENT_MODEL_API_KEY=<密钥> ./mvnw \
+  -Dloredock.agent-eval=true \
+  -Dloredock.agent-eval.model-dir=/path/to/bge-small-zh-v1.5 \
+  -Dloredock.agent-eval.resume=true \
+  -Dit.test=AtlasAgentEvalRealModelIT \
   test-compile failsafe:integration-test failsafe:verify
 ```
 

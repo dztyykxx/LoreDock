@@ -205,6 +205,69 @@ class AtlasAgentEvalDeterministicIT {
                 qaActuals.size(), 1, reportPath, judgedPath, written.gates(), answer.top5DocumentIds());
     }
 
+    /**
+     * 业务目的：断点续跑必须只重跑未完成的用例并复用上一轮已完成的实际结果，
+     * 防止长跑中断后全量重来造成重复模型调用。
+     */
+    @Test
+    void resumeRerunsOnlyPendingCasesAndReusesCompletedResults() throws Exception {
+        EvalData data = AtlasAgentEvalFixture.load();
+        Duration timeout = Duration.ofSeconds(60);
+        AtlasQaEvalRunner qaRunner = new AtlasQaEvalRunner(questions, retrievals);
+        AtlasCurationEvalRunner curationRunner = new AtlasCurationEvalRunner(tasks, drafts);
+
+        // 第一轮只完成 QA-001 与 CUR-001，模拟长跑中断后留下的部分报告。
+        QaActual firstQa = qaRunner.runCase(data.qaCases().get(0), timeout);
+        CurationActual firstCuration = curationRunner.runCase(data.curationCases().get(0), timeout);
+        Path previousPath = Path.of("target", "atlas-agent-eval-report-resume-prev.json")
+                .toAbsolutePath().normalize();
+        AgentEvalReport.Report previous = AgentEvalReport.build(data,
+                List.of(firstQa), List.of(firstCuration),
+                List.of(AtlasEvalMetrics.qaVerdict(firstQa, data.qaCases().get(0))),
+                List.of(AtlasEvalMetrics.curationVerdict(firstCuration, data.curationCases().get(0))),
+                null, "deterministic-resume", Instant.now().toString());
+        AgentEvalReport.write(previous, previousPath);
+
+        // 续跑：只重跑未完成用例，已完成用例按数据集顺序合并上一轮结果。
+        java.util.Set<String> pendingQa = AtlasEvalResume.pendingQaCaseIds(data, previous);
+        java.util.Set<String> pendingCuration = AtlasEvalResume.pendingCurationCaseIds(data, previous);
+        assertThat(pendingQa).doesNotContain("QA-001").contains("QA-002", "QA-035");
+        assertThat(pendingCuration).doesNotContain("CUR-001").contains("CUR-002");
+        // 重跑待重跑集合的子集（QA-002、QA-035 与 CUR-002），验证只重跑未完成用例且复用已完成结果。
+        List<QaActual> mergedQa = new java.util.ArrayList<>();
+        mergedQa.add(AtlasEvalResume.previousQaActual(previous, "QA-001"));
+        for (String caseId : List.of("QA-002", "QA-035")) {
+            AtlasAgentEvalFixture.QaCase qaCase = data.qaCases().stream()
+                    .filter(candidate -> candidate.caseId().equals(caseId)).findFirst().orElseThrow();
+            mergedQa.add(qaRunner.runCase(qaCase, timeout));
+        }
+        CurationActual mergedCuration = curationRunner.runCase(data.curationCases().get(1), timeout);
+        assertThat(mergedQa.get(0)).isEqualTo(firstQa);
+        assertThat(mergedQa).extracting(QaActual::caseId).containsExactly("QA-001", "QA-002", "QA-035");
+        assertThat(mergedCuration.caseId()).isEqualTo("CUR-002");
+
+        List<QaVerdict> qaVerdicts = mergedQa.stream()
+                .map(actual -> AtlasEvalMetrics.qaVerdict(actual, data.qaCases().stream()
+                        .filter(qaCase -> qaCase.caseId().equals(actual.caseId())).findFirst().orElseThrow()))
+                .toList();
+        AgentEvalReport.Report resumed = AgentEvalReport.build(data, mergedQa, List.of(firstCuration, mergedCuration),
+                qaVerdicts,
+                List.of(AtlasEvalMetrics.curationVerdict(firstCuration, data.curationCases().get(0)),
+                        AtlasEvalMetrics.curationVerdict(mergedCuration, data.curationCases().get(1))),
+                null, "deterministic-resume", Instant.now().toString());
+        Path resumedPath = Path.of("target", "atlas-agent-eval-report-resume.json")
+                .toAbsolutePath().normalize();
+        AgentEvalReport.Report resumedWritten = AgentEvalReport.write(resumed, resumedPath);
+
+        assertThat(resumedWritten.gates().allPassed()).isTrue();
+        assertThat(resumedWritten.qaResults()).hasSize(3);
+        assertThat(resumedWritten.qaResults().get(0).actual()).isEqualTo(firstQa);
+        assertThat(Files.isRegularFile(resumedPath)).isTrue();
+        System.out.printf("测试证据：场景=断点续跑，上一轮完成 QA=1/知识整理=1，续跑重跑 QA=%d/知识整理=%d，"
+                        + "合并报告=%s，门禁=%s%n",
+                pendingQa.size(), pendingCuration.size(), resumedPath, resumedWritten.gates());
+    }
+
     private float[] vector() {
         float[] vector = new float[512];
         java.util.Arrays.fill(vector, 0.01F);

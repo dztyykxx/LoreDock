@@ -2,6 +2,7 @@ package io.github.loredock.eval;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.loredock.agent.api.KnowledgeTaskService;
 import io.github.loredock.agent.service.AgentRetrievalService;
 import io.github.loredock.eval.AtlasAgentEvalFixture.EvalData;
@@ -19,6 +20,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 import javax.sql.DataSource;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -73,6 +76,7 @@ class AtlasAgentEvalRealModelIT {
     @Autowired private KnowledgeIndexRebuildService rebuilder;
     @Autowired private DataSource dataSource;
     @Autowired private JdbcTemplate jdbcTemplate;
+    @Autowired private ObjectMapper objectMapper;
 
     @DynamicPropertySource
     static void configure(DynamicPropertyRegistry registry) {
@@ -115,6 +119,10 @@ class AtlasAgentEvalRealModelIT {
      * <p>支持冒烟验证：通过 {@code -Dloredock.agent-eval.qa-cases=N} 与
      * {@code -Dloredock.agent-eval.curation-cases=N} 限制执行前 N 条用例，
      * 先用少量真实案例确认链路可运行，避免在流程未验证前消耗全量模型调用。</p>
+     *
+     * <p>支持断点续跑：设置 {@code -Dloredock.agent-eval.resume=true} 时读取输出路径上的
+     * 上一轮报告，跳过已 COMPLETED 的用例，只重跑未完成/缺失的用例并合并写回；
+     * 续跑模式忽略用例数量限制。</p>
      */
     @Test
     void fullAtlasAgentEvaluationCompletesAndWritesReport() throws Exception {
@@ -122,11 +130,48 @@ class AtlasAgentEvalRealModelIT {
         EvalData data = AtlasAgentEvalFixture.load();
         int qaLimit = Integer.getInteger("loredock.agent-eval.qa-cases", data.qaCases().size());
         int curationLimit = Integer.getInteger("loredock.agent-eval.curation-cases", data.curationCases().size());
+        boolean resume = Boolean.getBoolean("loredock.agent-eval.resume");
+        Path output = AgentEvalReport.defaultOutputPath();
+        AgentEvalReport.Report previous = resume && Files.isRegularFile(output)
+                ? objectMapper.readValue(output.toFile(), AgentEvalReport.Report.class) : null;
+        Set<String> pendingQa = resume && previous != null
+                ? AtlasEvalResume.pendingQaCaseIds(data, previous)
+                : data.qaCases().stream().map(AtlasAgentEvalFixture.QaCase::caseId).collect(Collectors.toSet());
+        Set<String> pendingCuration = resume && previous != null
+                ? AtlasEvalResume.pendingCurationCaseIds(data, previous)
+                : data.curationCases().stream().map(AtlasAgentEvalFixture.CurationCase::caseId)
+                        .collect(Collectors.toSet());
+
         AtlasQaEvalRunner qaRunner = new AtlasQaEvalRunner(questions, retrievals);
         AtlasCurationEvalRunner curationRunner = new AtlasCurationEvalRunner(tasks, drafts);
 
-        List<QaActual> qaActuals = qaRunner.runAll(data, PER_CASE_TIMEOUT, qaLimit);
-        List<CurationActual> curationActuals = curationRunner.runAll(data, PER_CASE_TIMEOUT, curationLimit);
+        List<QaActual> qaActuals = new ArrayList<>();
+        int executedQa = 0;
+        for (AtlasAgentEvalFixture.QaCase qaCase : data.qaCases()) {
+            if (!pendingQa.contains(qaCase.caseId())) {
+                // 续跑：上一轮已完成，复用实际结果，不再消耗模型调用。
+                qaActuals.add(AtlasEvalResume.previousQaActual(previous, qaCase.caseId()));
+                continue;
+            }
+            if (!resume && executedQa >= qaLimit) {
+                break;
+            }
+            executedQa++;
+            qaActuals.add(qaRunner.runCase(qaCase, PER_CASE_TIMEOUT));
+        }
+        List<CurationActual> curationActuals = new ArrayList<>();
+        int executedCuration = 0;
+        for (AtlasAgentEvalFixture.CurationCase curationCase : data.curationCases()) {
+            if (!pendingCuration.contains(curationCase.caseId())) {
+                curationActuals.add(AtlasEvalResume.previousCurationActual(previous, curationCase.caseId()));
+                continue;
+            }
+            if (!resume && executedCuration >= curationLimit) {
+                break;
+            }
+            executedCuration++;
+            curationActuals.add(curationRunner.runCase(curationCase, PER_CASE_TIMEOUT));
+        }
 
         List<QaVerdict> qaVerdicts = new ArrayList<>();
         for (int index = 0; index < qaActuals.size(); index++) {
@@ -140,7 +185,6 @@ class AtlasAgentEvalRealModelIT {
 
         AgentEvalReport.Report report = AgentEvalReport.build(data, qaActuals, curationActuals,
                 qaVerdicts, curationVerdicts, null, environment(), Instant.now().toString());
-        Path output = AgentEvalReport.defaultOutputPath();
         AgentEvalReport.Report written = AgentEvalReport.write(report, output);
         AgentEvalReport.printEvidence(report);
 
@@ -152,10 +196,11 @@ class AtlasAgentEvalRealModelIT {
         String reportJson = Files.readString(output);
         assertThat(reportJson).contains(qaActuals.getLast().caseId()).contains(curationActuals.getLast().caseId());
         System.out.printf("测试证据：场景=真实模型评估完成，数据集=%s，实际QA=%d/%d，实际知识整理=%d/%d，"
+                        + "续跑=%s，本次重跑QA=%d，本次重跑知识整理=%d，"
                         + "QA Top5准确率=%.2f%%，Top5平均召回=%.2f%%，结果类型匹配率=%.2f%%，"
                         + "知识整理动作正确率=%.2f%%，误写率=%.2f%%，报告=%s，总耗时毫秒=%d%n",
                 report.datasetVersion(), qaActuals.size(), data.qaCases().size(),
-                curationActuals.size(), data.curationCases().size(),
+                curationActuals.size(), data.curationCases().size(), resume, executedQa, executedCuration,
                 report.qaMetrics().top5Accuracy() * 100.0D, report.qaMetrics().averageTop5Recall() * 100.0D,
                 report.qaMetrics().resultTypeMatchRate() * 100.0D,
                 report.curationMetrics().actionCorrectRate() * 100.0D,

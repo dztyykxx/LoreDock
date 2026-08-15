@@ -66,7 +66,25 @@ JAVA_HOME=<jdk21> LOREDOCK_AGENT_MODEL_API_KEY=<密钥> ./mvnw \
 - `loredock.agent-eval.output`：报告输出路径，冒烟验证建议单独指定，避免覆盖全量报告；
 - 冒烟通过（门禁全部通过、stdout 逐条证据符合预期）后再去掉限制参数执行全量评估。
 
-### 2.4 离线 LLM Judge（忠实度/相关性/问题识别评判）
+### 2.4 断点续跑（长跑中断后只重跑失败用例）
+
+长跑中断或部分用例失败后，不需要全量重来：
+
+```bash
+cd backend
+JAVA_HOME=<jdk21> LOREDOCK_AGENT_MODEL_API_KEY=<密钥> ./mvnw \
+  -Dloredock.agent-eval=true \
+  -Dloredock.agent-eval.model-dir=/path/to/bge-small-zh-v1.5 \
+  -Dloredock.agent-eval.resume=true \
+  -Dit.test=AtlasAgentEvalRealModelIT \
+  test-compile failsafe:integration-test failsafe:verify
+```
+
+- 读取 `loredock.agent-eval.output` 指定的上一轮报告，跳过已 `COMPLETED` 的用例，只重跑未完成/失败/缺失的用例，合并后写回同一报告；
+- 续跑模式忽略用例数量限制；每次运行是全新数据库并重新灌入评估环境，不依赖旧库数据；
+- 想强制重跑某条已完成的用例：删除报告或换 `loredock.agent-eval.output` 路径后再跑。
+
+### 2.5 离线 LLM Judge（忠实度/相关性/问题识别评判）
 
 评估报告生成后，可单独对已采集的实际结果做 LLM 评判，不重跑 Agent、不需要数据库：
 
@@ -81,9 +99,10 @@ JAVA_HOME=<jdk21> LOREDOCK_AGENT_MODEL_API_KEY=<密钥> ./mvnw \
 - 读取 `loredock.agent-eval.output` 指定的评估报告（默认 `target/atlas-agent-eval-report.json`），逐条调用 ChatModel 评判后写入评判报告（默认 `target/atlas-agent-eval-report-judged.json`，可用 `-Dloredock.agent-eval.judge-output` 覆盖）；
 - QA Judge 输出忠实度/相关性（0-100）与理由，知识整理 Judge 输出问题识别/动作/误写判定与理由，并重算问题识别正确率与各问题类型 F1；
 - 评判温度固定为 0，同一报告可换模型反复评判；评判额外消耗约 1 次模型调用/用例；
+- 裁判模型独立配置：环境变量 `LOREDOCK_EVAL_JUDGE_MODEL`（或 `-Dloredock.agent-eval.judge-model`）指定，默认与 Agent 模型相同；建议使用与 Agent 不同源的更强模型（如 `qwen3.7-plus`）避免同模型自评偏差；
 - 评判前必须先有完整评估报告：冒烟报告（`-Dloredock.agent-eval.output=target/atlas-agent-eval-report-smoke.json`）或全量报告均可直接评判。
 
-### 2.5 单元测试
+### 2.6 单元测试
 
 ```bash
 cd backend
