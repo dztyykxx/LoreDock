@@ -51,10 +51,19 @@ public final class AtlasEvalJudgeRunner {
                     result.actual().resultText(), retrievalText(result.actual()),
                     result.actual().citationDocumentIds()));
             QaVerdict verdict = result.verdict();
-            QaVerdict judged = new QaVerdict(verdict.caseId(), verdict.caseType(),
+            // 客观字段（命中/召回/精确率/引用覆盖等）按当前指标口径从实际结果重算，
+            // 不沿用旧报告可能过期的判定（例如冲突拒答参与统计的新口径），评判报告无需重跑 Agent。
+            QaVerdict objective = data.qaCases().stream()
+                    .filter(qaCase -> qaCase.caseId().equals(result.caseId()))
+                    .findFirst()
+                    .map(qaCase -> AtlasEvalMetrics.qaVerdict(result.actual(), qaCase))
+                    .orElse(verdict);
+            QaVerdict judged = new QaVerdict(objective.caseId(), objective.caseType(),
                     judgement.reason(), judgement.faithfulness(), judgement.relevance(),
-                    verdict.completed(), verdict.resultTypeMatch(), verdict.refusalReasonMatch(),
-                    verdict.answerable(), verdict.hitTop5(), verdict.top5Recall(), verdict.citationCoverage());
+                    objective.completed(), objective.resultTypeMatch(), objective.refusalReasonMatch(),
+                    objective.answerable(), objective.retrievalMeasurable(),
+                    objective.hitTop5(), objective.top5Recall(), objective.top5Precision(),
+                    objective.citationCoverage());
             return new QaCaseResult(result.caseId(), result.caseType(), result.input(),
                     result.expected(), result.actual(), judged);
         }).toList();

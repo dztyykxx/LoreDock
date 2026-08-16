@@ -120,7 +120,7 @@ JAVA_HOME=<jdk21> ./mvnw test -Dtest='AtlasAgentEvalFixtureTest,AtlasEvalMetrics
 
 ## 4. 指标口径
 
-- QA：Top-5 候选 = 跨全部检索按相关度降序去重取前 5；准确率/召回率只统计可回答用例（`ANSWER`），拒答用例不参与；
+- QA：Top-5 候选 = 跨全部检索按相关度降序去重取前 5；参与统计的用例 = `ANSWER` 用例 + 携带期望文档的 `SOURCE_CONFLICT` 拒答用例，无期望文档的证据不足拒答不参与；准确率 = 命中用例占比，召回率 = 找回期望数 ÷ 期望总数（按用例平均），精确率 = 找回期望数 ÷ 5（按用例平均，反映返回列表噪声）；
 - 知识整理（未评判报告）：动作正确率采用确定性近似（NO_CHANGE/MERGE/ADD_OR_UPDATE 按工作区匹配，ASK_USER 额外要求最终回复请求人工确认）；误写率按禁止事实是否写入工作草稿判定；
 - 知识整理（评判报告）：动作正确率、误写率、问题识别正确率与 DUPLICATE/CONFLICT/MISSING 的 Precision/Recall/F1 均采用 LLM Judge 判定（问题识别只看最终回复，动作与误写结合工作草稿）；
 - QA 忠实度/相关性（评判报告）：LLM Judge 百分制平均分，按《数据构造要求》8.1 锚定分档评分；忠实度只判断实际回答是否由本轮检索原文支持，相关性判断是否直接解决用户问题；

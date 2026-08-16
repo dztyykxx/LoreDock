@@ -25,6 +25,8 @@ public final class AtlasEvalMetrics {
 
     /** 判定最终回复是否请求人工确认的确定性近似关键词；真实判定由 LLM Judge 完成。 */
     private static final List<String> ASK_HUMAN_SIGNALS = List.of("请管理员", "管理员确认", "人工确认");
+    /** Top-5 窗口大小：精确率的分母固定为 5，反映返回列表中期望文档的占比。 */
+    private static final int TOP5_WINDOW = 5;
 
     private AtlasEvalMetrics() {
     }
@@ -54,6 +56,10 @@ public final class AtlasEvalMetrics {
     /**
      * 计算单条 QA 用例的客观判定。
      *
+     * <p>参与 Top-5 与引用统计的用例：ANSWER 用例，以及携带期望文档的 SOURCE_CONFLICT 拒答用例
+     * （冲突拒答需要同时检索到冲突文档，检索质量可测）；无期望文档的证据不足拒答不参与，
+     * 避免把"无目标可找"计入检索指标。</p>
+     *
      * @param actual 实际结果
      * @param qaCase 评估用例
      * @return 逐项判定；LLM Judge 分数字段为空
@@ -61,30 +67,38 @@ public final class AtlasEvalMetrics {
     public static QaVerdict qaVerdict(QaActual actual, QaCase qaCase) {
         boolean completed = actual.status() == QaQuestion.Status.COMPLETED;
         boolean answerable = "ANSWER".equals(qaCase.expected().resultType());
+        boolean retrievalMeasurable = answerable || ("REFUSAL".equals(qaCase.expected().resultType())
+                && !qaCase.expected().documentIds().isEmpty());
         boolean resultTypeMatch = completed && Objects.equals(
                 qaCase.expected().resultType(), actual.resultType());
         boolean refusalReasonMatch = completed && "REFUSAL".equals(qaCase.expected().resultType())
                 && Objects.equals(qaCase.expected().refusalReason(), actual.refusalReason());
         Set<Long> expected = Set.copyOf(qaCase.expected().documentIds());
         Set<Long> top5 = Set.copyOf(actual.top5DocumentIds());
-        boolean hitTop5 = answerable && completed && top5.stream().anyMatch(expected::contains);
+        boolean hitTop5 = retrievalMeasurable && completed && top5.stream().anyMatch(expected::contains);
         long recalled = top5.stream().filter(expected::contains).count();
-        double top5Recall = answerable && completed && !expected.isEmpty()
+        double top5Recall = retrievalMeasurable && completed && !expected.isEmpty()
                 ? (double) recalled / expected.size() : 0.0D;
-        boolean citationCoverage = answerable && completed && !expected.isEmpty()
+        // 精确率以固定窗口 5 为分母：单目标用例命中时召回为 1.0，但 Top-5 中期望文档占比
+        // 可能只有 1/5，精确率与召回率互补反映"目标被找回"与"返回列表噪声"两个侧面。
+        double top5Precision = retrievalMeasurable && completed
+                ? (double) recalled / TOP5_WINDOW : 0.0D;
+        boolean citationCoverage = retrievalMeasurable && completed && !expected.isEmpty()
                 && actual.citationDocumentIds().containsAll(expected);
         return new QaVerdict(
                 actual.caseId(), qaCase.caseType(), null, null, null,
                 completed, resultTypeMatch, refusalReasonMatch,
-                answerable, hitTop5, top5Recall, citationCoverage);
+                answerable, retrievalMeasurable, hitTop5, top5Recall, top5Precision, citationCoverage);
     }
 
     /** @param verdicts 逐条 QA 判定 @return 汇总指标；Judge 分数无结果时平均值为空 */
     public static QaSummary qaSummary(List<QaVerdict> verdicts) {
-        long answerable = verdicts.stream().filter(QaVerdict::answerable).count();
-        long top5Hits = verdicts.stream().filter(QaVerdict::answerable).filter(QaVerdict::hitTop5).count();
-        double averageRecall = verdicts.stream().filter(QaVerdict::answerable)
+        long measurable = verdicts.stream().filter(QaVerdict::retrievalMeasurable).count();
+        long top5Hits = verdicts.stream().filter(QaVerdict::retrievalMeasurable).filter(QaVerdict::hitTop5).count();
+        double averageRecall = verdicts.stream().filter(QaVerdict::retrievalMeasurable)
                 .mapToDouble(QaVerdict::top5Recall).average().orElse(0.0D);
+        double averagePrecision = verdicts.stream().filter(QaVerdict::retrievalMeasurable)
+                .mapToDouble(QaVerdict::top5Precision).average().orElse(0.0D);
         long resultTypeMatches = verdicts.stream().filter(QaVerdict::resultTypeMatch).count();
         long refusalMatches = verdicts.stream().filter(QaVerdict::refusalReasonMatch).count();
         Double averageFaithfulness = average(verdicts.stream()
@@ -92,8 +106,8 @@ public final class AtlasEvalMetrics {
         Double averageRelevance = average(verdicts.stream()
                 .map(QaVerdict::relevance).filter(Objects::nonNull).toList());
         return new QaSummary(
-                verdicts.size(), answerable, top5Hits, answerable == 0 ? 0.0D : (double) top5Hits / answerable,
-                averageRecall, resultTypeMatches,
+                verdicts.size(), measurable, top5Hits, measurable == 0 ? 0.0D : (double) top5Hits / measurable,
+                averageRecall, averagePrecision, resultTypeMatches,
                 verdicts.isEmpty() ? 0.0D : (double) resultTypeMatches / verdicts.size(),
                 refusalMatches, averageFaithfulness, averageRelevance);
     }
@@ -227,7 +241,11 @@ public final class AtlasEvalMetrics {
         return values.isEmpty() ? null : values.stream().mapToInt(Integer::intValue).average().orElseThrow();
     }
 
-    /** 单条 QA 用例判定；reason/faithfulness/relevance 由 LLM Judge 填充，未接入时为空。 */
+    /**
+     * 单条 QA 用例判定；reason/faithfulness/relevance 由 LLM Judge 填充，未接入时为空。
+     * answerable 表示预期为 ANSWER；retrievalMeasurable 表示参与 Top-5/引用统计
+     * （ANSWER 或携带期望文档的冲突拒答）。
+     */
     public record QaVerdict(
             String caseId,
             String caseType,
@@ -238,19 +256,22 @@ public final class AtlasEvalMetrics {
             boolean resultTypeMatch,
             boolean refusalReasonMatch,
             boolean answerable,
+            boolean retrievalMeasurable,
             boolean hitTop5,
             double top5Recall,
+            double top5Precision,
             boolean citationCoverage
     ) {
     }
 
-    /** QA 汇总指标：Top-5 准确率/召回率与结果匹配率；Judge 平均值无结果时为空。 */
+    /** QA 汇总指标：Top-5 准确率/召回率/精确率与结果匹配率；Judge 平均值无结果时为空。 */
     public record QaSummary(
             int caseCount,
             long answerableCount,
             long top5HitCount,
             double top5Accuracy,
             double averageTop5Recall,
+            double averageTop5Precision,
             long resultTypeMatchCount,
             double resultTypeMatchRate,
             long refusalReasonMatchCount,

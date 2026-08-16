@@ -402,19 +402,29 @@ atlas-agent-eval-tests/
 
 ### 9.1 QA Agent
 
+参与 Top-5 统计的用例：`ANSWER` 用例，以及携带期望文档的 `SOURCE_CONFLICT` 拒答用例
+（正确拒答的前提是同时检索到冲突文档，检索质量可测）；无期望文档的证据不足拒答不参与。
+
 ```text
 Top-5 检索准确率
-= Top-5 至少命中一个 expected.documentId 的可回答问题数
-  ÷ 可回答问题总数
+= Top-5 至少命中一个 expected.documentId 的参与统计用例数
+  ÷ 参与统计用例总数
 
 Top-5 检索召回率
 = Top-5 找回的 expected.documentId 数量
-  ÷ 全部应找回文档数量
+  ÷ 全部应找回文档数量（按用例平均）
+
+Top-5 检索精确率
+= Top-5 找回的 expected.documentId 数量
+  ÷ 5（Top-5 窗口大小，按用例平均）
 
 忠实度 = QA Judge 的平均 faithfulness
 
 相关性 = QA Judge 的平均 relevance
 ```
+
+召回率与精确率互补：单期望文档用例只要目标进入 Top-5，召回率即为 1.0（目标被找回）；
+精确率固定以 5 为分母，反映返回列表中的期望文档占比（例如 5 个位置只命中 1 个时精确率为 0.2）。
 
 ### 9.2 知识整理 Agent
 

@@ -66,12 +66,16 @@ class AtlasEvalMetricsTest {
 
         assertThat(verdict.completed()).isTrue();
         assertThat(verdict.answerable()).isTrue();
+        assertThat(verdict.retrievalMeasurable()).isTrue();
         assertThat(verdict.hitTop5()).isTrue();
         assertThat(verdict.top5Recall()).isEqualTo(1.0D);
+        // 3 个 Top-5 位置里命中 2 个期望文档：窗口占比 = 2/5。
+        assertThat(verdict.top5Precision()).isEqualTo(0.4D);
         assertThat(verdict.citationCoverage()).isTrue();
         assertThat(verdict.resultTypeMatch()).isTrue();
-        System.out.printf("测试证据：场景=QA判定命中，用例=%s，Top5命中=%s，召回=%.2f，引用覆盖=%s%n",
-                verdict.caseId(), verdict.hitTop5(), verdict.top5Recall(), verdict.citationCoverage());
+        System.out.printf("测试证据：场景=QA判定命中，用例=%s，Top5命中=%s，召回=%.2f，窗口占比=%.2f，引用覆盖=%s%n",
+                verdict.caseId(), verdict.hitTop5(), verdict.top5Recall(), verdict.top5Precision(),
+                verdict.citationCoverage());
     }
 
     /**
@@ -107,10 +111,37 @@ class AtlasEvalMetricsTest {
         assertThat(verdict.resultTypeMatch()).isTrue();
         assertThat(verdict.refusalReasonMatch()).isTrue();
         assertThat(verdict.answerable()).isFalse();
+        assertThat(verdict.retrievalMeasurable())
+                .as("无期望文档的证据不足拒答不参与 Top-5 统计").isFalse();
         assertThat(verdict.hitTop5()).isFalse();
         assertThat(verdict.top5Recall()).isZero();
-        System.out.printf("测试证据：场景=QA判定拒答，用例=%s，结果匹配=%s，原因匹配=%s%n",
-                verdict.caseId(), verdict.resultTypeMatch(), verdict.refusalReasonMatch());
+        assertThat(verdict.top5Precision()).isZero();
+        System.out.printf("测试证据：场景=QA判定拒答，用例=%s，结果匹配=%s，原因匹配=%s，参与统计=%s%n",
+                verdict.caseId(), verdict.resultTypeMatch(), verdict.refusalReasonMatch(),
+                verdict.retrievalMeasurable());
+    }
+
+    /**
+     * 业务目的：携带期望文档的冲突拒答（SOURCE_CONFLICT）必须参与 Top-5 统计——
+     * 正确拒答的前提正是同时检索到冲突文档，检索质量可测，不能把这类用例排除在外。
+     */
+    @Test
+    void qaVerdictIncludesConflictRefusalWithExpectedDocuments() {
+        QaCase qaCase = qaCase("QA-038", "REFUSAL", List.of(710013L, 710014L), "SOURCE_CONFLICT");
+        QaActual actual = qaActual("QA-038", QaQuestion.Status.COMPLETED, "REFUSAL", "SOURCE_CONFLICT",
+                List.of(710013L, 710014L), List.of(710013L, 710014L, 710008L, 710011L, 710009L));
+
+        QaVerdict verdict = AtlasEvalMetrics.qaVerdict(actual, qaCase);
+
+        assertThat(verdict.answerable()).isFalse();
+        assertThat(verdict.retrievalMeasurable()).as("冲突拒答带期望文档，必须参与统计").isTrue();
+        assertThat(verdict.hitTop5()).isTrue();
+        assertThat(verdict.top5Recall()).isEqualTo(1.0D);
+        assertThat(verdict.top5Precision()).isEqualTo(0.4D);
+        assertThat(verdict.citationCoverage()).isTrue();
+        System.out.printf("测试证据：场景=冲突拒答纳入统计，用例=%s，参与=%s，命中=%s，召回=%.2f，窗口占比=%.2f%n",
+                verdict.caseId(), verdict.retrievalMeasurable(), verdict.hitTop5(),
+                verdict.top5Recall(), verdict.top5Precision());
     }
 
     /**
@@ -138,10 +169,13 @@ class AtlasEvalMetricsTest {
         assertThat(summary.answerableCount()).isEqualTo(2);
         assertThat(summary.top5Accuracy()).isEqualTo(0.5D);
         assertThat(summary.averageTop5Recall()).isEqualTo(0.5D);
+        // 命中用例 Top-5 含 2 个位置命中 1 个期望（1/5=0.2），未命中用例为 0：平均 0.1。
+        assertThat(summary.averageTop5Precision()).isEqualTo(0.1D);
         assertThat(summary.resultTypeMatchRate()).isEqualTo(1.0D);
         assertThat(summary.averageFaithfulness()).isNull();
-        System.out.printf("测试证据：场景=QA汇总，准确率=%.2f，平均召回=%.2f，结果匹配率=%.2f%n",
-                summary.top5Accuracy(), summary.averageTop5Recall(), summary.resultTypeMatchRate());
+        System.out.printf("测试证据：场景=QA汇总，准确率=%.2f，平均召回=%.2f，平均窗口占比=%.2f，结果匹配率=%.2f%n",
+                summary.top5Accuracy(), summary.averageTop5Recall(), summary.averageTop5Precision(),
+                summary.resultTypeMatchRate());
     }
 
     /**
