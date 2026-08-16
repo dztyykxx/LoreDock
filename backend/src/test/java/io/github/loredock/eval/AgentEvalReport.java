@@ -92,8 +92,9 @@ public final class AgentEvalReport {
 
     /** @param summary QA 汇总 @return 报告 QA 指标段 */
     public static QaMetrics qaMetrics(QaSummary summary) {
-        return new QaMetrics(summary.caseCount(), summary.answerableCount(), summary.top5Accuracy(),
-                summary.averageTop5Recall(), summary.resultTypeMatchRate(),
+        return new QaMetrics(summary.caseCount(), summary.answerableCount(), summary.top5HitCount(),
+                summary.top5HitRate(), summary.top5Recall(), summary.top5Precision(),
+                summary.resultTypeMatchRate(),
                 summary.averageFaithfulness(), summary.averageRelevance());
     }
 
@@ -132,14 +133,17 @@ public final class AgentEvalReport {
         for (QaCaseResult result : report.qaResults()) {
             QaVerdict verdict = result.verdict();
             QaActual actual = result.actual();
+            String top5Hit = verdict.retrievalMeasurable()
+                    ? String.valueOf(verdict.hitTop5()) : "不参与(无期望文档)";
             System.out.printf("测试证据：场景=Agent评估QA，用例=%s，类型=%s，范围=%s/%s，问题=%s，终态=%s，"
-                            + "结果=%s，拒答原因=%s，引用数=%d，Top5候选=%s，Top5命中=%s，引用覆盖=%s，"
-                            + "检索次数=%d，耗时毫秒=%d%n",
+                            + "结果=%s，拒答原因=%s，引用数=%d，Top5候选=%s，Top5命中=%s，准确率=%.2f，召回率=%.2f，"
+                            + "引用覆盖=%s，检索次数=%d，耗时毫秒=%d%n",
                     result.caseId(), result.caseType(), result.input().projectIdentifier(), result.input().branch(),
                     preview(result.input().question(), 60), actual.status(), actual.resultType(),
                     actual.refusalReason() == null ? "-" : actual.refusalReason(),
-                    actual.citationDocumentIds().size(), actual.top5DocumentIds(),
-                    verdict.hitTop5(), verdict.citationCoverage(), actual.retrievals().size(), actual.elapsedMillis());
+                    actual.citationDocumentIds().size(), actual.top5DocumentIds(), top5Hit,
+                    verdict.top5Precision(), verdict.top5Recall(),
+                    verdict.citationCoverage(), actual.retrievals().size(), actual.elapsedMillis());
         }
         for (CurationCaseResult result : report.curationResults()) {
             CurationVerdict verdict = result.verdict();
@@ -154,12 +158,13 @@ public final class AgentEvalReport {
         }
         QaMetrics qa = report.qaMetrics();
         CurationMetrics curation = report.curationMetrics();
-        System.out.printf("测试证据：场景=Agent评估汇总，数据集=%s，项目=%s，QA用例=%d，可回答=%d，"
-                        + "Top5准确率=%.2f%%，Top5平均召回=%.2f%%，结果类型匹配率=%.2f%%，"
-                        + "知识整理用例=%d，动作正确率=%.2f%%，误写率=%.2f%%，"
+        System.out.printf("测试证据：场景=Agent评估汇总，数据集=%s，项目=%s，QA用例=%d，参与统计=%d，"
+                        + "准确率（Top-5出现率）=%.2f%%，召回率（目标找回率）=%.2f%%，Top5命中率=%.2f%%，"
+                        + "结果类型匹配率=%.2f%%，知识整理用例=%d，动作正确率=%.2f%%，误写率=%.2f%%，"
                         + "门禁：QA全部完成=%s，知识整理全部完成=%s%n",
                 report.datasetVersion(), report.projectIdentifier(), qa.caseCount(), qa.answerableCount(),
-                qa.top5Accuracy() * 100.0D, qa.averageTop5Recall() * 100.0D, qa.resultTypeMatchRate() * 100.0D,
+                qa.top5Precision() * 100.0D, qa.top5Recall() * 100.0D, qa.top5HitRate() * 100.0D,
+                qa.resultTypeMatchRate() * 100.0D,
                 curation.caseCount(), curation.actionCorrectRate() * 100.0D, curation.unsafeWriteRate() * 100.0D,
                 report.gates().qaAllCompleted(), report.gates().curationAllCompleted());
     }
@@ -204,9 +209,10 @@ public final class AgentEvalReport {
     ) {
     }
 
-    /** QA 汇总指标（与文档第 9.1 节对应；Judge 平均值无结果时为空）。 */
+    /** QA 汇总指标（与文档第 9.1 节对应；准确率=期望文档在 Top-5 中的出现率，召回率=目标找回率；Judge 平均值无结果时为空）。 */
     public record QaMetrics(
-            int caseCount, long answerableCount, double top5Accuracy, double averageTop5Recall,
+            int caseCount, long answerableCount, long top5HitCount, double top5HitRate,
+            double top5Recall, double top5Precision,
             double resultTypeMatchRate, Double averageFaithfulness, Double averageRelevance
     ) {
     }

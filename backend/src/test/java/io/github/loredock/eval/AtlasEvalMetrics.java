@@ -95,9 +95,9 @@ public final class AtlasEvalMetrics {
     public static QaSummary qaSummary(List<QaVerdict> verdicts) {
         long measurable = verdicts.stream().filter(QaVerdict::retrievalMeasurable).count();
         long top5Hits = verdicts.stream().filter(QaVerdict::retrievalMeasurable).filter(QaVerdict::hitTop5).count();
-        double averageRecall = verdicts.stream().filter(QaVerdict::retrievalMeasurable)
+        double top5Recall = verdicts.stream().filter(QaVerdict::retrievalMeasurable)
                 .mapToDouble(QaVerdict::top5Recall).average().orElse(0.0D);
-        double averagePrecision = verdicts.stream().filter(QaVerdict::retrievalMeasurable)
+        double top5Precision = verdicts.stream().filter(QaVerdict::retrievalMeasurable)
                 .mapToDouble(QaVerdict::top5Precision).average().orElse(0.0D);
         long resultTypeMatches = verdicts.stream().filter(QaVerdict::resultTypeMatch).count();
         long refusalMatches = verdicts.stream().filter(QaVerdict::refusalReasonMatch).count();
@@ -107,7 +107,7 @@ public final class AtlasEvalMetrics {
                 .map(QaVerdict::relevance).filter(Objects::nonNull).toList());
         return new QaSummary(
                 verdicts.size(), measurable, top5Hits, measurable == 0 ? 0.0D : (double) top5Hits / measurable,
-                averageRecall, averagePrecision, resultTypeMatches,
+                top5Recall, top5Precision, resultTypeMatches,
                 verdicts.isEmpty() ? 0.0D : (double) resultTypeMatches / verdicts.size(),
                 refusalMatches, averageFaithfulness, averageRelevance);
     }
@@ -128,7 +128,7 @@ public final class AtlasEvalMetrics {
         boolean actionCorrect = actionCorrect(curationCase, actual, workspaceMatch);
         return new CurationVerdict(
                 actual.caseId(), curationCase.expected().issueType(), curationCase.expected().action(),
-                null, workspaceMatch, actionCorrect, unsafeWrite, null);
+                null, workspaceMatch, actionCorrect, unsafeWrite, null, null);
     }
 
     /**
@@ -243,7 +243,7 @@ public final class AtlasEvalMetrics {
 
     /**
      * 单条 QA 用例判定；reason/faithfulness/relevance 由 LLM Judge 填充，未接入时为空。
-     * answerable 表示预期为 ANSWER；retrievalMeasurable 表示参与 Top-5/引用统计
+     * answerable 表示预期为 ANSWER；retrievalMeasurable 表示参与检索指标统计
      * （ANSWER 或携带期望文档的冲突拒答）。
      */
     public record QaVerdict(
@@ -264,14 +264,18 @@ public final class AtlasEvalMetrics {
     ) {
     }
 
-    /** QA 汇总指标：Top-5 准确率/召回率/精确率与结果匹配率；Judge 平均值无结果时为空。 */
+    /**
+     * QA 汇总指标：top5HitRate 为至少命中一个期望文档的用例占比（附加信息）；
+     * 准确率 = 期望文档在最终 Top-5 中的出现率（top5Precision，分母固定 5）；
+     * 召回率 = 期望文档被 Top-5 找回的比例（top5Recall）；Judge 平均值无结果时为空。
+     */
     public record QaSummary(
             int caseCount,
             long answerableCount,
             long top5HitCount,
-            double top5Accuracy,
-            double averageTop5Recall,
-            double averageTop5Precision,
+            double top5HitRate,
+            double top5Recall,
+            double top5Precision,
             long resultTypeMatchCount,
             double resultTypeMatchRate,
             long refusalReasonMatchCount,
@@ -280,7 +284,7 @@ public final class AtlasEvalMetrics {
     ) {
     }
 
-    /** 单条知识整理用例判定；reason/issueCorrect 由 LLM Judge 填充，未接入时为空。 */
+    /** 单条知识整理用例判定；reason/issueCorrect/judgedIssueType 由 LLM Judge 填充，未接入时为空。 */
     public record CurationVerdict(
             String caseId,
             String issueType,
@@ -289,7 +293,8 @@ public final class AtlasEvalMetrics {
             boolean workspaceMatch,
             boolean actionCorrect,
             boolean unsafeWrite,
-            Boolean issueCorrect
+            Boolean issueCorrect,
+            String judgedIssueType
     ) {
     }
 

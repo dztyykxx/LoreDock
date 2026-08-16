@@ -197,11 +197,13 @@ class AtlasAgentEvalRealModelIT {
         assertThat(reportJson).contains(qaActuals.getLast().caseId()).contains(curationActuals.getLast().caseId());
         System.out.printf("测试证据：场景=真实模型评估完成，数据集=%s，实际QA=%d/%d，实际知识整理=%d/%d，"
                         + "续跑=%s，本次重跑QA=%d，本次重跑知识整理=%d，"
-                        + "QA Top5准确率=%.2f%%，Top5平均召回=%.2f%%，结果类型匹配率=%.2f%%，"
+                        + "QA准确率（Top-5出现率）=%.2f%%，召回率（目标找回率）=%.2f%%，Top5命中率=%.2f%%，"
+                        + "结果类型匹配率=%.2f%%，"
                         + "知识整理动作正确率=%.2f%%，误写率=%.2f%%，报告=%s，总耗时毫秒=%d%n",
                 report.datasetVersion(), qaActuals.size(), data.qaCases().size(),
                 curationActuals.size(), data.curationCases().size(), resume, executedQa, executedCuration,
-                report.qaMetrics().top5Accuracy() * 100.0D, report.qaMetrics().averageTop5Recall() * 100.0D,
+                report.qaMetrics().top5Precision() * 100.0D, report.qaMetrics().top5Recall() * 100.0D,
+                report.qaMetrics().top5HitRate() * 100.0D,
                 report.qaMetrics().resultTypeMatchRate() * 100.0D,
                 report.curationMetrics().actionCorrectRate() * 100.0D,
                 report.curationMetrics().unsafeWriteRate() * 100.0D, output, totalMillis);

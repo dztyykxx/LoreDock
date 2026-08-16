@@ -99,7 +99,8 @@ JAVA_HOME=<jdk21> LOREDOCK_AGENT_MODEL_API_KEY=<密钥> ./mvnw \
 - 读取 `loredock.agent-eval.output` 指定的评估报告（默认 `target/atlas-agent-eval-report.json`），逐条调用 ChatModel 评判后写入评判报告（默认 `target/atlas-agent-eval-report-judged.json`，可用 `-Dloredock.agent-eval.judge-output` 覆盖）；
 - QA Judge 输出忠实度/相关性（0-100 整数）与理由，按《数据构造要求》8.1 的锚定分档评分（先按可观察条件定档，再在档内给分，保证跨用例口径一致）；知识整理 Judge 输出问题识别/动作/误写判定与理由，并重算问题识别正确率与各问题类型 F1；
 - 评判温度固定为 0，同一报告可换模型反复评判；评判额外消耗约 1 次模型调用/用例；
-- 裁判模型独立配置：环境变量 `LOREDOCK_EVAL_JUDGE_MODEL`（或 `-Dloredock.agent-eval.judge-model`）指定，默认与 Agent 模型相同；建议使用与 Agent 不同源的更强模型（如 `qwen3.7-plus`）避免同模型自评偏差；
+- **逐用例落盘 + 断点续跑**：每评判完一条用例立即把进度写回评判报告路径，中断后重跑同一命令只评判剩余用例（QA 以忠实度非空、知识整理以问题识别判定非空为完成标志），不浪费已完成的模型调用；
+- 裁判模型独立配置：环境变量 `LOREDOCK_EVAL_JUDGE_MODEL`（或 `-Dloredock.agent-eval.judge-model`）指定，默认与 Agent 模型相同；建议使用与 Agent 不同源的更强模型（如 `glm-5.3`）避免同模型自评偏差；
 - 评判前必须先有完整评估报告：冒烟报告（`-Dloredock.agent-eval.output=target/atlas-agent-eval-report-smoke.json`）或全量报告均可直接评判。
 
 ### 2.6 单元测试
@@ -120,7 +121,7 @@ JAVA_HOME=<jdk21> ./mvnw test -Dtest='AtlasAgentEvalFixtureTest,AtlasEvalMetrics
 
 ## 4. 指标口径
 
-- QA：Top-5 候选 = 跨全部检索按相关度降序去重取前 5；参与统计的用例 = `ANSWER` 用例 + 携带期望文档的 `SOURCE_CONFLICT` 拒答用例，无期望文档的证据不足拒答不参与；准确率 = 命中用例占比，召回率 = 找回期望数 ÷ 期望总数（按用例平均），精确率 = 找回期望数 ÷ 5（按用例平均，反映返回列表噪声）；
+- QA：Top-5 候选 = 跨全部检索按相关度降序去重取前 5；参与统计的用例 = `ANSWER` 用例 + 携带期望文档的 `SOURCE_CONFLICT` 拒答用例，无期望文档的证据不足拒答不参与；准确率 = 期望文档在 Top-5 中的出现率（找回数 ÷ 5，按用例平均），召回率 = 目标找回率（找回数 ÷ 期望总数，按用例平均），命中率 = 至少命中一个期望的用例占比；
 - 知识整理（未评判报告）：动作正确率采用确定性近似（NO_CHANGE/MERGE/ADD_OR_UPDATE 按工作区匹配，ASK_USER 额外要求最终回复请求人工确认）；误写率按禁止事实是否写入工作草稿判定；
 - 知识整理（评判报告）：动作正确率、误写率、问题识别正确率与 DUPLICATE/CONFLICT/MISSING 的 Precision/Recall/F1 均采用 LLM Judge 判定（问题识别只看最终回复，动作与误写结合工作草稿）；
 - QA 忠实度/相关性（评判报告）：LLM Judge 百分制平均分，按《数据构造要求》8.1 锚定分档评分；忠实度只判断实际回答是否由本轮检索原文支持，相关性判断是否直接解决用户问题；

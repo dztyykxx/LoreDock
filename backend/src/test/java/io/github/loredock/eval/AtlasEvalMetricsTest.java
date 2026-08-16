@@ -167,14 +167,14 @@ class AtlasEvalMetricsTest {
 
         assertThat(summary.caseCount()).isEqualTo(3);
         assertThat(summary.answerableCount()).isEqualTo(2);
-        assertThat(summary.top5Accuracy()).isEqualTo(0.5D);
-        assertThat(summary.averageTop5Recall()).isEqualTo(0.5D);
+        assertThat(summary.top5HitRate()).isEqualTo(0.5D);
+        assertThat(summary.top5Recall()).isEqualTo(0.5D);
         // 命中用例 Top-5 含 2 个位置命中 1 个期望（1/5=0.2），未命中用例为 0：平均 0.1。
-        assertThat(summary.averageTop5Precision()).isEqualTo(0.1D);
+        assertThat(summary.top5Precision()).isEqualTo(0.1D);
         assertThat(summary.resultTypeMatchRate()).isEqualTo(1.0D);
         assertThat(summary.averageFaithfulness()).isNull();
-        System.out.printf("测试证据：场景=QA汇总，准确率=%.2f，平均召回=%.2f，平均窗口占比=%.2f，结果匹配率=%.2f%n",
-                summary.top5Accuracy(), summary.averageTop5Recall(), summary.averageTop5Precision(),
+        System.out.printf("测试证据：场景=QA汇总，命中率=%.2f，召回率=%.2f，准确率=%.2f，结果匹配率=%.2f%n",
+                summary.top5HitRate(), summary.top5Recall(), summary.top5Precision(),
                 summary.resultTypeMatchRate());
     }
 
@@ -283,7 +283,8 @@ class AtlasEvalMetricsTest {
     }
 
     private static CurationVerdict verdict(String caseId, String issueType, boolean actionCorrect, boolean unsafeWrite) {
-        return new CurationVerdict(caseId, issueType, "ASK_USER", null, !unsafeWrite, actionCorrect, unsafeWrite, null);
+        return new CurationVerdict(caseId, issueType, "ASK_USER", null, !unsafeWrite, actionCorrect, unsafeWrite,
+                null, null);
     }
 
     private static QaCase qaCase(String caseId, String resultType, List<Long> documentIds, String refusalReason) {

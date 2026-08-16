@@ -18,9 +18,12 @@ import io.github.loredock.eval.AtlasQaEvalRunner.QaActual;
 import io.github.loredock.eval.AgentEvalReport.QaCaseResult;
 import io.github.loredock.eval.AgentEvalReport.Report;
 import io.github.loredock.qa.api.QaQuestion;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
@@ -165,11 +168,63 @@ class AtlasEvalJudgeTest {
                 judged.curationMetrics().issueTypeF1().get("DUPLICATE").f1());
     }
 
+    /**
+     * 业务目的：评判必须逐用例落盘并支持断点续跑——中断后重跑只评判剩余用例，
+     * 已评判用例复用结果不再调用模型，防止中断浪费已完成的模型调用。
+     */
+    @Test
+    void judgeCheckpointResumesWithoutRejudgingCompletedCases(@TempDir Path tempDir) throws Exception {
+        EvalData data = AtlasAgentEvalFixture.load();
+        QaCase qaCase = new QaCase("QA-001", "SINGLE_DOCUMENT", QA_INPUT,
+                new QaExpected("ANSWER", null, "参考回答", List.of(710001L)));
+        QaActual qaActual = new QaActual("QA-001", "SINGLE_DOCUMENT", QaQuestion.Status.COMPLETED, null,
+                "ANSWER", null, "实际回答", List.of(710001L),
+                List.of(new AtlasQaEvalRunner.RetrievalActual("候选内容", List.of(
+                        new AtlasQaEvalRunner.RetrievedActual(710001L, "Atlas 产品概览与核心术语", 0.9, true, false,
+                                "候选内容发布前不进入普通检索")))),
+                List.of(710001L), 1000L);
+        CurationCase curationCase = new CurationCase("CUR-001", CURATION_INPUT, new CurationExpected(
+                "DUPLICATE", List.of(710007L), "NO_CHANGE", "参考最终回复", null, List.of()));
+        CurationActual curationActual = new CurationActual("CUR-001", KnowledgeTaskService.RunStatus.COMPLETED,
+                null, "本次候选材料与正式规则重复，不创建重复工作文档", List.of(), 1000L);
+        Report report = AgentEvalReport.build(data, List.of(qaActual), List.of(curationActual),
+                List.of(AtlasEvalMetrics.qaVerdict(qaActual, qaCase)),
+                List.of(AtlasEvalMetrics.curationVerdict(curationActual, curationCase)),
+                null, "unit-test", Instant.now().toString());
+        Path judgedPath = tempDir.resolve("atlas-agent-eval-report-judged.json");
+
+        RecordingModel model = new RecordingModel("""
+                {"issueType":"DUPLICATE","action":"NO_CHANGE","issueCorrect":true,"actionCorrect":true,\
+                "unsafeWrite":false,"reason":"最终回复识别重复且未写入"}\
+                """);
+        model.scriptQaResponse("{\"faithfulness\":90,\"relevance\":85,\"reason\":\"回答有检索支持\"}");
+        AtlasEvalJudge judge = new AtlasEvalJudge(model, new com.fasterxml.jackson.databind.ObjectMapper());
+        Report first = AtlasEvalJudgeRunner.judgeWithCheckpoint(report, judgedPath, data, judge);
+
+        assertThat(first.qaResults().getFirst().verdict().faithfulness()).isEqualTo(90);
+        assertThat(model.callCount()).isEqualTo(2);
+        assertThat(Files.isRegularFile(judgedPath)).isTrue();
+
+        // 第二次运行换一个必然失败的模型：若续跑正确跳过已评判用例，则不会触发任何模型调用。
+        RecordingModel broken = new RecordingModel("这不是 JSON");
+        AtlasEvalJudge brokenJudge = new AtlasEvalJudge(broken, new com.fasterxml.jackson.databind.ObjectMapper());
+        Report resumed = AtlasEvalJudgeRunner.judgeWithCheckpoint(report, judgedPath, data, brokenJudge);
+
+        assertThat(resumed.qaResults().getFirst().verdict().faithfulness()).isEqualTo(90);
+        assertThat(resumed.qaResults().getFirst().verdict().relevance()).isEqualTo(85);
+        assertThat(resumed.curationResults().getFirst().verdict().issueCorrect()).isTrue();
+        assertThat(resumed.curationMetrics().issueTypeF1().get("DUPLICATE").f1()).isEqualTo(1.0D);
+        assertThat(broken.callCount()).as("续跑不得重复调用模型").isZero();
+        System.out.printf("测试证据：场景=评判断点续跑，首次模型调用=%d，续跑模型调用=%d，复用具例判定=%s%n",
+                model.callCount(), broken.callCount(), resumed.qaResults().getFirst().verdict().reason());
+    }
+
     /** 记录最近一次用户消息并返回预置响应的桩 ChatModel。 */
     private static final class RecordingModel implements ChatModel {
 
         private final java.util.concurrent.atomic.AtomicReference<String> lastUser = new java.util.concurrent.atomic.AtomicReference<>();
         private final java.util.concurrent.atomic.AtomicReference<String> qaResponse = new java.util.concurrent.atomic.AtomicReference<>();
+        private final java.util.concurrent.atomic.AtomicInteger calls = new java.util.concurrent.atomic.AtomicInteger();
         private volatile String curationResponse;
 
         RecordingModel(String curationResponse) {
@@ -184,8 +239,13 @@ class AtlasEvalJudgeTest {
             return lastUser.get();
         }
 
+        int callCount() {
+            return calls.get();
+        }
+
         @Override
         public ChatResponse call(Prompt prompt) {
+            calls.incrementAndGet();
             StringBuilder user = new StringBuilder();
             for (Message message : prompt.getInstructions()) {
                 if (message instanceof SystemMessage system) {

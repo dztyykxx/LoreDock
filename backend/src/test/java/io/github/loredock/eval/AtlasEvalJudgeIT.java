@@ -73,11 +73,11 @@ class AtlasEvalJudgeIT {
         Report report = objectMapper.readValue(reportPath.toFile(), Report.class);
         EvalData data = AtlasAgentEvalFixture.load();
         AtlasEvalJudge judge = new AtlasEvalJudge(chatModel, objectMapper);
-        Report judged = AtlasEvalJudgeRunner.judge(report, data, judge);
-
         Path output = Path.of(System.getProperty(
                 "loredock.agent-eval.judge-output", "target/atlas-agent-eval-report-judged.json"))
                 .toAbsolutePath().normalize();
+        // 逐用例落盘 + 断点续跑：中断后重跑只评判剩余用例，已评判结果写回同一路径。
+        Report judged = AtlasEvalJudgeRunner.judgeWithCheckpoint(report, output, data, judge);
         AgentEvalReport.Report written = AgentEvalReport.write(judged, output);
         AtlasEvalJudgeRunner.printJudgeEvidence(judged);
 
