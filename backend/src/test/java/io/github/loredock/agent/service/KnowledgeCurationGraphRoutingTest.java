@@ -107,4 +107,23 @@ class KnowledgeCurationGraphRoutingTest {
                 .isEqualTo("REVISE_LIMIT");
         System.out.println("测试证据：场景=返工上限，draftRound=0->REVISE，draftRound=2->REVISE_LIMIT，空finding=安全失败");
     }
+
+    /**
+     * 业务目的：模型长 JSON 输出存在把开头字段重复写在结尾的伪影（实测 candidateTargetDocumentId 在首尾各出现一次）。
+     * 此时 Jackson 直接解析 record 会因"构造器属性被二次赋值"抛 InvalidDefinitionException，使整个 run 失败；
+     * 应容忍重复键（JsonNode 层面 last-wins 覆盖），正常路由。
+     */
+    @Test
+    void duplicateCreatorFieldInModelOutputIsTolerated() {
+        String retrieval = "{\"issueType\":\"MISSING\",\"candidateTargetDocumentId\":1,\"facts\":[{\"statement\":\"a\","
+                + "\"support\":\"SUPPORTED\",\"sourceRefs\":[]}],\"unresolvedQuestions\":[],\"summary\":\"r\","
+                + "\"candidateTargetDocumentId\":6}";
+        String route = factory.coordinatorRoute(state(Map.of(
+                "stage", "DECIDE",
+                "coordinationResult", "{\"stage\":\"DECIDE\",\"action\":\"DRAFT\",\"reason\":\"r\","
+                        + "\"draftInstruction\":\"写入背景\",\"question\":null,\"summary\":\"s\"}",
+                "retrievalResult", retrieval)));
+        assertThat(route).isEqualTo("DRAFT");
+        System.out.println("测试证据：场景=模型输出重复键，重复候选文档字段仍可解析并正常路由");
+    }
 }

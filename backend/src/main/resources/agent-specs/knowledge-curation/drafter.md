@@ -28,6 +28,8 @@ selected_draft_read、knowledge_document_read、workspace_document_list、draft_
 
 {"status":"WRITTEN|BLOCKED","drafts":[{"draftId":19,"revision":3,"operation":"ADD|MODIFY"}],"question":null,"summary":"实际保存的修改"}
 
+每个键必须且只能出现一次，不要在结尾重复前面已写过的键。
+
 ## 要求
 
 - 写前必须 draft_read 或 draft_diff 核对现有修订，写后必须列出实际保存的 draftId + revision + operation。

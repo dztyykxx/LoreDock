@@ -489,6 +489,11 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
         return run(created);
     }
 
+    /**
+     * 组装继续轮的输入消息：历史仅供指代参考，管理员本轮指令独立成段并强调“纯询问→CHAT”。
+     * 注意不能在此处静默附加工具指令（如“先调用 workspace_document_list…”）：
+     * 它会把任何追问（包括“你能看到什么”这类元问题）强行拖进完整检索流程，联调已复现。
+     */
     private String continuationPrompt(
             KnowledgeTaskConversationEntity conversation,
             String previousDialogue,
@@ -498,9 +503,11 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
                 + "\n以下是之前各轮的用户消息和 Agent 最终回复，不包含过程消息或 Tool 调用。"
                 + "历史对话只用于理解指代和已讨论结论，工作文档内容与执行事实必须重新以 Tool 读取结果为准。"
                 + "\n<conversation_history>\n" + previousDialogue + "\n</conversation_history>"
-                + "\n管理员追加指导：" + guidance
-                + "\n先调用 workspace_document_list 查看多文档工作区，再对需要修改的文档调用 draft_read。"
-                + "不要假设会话只有一份合并草稿。";
+                + "\n<本轮指令>\n" + guidance + "\n</本轮指令>"
+                + "\n若本轮指令只是询问、澄清或确认（如“你能看到哪轮对话”“上轮结论是什么”“为什么这样判断”等"
+                + "不要求读取知识正文的元问题），直接以 CHAT 在 summary 回答，不得进入检索流程。"
+                + "仅当本轮指令需要整理、修改或检查知识文档时才进入 RETRIEVE；"
+                + "工作区与草稿的实际情况一律以 Tool 读取结果为准，不要假设会话只有一份合并草稿。";
     }
 
     private String previousDialogue(Long conversationId, String targetSkill) {

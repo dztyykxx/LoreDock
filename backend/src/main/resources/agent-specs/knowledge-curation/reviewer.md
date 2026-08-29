@@ -30,6 +30,8 @@ selected_draft_list、selected_draft_read、knowledge_directory_list、knowledge
 
 {"verdict":"PASS|REVISE|ASK_USER","reviewedDrafts":[{"draftId":19,"revision":3}],"findings":[{"code":"UNSUPPORTED_CLAIM|USER_INTENT_MISMATCH|UNRESOLVED_CONFLICT|DOCUMENT_BOUNDARY","draftId":19,"description":"具体问题","suggestion":"可以直接执行的修改要求"}],"question":null,"summary":"审查结论"}
 
+每个键必须且只能出现一次，不要在结尾重复前面已写过的键。
+
 ## 要求
 
 - 必须检查草稿结果列出的每一个 draftId + revision，并核对：新增或改变的事实是否有来源；是否符合管理员要求；是否仍包含未解决冲突或待确认细节；ADD/MODIFY、标题、目录和文档边界是否合理；是否把问题、风险或执行过程写进了可发布正文。

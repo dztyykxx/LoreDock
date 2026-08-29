@@ -483,7 +483,11 @@ public class KnowledgeCurationGraphFactory {
             return null;
         }
         try {
-            return objectMapper.readValue(text, type);
+            // 模型长 JSON 输出存在把开头字段重复写在结尾的伪影（实测 candidateTargetDocumentId 在首尾各出现一次）。
+            // Jackson 对 record 按构造器属性反序列化时，同一 creator 属性第二次出现会走进“已建对象后再 set”路径，
+            // record 没有 setter/field 可回退，直接抛 InvalidDefinitionException 使整个 run 失败。
+            // JsonNode 层面重复键是 last-wins 覆盖（不抛错），因此先 readTree 再去树转换，即可容忍重复键。
+            return objectMapper.treeToValue(objectMapper.readTree(text), type);
         } catch (Exception exception) {
             throw new IllegalStateException("Agent 结构化结果无法解析：" + key, exception);
         }

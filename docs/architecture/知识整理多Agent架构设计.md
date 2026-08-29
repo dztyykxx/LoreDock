@@ -2,7 +2,7 @@
 
 | 属性 | 内容 |
 |---|---|
-| 文档版本 | v0.6 |
+| 文档版本 | v0.7 |
 | 文档日期 | 2026-08-29 |
 | 文档状态 | 开发设计草案，进入实现前需建立 OpenSpec change |
 | 当前范围 | 管理员人工发起的知识整理任务 |
@@ -73,6 +73,8 @@ Graph 负责固定执行顺序、条件分支、最多两轮草稿返工和结�
 | 四类结构化节点结果 | 保留 | 调度决策和条件边需要稳定、可解析的路由依据 |
 | 一个 Graph Factory | 保留 | 集中组装 Agent、Tool 白名单、Graph 和 Saver |
 | 多 Agent 过程时间线 | 保留 | 复用现有公开 Agent Event、任务 SSE 和任务页，不新增页面或过程表 |
+| 节点级最小上下文 | 保留 | 防止专家 Agent 继承无关对话、Tool 结果和其他 Agent 过程 |
+| LLM 滚动摘要与长期 Memory Store | 延期 | 当前会话规模有限，长期记忆模块尚未完成，先使用确定性裁剪 |
 | 单独的闲聊分类器或第二套 Chat Service | 删除 | 复用调度 Agent 的 `START` 输出和 Graph 短路边即可 |
 | 通用任务信封和 Agent 消息总线 | 删除 | 单进程 Graph State 已能完成节点交接 |
 | Evidence Bundle、Review Report 专表 | 删除 | Checkpoint 和现有 Tool、草稿、消息表已经保存所需事实 |
@@ -91,13 +93,15 @@ Graph 负责固定执行顺序、条件分支、最多两轮草稿返工和结�
 | 专家 Agent | `ReactAgent` |
 | 图编排 | `StateGraph`、普通边、条件边、Agent `asNode()` |
 | 节点输出 | `outputKey`、`outputType` |
-| 状态合并 | `ReplaceStrategy`、`AppendStrategy` |
+| 状态合并 | `ReplaceStrategy`；Agent 子图内部消息追加由框架负责 |
 | Checkpoint | `PostgresSaver`、`CompileConfig` |
 | 运行隔离 | `RunnableConfig.threadId` |
 | 调用限制 | `ModelCallLimitHook`、`ToolCallLimitHook` |
 | Tool 权限 | 每个 `ReactAgent` 的显式 `ToolCallback` 集合 |
 
 不使用在线文档中但项目锁定版本不存在的 `SupervisorAgent`，也不自行实现 Supervisor Runtime。
+
+锁定版本还提供 `SummarizationHook` 和 `ContextEditingInterceptor`，但本次不直接接入：前者会用模型摘要并替换旧消息，后者会清除旧 Tool 输入或结果。知识整理的来源、冲突和人工取舍不能依赖通用摘要保持精确，首版优先通过节点上下文隔离、结构化结果、Tool 输出上限和确定性裁剪控制长度。
 
 ### 4.2 现有 LoreDock 能力
 
@@ -190,9 +194,12 @@ Graph State 只保存路由所需的短数据和业务记录引用，不保存�
 
 | Key | 类型 | 合并策略 | 含义 |
 |---|---|---|---|
-| `messages` | `List<Message>` | `AppendStrategy` | 调度 Agent 的公开消息和 Graph 必需输入 |
+| `messages` | `List<Message>` | `ReplaceStrategy` | 下一个 Agent 的节点级输入包；进入节点前整体替换，不作为会话日志 |
 | `stage` | `START / DECIDE / FINISH` | `ReplaceStrategy` | 控制调度 Agent 的任务准备、动作决策和最终汇总 |
-| `goal` | `String` | `ReplaceStrategy` | 本轮管理员目标 |
+| `originalGoal` | `String` | `ReplaceStrategy` | 会话首次创建时的知识整理目标 |
+| `currentInstruction` | `String` | `ReplaceStrategy` | 当前 run 的管理员指令；首次 run 与原始目标相同 |
+| `dialogueContext` | `String` | `ReplaceStrategy` | 从业务消息确定性投影出的有界历史对话 |
+| `dialogueTruncated` | `Boolean` | `ReplaceStrategy` | 历史是否因预算发生裁剪，避免 Agent 把缺失历史当成从未讨论 |
 | `coordinationResult` | `AssistantMessage` | `ReplaceStrategy` | 调度 Agent 当前阶段的结构化输出 |
 | `retrievalResult` | `AssistantMessage` | `ReplaceStrategy` | 检索 Agent 的结构化结果 |
 | `draftResult` | `AssistantMessage` | `ReplaceStrategy` | 草稿 Agent 的结构化结果 |
@@ -202,11 +209,64 @@ Graph State 只保存路由所需的短数据和业务记录引用，不保存�
 
 Graph State 中的草稿只记录 `draftId + revision`，来源只记录现有的 evidence、selected draft、正式文档或用户消息 ID。节点需要正文时重新调用受控 Tool 读取。
 
-四个 Agent 均使用 `asNode(true, false)` 接入父 Graph：`includeContents=true` 使每个 Agent 子图收到父 State 的 `messages`，作为它本轮唯一的用户输入；`returnReasoningContents=false` 只把最后一个结构化结果写回父 State，不把 Agent 内部循环的中间消息回传。由于父 `messages` 只保存本轮 `goal` 这一条用户消息（各 Agent 的输出都通过各自的 `outputKey` 写回 `coordinationResult/retrievalResult/draftResult/reviewResult`，不回写 `messages`），因此某个 Agent 的内部推理不会被当作下个 Agent 的历史消息，设计上“不继承前序 Agent 完整消息历史”的顾虑依然成立，只是通过 outputKey 隔离而非删除 messages 实现。
+### 6.1 三层上下文所有权
 
-之所以必须把 `goal` 作为用户消息而不是塞进指令模板，是因为各 Agent 指令正文含 JSON 大括号与 `|`，框架模板渲染会解析失败，只能使用不做替换的 passthrough renderer；因此 `goal` 必须经由 `messages` 注入，否则调度 Agent 看不到“整理了哪份文档”，会把整理请求误判为 CHAT 而短路（实际联调发现的 bug）。
+| 层次 | Owner | 保存内容 | 生命周期 |
+|---|---|---|---|
+| 会话事实 | LoreDock 业务表 | 用户消息、调度 Agent 最终回复、草稿修订、来源和发布状态 | 跨 run，作为事实来源 |
+| Graph State | 父 `StateGraph + PostgresSaver` | 当前节点、路由结果、轮数、节点输入包和业务记录引用 | 单个 run，可恢复 |
+| Model Context | 当前 `ReactAgent` | 系统指令、该节点最小输入、该 Agent 本次 Tool Call/Result | 单次节点调用，不作为跨 Agent 会话 |
 
-框架在 `asNode(true, false)` 下还会把每个 Agent 的最后一条结构化输出（原始 JSON）自动追加到父 `messages`，使下一环 Agent 的上下文出现无标签、且混入调度 Agent 自身早期 `stage=START/DECIDE` 输出的冗余 JSON，调度 Agent 因此难以识别所处阶段。为此在状态推进节点合成**带标签、可识别阶段**的上下文消息（§10.1 的 `set_decide`/`set_draft_context`/`set_review_context`/`set_finish`/`set_draft_round`），并让各 Agent 的指令优先读取这些带标签上下文；框架追加的原始 JSON 仍会存在，提示词要求 Agent 忽略其中的阶段字段、只认标签。
+Checkpoint 是 run 内短期状态，不是跨 run 的会话记忆。管理员补充意见会创建新的 run 和新的 `threadId`，因此新 run 必须从业务消息与当前工作区重新组装上下文，不能读取上一 run 的 Checkpoint 充当对话历史。
+
+### 6.2 多轮对话组装
+
+创建新 run 时按以下顺序组装：
+
+1. 原始目标和本轮管理员指令始终原样保留并分段标记；
+2. 历史只选择 `USER` 与调度 Agent 最终回复，排除公开进度、`SUB_AGENT` 结果、Tool 调用和事件；
+3. 从最近一轮向前按完整的“用户消息 + 最终回复”分组选取，不截断半轮；
+4. 每条消息先执行单条长度上限，再按总 token 预算裁剪最旧分组；发生裁剪时设置 `dialogueTruncated=true` 并在输入中明确提示历史不完整；
+5. 草稿、来源、知识正文和当前执行事实不从历史回复中继承，节点必须通过受控 Tool 读取当前状态；
+6. 暂停后恢复同一 run 时不重新组装历史，只把管理员追加指导写入当前 Graph State，并沿用原 `threadId` 从下一节点继续。
+
+首版继续使用现有消息表，不新增摘要表或 Memory Store。旧消息被裁剪后，Agent 不得根据摘要猜测缺失的人工决定；确实影响写入时应重新询问管理员。
+
+### 6.3 每个 Agent 实际接收的输入
+
+| Agent 阶段 | 节点输入包 |
+|---|---|
+| 调度 `START` | 原始目标、本轮指令、有界历史对话及 `dialogueTruncated` |
+| 检索 | 原始目标、本轮指令、历史中的明确人工取舍；正文与工作区由 Tool 读取 |
+| 调度 `DECIDE` | 本轮指令、检索结构化结果、相关人工取舍 |
+| 草稿 | 本轮指令、调度写入要求、检索结果、返工时的 Review findings |
+| 审查 | 本轮指令、检索结果、调度要求、最新 `draftId + revision`；不接收草稿 Agent 的 Tool 历史 |
+| 调度 `FINISH` | 检索、调度、草稿和审查的结构化结果摘要 |
+
+父 Graph 在进入每个 Agent 前由准备节点整体替换 `messages`，只生成一条带阶段标签的用户消息。四个 Agent 使用 `asNode(true, false)`：`true` 仅用于把这个节点输入包传入子图，`false` 保证子 Agent 的中间推理不返回父图。每个 Agent 最终结果只写入自己的 `outputKey`，条件边不解析 `messages`。
+
+子 `ReactAgent` 首版不配置独立 CheckpointSaver，使每次节点调用都从干净上下文开始；父 Graph 在节点完成后保存结果和下一节点。进程若在节点内部失败，父 Graph 重跑该节点，写 Tool 依靠现有幂等键和 `baseRevision` 防止重复修订。这样避免同一个 drafter/reviewer 子图 thread 在返工时继承上一轮 Tool 历史。
+
+### 6.4 上下文压缩策略
+
+按“先减少不该进入的内容，再裁剪，最后才摘要”的顺序处理：
+
+1. **结构化隔离**：不同 Agent 只交换结构化结果和业务 ID，不传完整推理、完整 Tool 结果或其他 Agent 的消息链；
+2. **引用代替正文**：Graph State 只保留 `documentId/draftId/revision/sourceRef`，需要正文时重新调用 Tool；
+3. **确定性裁剪**：历史对话按 token 预算保留最近完整轮次；原始目标、本轮指令和当前人工确认不得裁剪；
+4. **Tool 结果限长**：搜索列表、正文读取和 Diff 在 Tool 边界执行数量与长度上限，返回稳定 ID 供后续精确重读；
+5. **安全失败**：经过上述处理仍超出模型窗口时，本 run 以稳定上下文超限错误结束，不在证据不足时继续写草稿。
+
+本次不启用通用 `SummarizationHook`。锁定版本会在阈值后用模型概括旧消息并以 `REPLACE` 替换历史；这适合普通聊天，但知识整理存在事实支持、冲突状态和人工取舍，模型摘要可能改变这些边界。`ContextEditingInterceptor` 清除旧 Tool 结果同样可能让检索或审查失去证据，不作为首版正常路径。
+
+记忆管理模块完成后，可以单独增加跨 run 的结构化滚动摘要，字段只包含“已确认人工决定、未解决问题、最新草稿引用、已否决方案和来源消息 ID”。该摘要必须带来源并可由原始消息重建，不能替代业务消息、草稿来源或正式知识。
+
+### 6.5 业界方案对照
+
+- [Spring AI Alibaba Context Engineering](https://java2ai.com/en/docs/frameworks/agent-framework/advanced/context-engineering/) 与[版本说明](https://github.com/alibaba/spring-ai-alibaba/releases)把 Checkpointer 用于短期状态、Store 用于跨会话长期记忆，并提供 Summarization 与 Context Editing；本设计只使用 Checkpointer 做 run 恢复；
+- [LangChain Subagents](https://docs.langchain.com/oss/python/langchain/multi-agent/subagents)由主 Agent 持有对话记忆，子 Agent 默认以干净上下文执行，只向主 Agent 返回结果；这与本设计“调度者持有会话、专家节点无历史”一致；
+- [LangGraph Memory](https://docs.langchain.com/oss/python/langgraph/add-memory)的长对话方案是把滚动摘要放入独立 state key，同时删除旧消息，而不是无限追加完整历史；
+- [AutoGen Model Context](https://microsoft.github.io/autogen/stable/reference/python/autogen_core.model_context.html)同时提供最近 N 条和 token 上限两种上下文，说明确定性窗口仍是常见且可控的首层压缩方案。
 
 ## 7. 四个 Agent 的职责与权限
 
@@ -358,8 +418,8 @@ Checkpoint 解决“执行到哪里”；业务表解决“实际写了什么”
 
 - 每个 `agent_run` 使用现有稳定 `thread_id`；
 - 父 Graph 使用该 `threadId` 保存 Checkpoint；
-- 父 Graph 和四个 `ReactAgent` 使用同一个 `PostgresSaver` 实例；
-- 子 `ReactAgent` 作为 Graph subgraph node，由框架生成隔离的子图标识；
+- 四个子 `ReactAgent` 不配置独立 Saver，每次节点进入均由父 Graph 传入新的最小上下文；
+- 父 Graph 只在节点完成后持久化结构化结果和下一节点，避免返工时子 Agent 继承旧 Tool 历史；
 - 恢复时必须使用原 run 的同一 `threadId`，不能创建新 thread 伪装恢复。
 
 ### 8.3 Checkpoint 时机
@@ -378,6 +438,8 @@ Graph 在调度、检索、草稿、审查和准备结束节点后设置框架 `
 调度 Agent 根据检索结果决定 `ASK_USER`，或审查 Agent 返回 `ASK_USER` 时，本 run 正常结束，任务会话仍为 `PROCESSING`。管理员回复后继续沿用现有机制创建新 run；新 run 重新建立 Graph State，并通过现有会话消息和工作区恢复业务上下文。
 
 这与“进程异常后恢复同一 run”是两种不同语义，不能混用。
+
+附注：继续轮按 §6.2 重新组装会话上下文，不得无条件拼接“先调用某 Tool”一类执行指令，否则管理员的元问题也会被拖入完整检索流程。暂停恢复同一 run 时，Executor 只更新 `currentInstruction` 并为 Checkpoint 指向的下一节点重新生成输入包，不向旧 `messages` 链追加一段新的全局历史。
 
 ## 9. 路由和解析规则
 
@@ -410,6 +472,8 @@ Graph 在调度、检索、草稿、审查和准备结束节点后设置框架 `
 - 从现有 `ToolCallbackProvider` 按白名单筛选每个 Agent 的 Tool；
 - 使用当前 run 的 `ToolContext` 构建四个 `ReactAgent`；
 - 设置各 Agent 的 `outputKey`、结构化输出和既有调用限制 Hook；
+- 在每个 Agent 前组装并整体替换节点级 `messages`，不把父图累计消息链传给下一 Agent；
+- 子 `ReactAgent` 不配置 Saver，父 Graph 统一负责节点边界 Checkpoint；
 - 构建 `StateGraph`、条件边和 `CompileConfig`；
 - 将现有 `PostgresSaver` 注册为 CheckpointSaver；
 - 在关键节点后配置框架 `interruptAfter`，提供可持久化的暂停边界；
@@ -429,7 +493,8 @@ Graph 在调度、检索、草稿、审查和准备结束节点后设置框架 `
 ### 10.3 修改 `KnowledgeCurationRunExecutor`
 
 - 将当前单个 `ReactAgent` 替换为 `CompiledGraph`；
-- 首次执行输入 `goal`、`stage=START`、`draftRound=0`；检索节点完成后由普通 Graph 节点把 `stage` 更新为 `DECIDE`，结束前更新为 `FINISH`；
+- 首次执行输入 `originalGoal`、`currentInstruction`、`dialogueContext`、`dialogueTruncated=false`、`stage=START`、`draftRound=0`；检索节点完成后由普通 Graph 节点把 `stage` 更新为 `DECIDE`，结束前更新为 `FINISH`；
+- 创建新 run 时从现有业务消息投影有界历史，只保留用户消息和调度 Agent 最终回复；原始目标、本轮指令和是否裁剪必须分开传递；
 - `START + CHAT` 时直接把调度 Agent 的 `summary` 作为本轮最终回复并结束 Graph，不再创建第二套闲聊执行器；
 - 继续使用当前 run 的 `RunnableConfig.threadId`；
 - 从 Graph 最终状态取得调度 Agent 的最终 `AssistantMessage`；
@@ -520,11 +585,11 @@ backend/src/main/resources/agent-specs/knowledge-curation/
 | 业务场景 | 保护的业务目的与关键断言 |
 |---|---|
 | 有充分来源的新知识 | 真实经过检索、调度、草稿和审查；产生带来源的草稿修订和 Diff，但不自动发布 |
-| 证据冲突或不足 | 调度 Agent 返回具体人工问题，不进入草稿节点，不写入未确认事实 |
+| 证据冲突、人工补充与新 run | 首个 run 返回具体人工问题且不写草稿；管理员补充后新 run 只继承有界公开对话和当前业务事实，并以 `USER_MESSAGE` 来源完成允许的写入 |
 | 审查持续不通过 | 最多返工两轮，不能进入第三轮，最后交给人工且不发布 |
 | 普通闲聊 | 只有调度 Agent 回复，知识 Tool 调用数和草稿修订数均为 0 |
 | Tool 权限边界 | 调度 Agent 无业务 Tool，检索和审查 Agent 无写 Tool，所有 Agent 均无发布 Tool；越权请求不能改变业务数据 |
-| Checkpoint 恢复与写入幂等 | 使用同一 `threadId` 从已持久化下一节点恢复；草稿写入后发生中断也不能产生重复修订 |
+| Checkpoint 恢复与写入幂等 | 使用同一 `threadId` 从已持久化下一节点恢复；草稿写入后发生中断也不能产生重复修订；返工节点不继承上一轮子 Agent Tool 历史 |
 | 无效结构化结果 | Graph 安全失败，不根据自然语言猜测路由，不产生发布记录 |
 
 每个测试必须说明它防止的真实业务回归。相同路径上的路由顺序、事件投影、消息持久化和最终状态应在同一个业务测试中一起断言，不拆成多条只验证实现细节的测试。

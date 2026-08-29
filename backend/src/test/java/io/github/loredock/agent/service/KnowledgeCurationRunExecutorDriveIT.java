@@ -271,6 +271,68 @@ class KnowledgeCurationRunExecutorDriveIT {
                 byAgent.get("reviewer").promptTokens(), byAgent.get("reviewer").completionTokens());
     }
 
+    /**
+     * 业务目的：暂停后恢复（resume，同一 run）时，管理员追加指导必须作为本轮用户消息进入协调 Agent 输入；
+     * 否则协调 Agent 只看到最初 goal、看不到后续指令，会把"继续聊聊"当整理任务盲跑完整流程（联调缺陷）。
+     */
+    @Test
+    void resumeInjectsGuidanceIntoCoordinatorPrompt() throws Exception {
+        Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .schemas(schema).defaultSchema(schema).locations("classpath:db/migration")
+                .load().migrate();
+        PostgresSaver saver = PostgresSaver.builder().datasource(dataSource())
+                .createOption(CreateOption.CREATE_NONE).build();
+
+        ScriptedChatModel model = new ScriptedChatModel(List.of(
+                answer("{\"stage\":\"START\",\"action\":\"CHAT\",\"reason\":\"问候\","
+                        + "\"draftInstruction\":null,\"question\":null,\"summary\":\"你好，我在线，能看到上轮结论。\"}")));
+        ObjectProvider<ChatModel> modelProvider = new ObjectProvider<ChatModel>() {
+            @Override public ChatModel getObject(Object... args) { return model; }
+            @Override public ChatModel getIfAvailable() { return model; }
+            @Override public ChatModel getIfUnique() { return model; }
+            @Override public ChatModel getObject() { return model; }
+        };
+
+        KnowledgeAgentDefinitionService definitions = mock(KnowledgeAgentDefinitionService.class);
+        when(definitions.graphSpecs()).thenReturn(new KnowledgeCurationGraphFactory.AgentSpecSet(loadSpecs()));
+
+        AgentRunMapper runs = mock(AgentRunMapper.class);
+        AgentRunEntity run = runEntity();
+        when(runs.selectById(run.getId())).thenReturn(run);
+
+        Map<String, ToolCallback> callbacks = ALL_TOOLS.stream().collect(Collectors.toMap(
+                n -> n, KnowledgeCurationRunExecutorDriveIT::tool, (a, b) -> a, LinkedHashMap::new));
+        StaticToolCallbackResolver resolver = new StaticToolCallbackResolver(List.copyOf(callbacks.values()));
+
+        BoundedAgentRunScheduler scheduler = mock(BoundedAgentRunScheduler.class);
+        when(scheduler.schedule(eq(run.getId()), any())).thenAnswer(inv -> {
+            ((Runnable) inv.getArgument(1)).run();
+            return true;
+        });
+
+        KnowledgeCurationRunExecutor executor = new KnowledgeCurationRunExecutor(
+                modelProvider, properties(), resolver, saver, definitions, new ObjectMapper(),
+                runs, mock(KnowledgeTaskConversationMapper.class), mock(KnowledgeTaskMessageMapper.class),
+                mock(AgentEventService.class), mock(KnowledgeTaskEventService.class),
+                mock(KnowledgeToolInvocationService.class), mock(KnowledgeTaskRunProjectionService.class),
+                scheduler, Clock.systemUTC());
+
+        executor.resume(run, "将勾选草稿合并为一份稳定的业务知识", "你能看到上轮对话的哪些信息",
+                new KnowledgeAgentDefinitionService.LoadedDefinition(
+                        new io.github.loredock.agent.api.KnowledgeTaskService.RuntimeDefinition(
+                                "knowledge-curator", "s", "d", "m", ALL_TOOLS)));
+
+        // 协调 Agent 的模型输入必须包含管理员追加指导，否则恢复即盲跑。
+        assertThat(model.prompts()).isNotEmpty();
+        assertThat(model.prompts().get(0)).contains("管理员追加指导：你能看到上轮对话的哪些信息");
+        verify(runs).completeKnowledge(eq(run.getId()), eq("你好，我在线，能看到上轮结论。"), any(int.class),
+                any(int.class), any(int.class), any(long.class), isNull(), isNull(), any(Instant.class));
+        System.out.printf("测试证据：场景=暂停恢复注入指导，prompt含指导=%s，最终回复=%s%n",
+                model.prompts().get(0).contains("管理员追加指导：你能看到上轮对话的哪些信息"),
+                "你好，我在线，能看到上轮结论。");
+    }
+
     private AgentRunEntity runEntity() {
         return AgentRunEntity.builder()
                 .id(1L).operatorId("admin").projectIdentifier("atlas")
@@ -343,5 +405,7 @@ class KnowledgeCurationRunExecutorDriveIT {
         @Override public Flux<ChatResponse> stream(Prompt prompt) { return Flux.just(call(prompt)); }
 
         int calls() { return calls.get(); }
+
+        List<String> prompts() { return List.copyOf(prompts); }
     }
 }

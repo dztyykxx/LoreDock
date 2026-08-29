@@ -196,7 +196,7 @@ public class KnowledgeCurationRunExecutor {
                     AgentEvent.SubjectType.AGENT,
                     payload(resuming ? "RESUMING" : "PREPARING", run.getAgentName(), "RUNNING"), started);
             taskEvents.append(run.getKnowledgeTaskConversationId(), run.getId(), "RUN_UPDATED", run.getId(), started);
-            String finalReply = drive(run, graph, metrics, goal);
+            String finalReply = drive(run, graph, metrics, goal, guidance);
             Instant finished = clock.instant();
             log.info("知识整理 Graph 完成 conversationId={} runId={} 最终回复={} 模型调用={} 工具调用={}",
                     run.getKnowledgeTaskConversationId(), run.getId(),
@@ -241,13 +241,22 @@ public class KnowledgeCurationRunExecutor {
     /**
      * 驱动父 Graph 到终态：每次运行到 {@code interruptAfter} 边界先检查 run 状态，未暂停则用同一
      * {@code threadId} 立即续跑；返回调度 Agent 的最终可见正文（CHAT 或 FINISH 的 summary）。
+     *
+     * @param guidance 暂停恢复时管理员追加的指导；恢复的同一次 run 必须把它作为本轮用户消息注入，
+     *                 否则协调 Agent 只会看到最开始的 goal，无法理解后续指令（continue 走 continuationPrompt，
+     *                 而 resume 走此处的显式注入）
      */
-    private String drive(AgentRunEntity run, CompiledGraph graph, RunMetrics metrics, String goal) {
+    private String drive(AgentRunEntity run, CompiledGraph graph, RunMetrics metrics, String goal, String guidance) {
         Map<String, Object> input = new HashMap<>();
         input.put("goal", goal);
         input.put("stage", "START");
         input.put("draftRound", 0);
-        input.put("messages", List.of(new UserMessage(goal)));
+        if (guidance != null && !guidance.isBlank()) {
+            input.put("messages", List.of(new UserMessage(goal),
+                    new UserMessage("管理员追加指导：" + guidance)));
+        } else {
+            input.put("messages", List.of(new UserMessage(goal)));
+        }
         // 首次用 threadId 配置；续跑必须用上一节点运行返回的 checkpoint 配置（含 checkPointId/nextNode），
         // 否则框架会从头重跑入口节点而不是从下一节点恢复（§8.3）。
         RunnableConfig resumeConfig = config(run);

@@ -20,6 +20,8 @@ selected_draft_list、selected_draft_read、knowledge_directory_list、knowledge
 
 {"issueType":"DUPLICATE|CONFLICT|MISSING|NONE","candidateTargetDocumentId":710004,"facts":[{"statement":"允许写入或需要判断的事实","support":"SUPPORTED|CONFLICTED|INSUFFICIENT","sourceRefs":[{"type":"EVIDENCE|SELECTED_DRAFT|USER_MESSAGE","id":88}]}],"unresolvedQuestions":[],"summary":"只描述检索事实和证据状态，不给出下一步动作"}
 
+每个键必须且只能出现一次，不要在结尾重复前面已写过的键。
+
 ## 要求
 
 - 只读取与当前管理员目标（本轮 goal）相关的材料。对同一文档、同一段落不要反复读取或反复 grep；已经定位到的事实不要再重复搜索。
