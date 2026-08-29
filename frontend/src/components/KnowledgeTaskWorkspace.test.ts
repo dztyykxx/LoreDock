@@ -31,7 +31,17 @@ const task = {
     acceptedAt: '2026-08-02T00:00:05Z', startedAt: '2026-08-02T00:00:06Z', finishedAt: null,
     definition: { skillName: 'knowledge-curator', skillDigest: 'abc', agentSpecDigest: 'def', modelName: 'deepseek-v4-flash', toolNames: ['draft_read', 'draft_update'] },
   }],
-  events: [],
+  events: [
+    { eventId: 101, runId: 61, sequence: 1, type: 'AGENT_STAGE' as const, subjectType: 'AGENT' as const,
+      payload: { phase: 'START', name: 'coordinator', purpose: null, parameterSummary: null, resultSummary: null, count: null, durationMillis: null, status: 'COMPLETED', summary: '我会先核对两份输入与现有发布规则，再分别修订冲突文档。', textDelta: null, resultType: null, errorCode: null, modelGenerated: false, truncated: false },
+      createdAt: '2026-08-02T00:00:08Z' },
+    { eventId: 102, runId: 61, sequence: 2, type: 'AGENT_STAGE' as const, subjectType: 'AGENT' as const,
+      payload: { phase: 'RETRIEVE', name: 'retriever', purpose: null, parameterSummary: null, resultSummary: null, count: null, durationMillis: null, status: 'COMPLETED', summary: '检索到发布权限相关事实。', textDelta: null, resultType: null, errorCode: null, modelGenerated: false, truncated: false },
+      createdAt: '2026-08-02T00:00:30Z' },
+    { eventId: 103, runId: 61, sequence: 3, type: 'AGENT_STAGE' as const, subjectType: 'AGENT' as const,
+      payload: { phase: 'DECIDE', name: 'coordinator', purpose: null, parameterSummary: null, resultSummary: null, count: null, durationMillis: null, status: 'COMPLETED', summary: '因此我会修改它，而不是新增重复文档。', textDelta: null, resultType: null, errorCode: null, modelGenerated: false, truncated: false },
+      createdAt: '2026-08-02T00:00:32Z' },
+  ],
   toolInvocations: [{
     invocationId: 91, runId: 61, toolCallId: 'call-1', sequence: 1, toolName: 'knowledge_search',
     purpose: '检索相关业务知识', arguments: '{"query":"发布权限"}', result: '找到 3 份相关知识', resultSummary: '已完成近似文档检索', error: null,
@@ -73,8 +83,7 @@ describe('KnowledgeTaskWorkspace', () => {
     const process = wrapper.get('[data-testid="run-process-group"]')
     expect(process.attributes('open')).toBeDefined()
     const group = wrapper.get('[data-testid="tool-invocation-group"]')
-    expect(group.text()).toContain('工具调用 1 次')
-    expect(group.attributes('open')).toBeUndefined()
+    expect(group.find('[data-testid="tool-invocation"]').text()).toContain('检索相关业务知识')
     const tool = wrapper.get('[data-testid="tool-invocation"]')
     expect(tool.text()).toContain('检索相关业务知识')
     expect(tool.attributes('data-density')).toBe('compact')
@@ -99,7 +108,7 @@ describe('KnowledgeTaskWorkspace', () => {
 
     expect(process.attributes('open')).toBeUndefined()
     expect(process.find('[data-testid="run-final-answer"]').exists()).toBe(false)
-    expect(finalAnswer.get('strong').text()).toBe('知识整理 Agent')
+    expect(finalAnswer.get('strong').text()).toBe('调度 Agent')
     expect(finalAnswer.get('.markdown-preview strong').text()).toBe('本轮完成')
     expect(finalAnswer.findAll('.markdown-preview li').map(item => item.text())).toEqual(['修订发布约束', '新增复盘流程'])
     expect(finalAnswer.find('script').exists()).toBe(false)

@@ -61,49 +61,41 @@
             <p>{{ message.content }}</p>
           </article>
 
-          <details v-if="processTimelineForRun(run).length" data-testid="run-process-group" class="run-process" :open="runIsInProgress(run)">
+          <details v-if="agentBlocksForRun(run).length" data-testid="run-process-group" class="run-process" :open="runIsInProgress(run)">
             <summary>
               <span><IconGlyph name="settings" /><strong>执行过程</strong><small>工具调用 {{ toolsForRun(run.runId).length }} 次</small></span>
               <small>{{ runIsInProgress(run) ? '运行中' : '已收起' }} · 展开查看</small>
             </summary>
             <div class="run-process__content">
-              <div v-if="stageCardsForRun(run).length" data-testid="agent-stage-strip" class="stage-strip">
-                <article v-for="stage in stageCardsForRun(run)" :key="stage.key" class="stage-card" :class="`stage-card--${stage.status.toLowerCase()}`">
-                  <span class="stage-card__name">{{ stage.agentLabel }}</span>
-                  <strong class="stage-card__phase">{{ stage.phaseLabel }}</strong>
-                  <small class="stage-card__status">{{ stage.statusLabel }}</small>
-                  <p v-if="stage.summary" class="stage-card__summary">{{ stage.summary }}</p>
-                </article>
-              </div>
-              <template v-for="item in processTimelineForRun(run)" :key="item.key">
-                <article v-if="item.kind === 'message' && finding(item.value)" class="finding-card">
-                  <span>{{ findingLabel(finding(item.value)!.type) }}</span>
-                  <div><strong>{{ finding(item.value)!.topic }}</strong><p>{{ finding(item.value)!.summary }}</p><small v-if="finding(item.value)!.recommendation">建议：{{ finding(item.value)!.recommendation }}</small><small v-if="finding(item.value)!.humanQuestion">待确认：{{ finding(item.value)!.humanQuestion }}</small></div>
-                </article>
-                <article v-else-if="item.kind === 'message'" :class="messageClass(item.value.role)">
-                  <header><strong>{{ messageLabel(item.value.role) }}</strong><time>{{ formatTime(item.value.createdAt) }}</time></header>
-                  <p>{{ item.value.content }}</p>
-                </article>
-
-                <details v-else data-testid="tool-invocation-group" class="tool-group">
+              <template v-for="agent in agentBlocksForRun(run)" :key="agent.key">
+                <details data-testid="agent-block" class="agent-block" :class="`agent-block--${agent.status.toLowerCase()}`" :open="agent.status === 'RUNNING' || agent.tools.length === 0">
                   <summary>
-                    <span><IconGlyph name="settings" /><strong>工具调用 {{ item.values.length }} 次</strong></span>
-                    <small>{{ toolGroupStatus(item.values) }} · 展开查看</small>
+                    <span class="agent-block__head"><IconGlyph name="settings" /><strong>{{ agent.agentLabel }}</strong><em>{{ agent.phaseLabel }}</em></span>
+                    <small class="agent-block__status">{{ agent.statusLabel }}<template v-if="agent.tools.length"> · 工具 {{ agent.tools.length }} 次</template></small>
                   </summary>
-                  <div class="tool-group__list">
-                    <details v-for="tool in item.values" :key="tool.invocationId" data-testid="tool-invocation" data-density="compact" class="tool-card">
-                      <summary>
-                        <span class="tool-card__icon"><IconGlyph name="settings" /></span>
-                        <span class="tool-card__meta"><strong>{{ tool.purpose }}</strong><small>{{ tool.toolName }} · {{ toolStatusLabel(tool.status) }}</small></span>
-                        <time>{{ duration(tool.durationMillis) }}</time>
-                      </summary>
-                      <div class="tool-card__details">
-                        <label>调用参数 <em v-if="tool.argumentsTruncated">已截断</em></label><pre>{{ tool.arguments || '无公开参数' }}</pre>
-                        <label>执行结果 <em v-if="tool.resultTruncated">已截断</em></label><pre>{{ tool.result || tool.resultSummary || '执行中' }}</pre>
-                      </div>
-                    </details>
+                  <div class="agent-block__body">
+                    <p v-if="agent.summary" class="agent-block__summary">{{ agent.summary }}</p>
+                    <div v-if="agent.tools.length" data-testid="tool-invocation-group" class="tool-list">
+                      <details v-for="tool in agent.tools" :key="tool.invocationId" data-testid="tool-invocation" data-density="compact" class="tool-card">
+                        <summary>
+                          <span class="tool-card__icon"><IconGlyph name="settings" /></span>
+                          <span class="tool-card__meta"><strong>{{ tool.purpose }}</strong><small>{{ tool.toolName }} · {{ toolStatusLabel(tool.status) }}</small></span>
+                          <time>{{ duration(tool.durationMillis) }}</time>
+                        </summary>
+                        <div class="tool-card__details">
+                          <label>调用参数 <em v-if="tool.argumentsTruncated">已截断</em></label><pre>{{ tool.arguments || '无公开参数' }}</pre>
+                          <label>执行结果 <em v-if="tool.resultTruncated">已截断</em></label><pre>{{ tool.result || tool.resultSummary || '执行中' }}</pre>
+                        </div>
+                      </details>
+                    </div>
                   </div>
                 </details>
+              </template>
+              <template v-for="message in leftoverMessagesForRun(run)" :key="message.messageId">
+                <article v-if="finding(message)" class="finding-card">
+                  <span>{{ findingLabel(finding(message)!.type) }}</span>
+                  <div><strong>{{ finding(message)!.topic }}</strong><p>{{ finding(message)!.summary }}</p><small v-if="finding(message)!.recommendation">建议：{{ finding(message)!.recommendation }}</small><small v-if="finding(message)!.humanQuestion">待确认：{{ finding(message)!.humanQuestion }}</small></div>
+                </article>
               </template>
             </div>
           </details>
@@ -204,37 +196,46 @@ const unassignedMessages = computed(() => props.task.messages.filter(message => 
 const diffLines = computed(() => (props.selectedDiff?.unifiedDiff ?? '').split('\n'))
 
 type Message = KnowledgeTask['messages'][number]
-type TimelineItem = { key: string; kind: 'message'; at: string; value: Message } | { key: string; kind: 'tools'; at: string; values: ToolInvocation[] }
-type StageCard = { key: string; agent: string; agentLabel: string; phase: string; phaseLabel: string; status: string; statusLabel: string; summary: string | null }
-const STAGE_AGENT_LABELS: Record<string, string> = { coordinator: '调度 Agent', retriever: '检索 Agent', drafter: '草稿 Agent', reviewer: '审查 Agent' }
+type AgentBlock = { key: string; agent: string; agentLabel: string; phase: string; phaseLabel: string; status: string; statusLabel: string; summary: string | null; at: string; tools: ToolInvocation[] }
+const STAGE_AGENT_LABELS: Record<string, string> = { coordinator: '调度 Agent', retriever: '检索 Agent', drafter: '协作 Agent', reviewer: '审查 Agent' }
 const STAGE_PHASE_LABELS: Record<string, string> = { START: '识别任务', DECIDE: '决定下一步', FINISH: '汇总结果', RETRIEVE: '检索知识', DRAFT: '创建草稿', REVIEW: '审查草稿' }
 
-/** §10.7：把公开 AGENT_STAGE 事件按 runId + sequence 去重后投影为阶段卡片，只展示白名单字段。 */
-function stageCardsForRun(run: KnowledgeTaskRun): StageCard[] {
-  const seen = new Set<string>()
-  return props.task.events
+/** §10.7：把公开 AGENT_STAGE 事件投影为按时间顺序排列的 Agent 块；每个 Agent 展示阶段摘要与其期间的工具调用。 */
+function agentBlocksForRun(run: KnowledgeTaskRun): AgentBlock[] {
+  const stages = props.task.events
     .filter(event => event.type === 'AGENT_STAGE' && event.runId === run.runId && event.payload?.name)
     .sort((left, right) => left.sequence - right.sequence)
-    .filter(event => {
-      const key = `${event.runId}-${event.sequence}`
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    })
-    .map(event => {
-      const agent = event.payload.name ?? ''
-      const status = event.payload.status ?? ''
-      return {
-        key: `${event.runId}-${event.sequence}`,
-        agent,
-        agentLabel: STAGE_AGENT_LABELS[agent] ?? '协作 Agent',
-        phase: event.payload.phase ?? '',
-        phaseLabel: STAGE_PHASE_LABELS[event.payload.phase ?? ''] ?? event.payload.phase ?? '',
-        status,
-        statusLabel: status === 'RUNNING' ? '运行中' : status === 'COMPLETED' ? '已完成' : status === 'FAILED' ? '失败' : status || '—',
-        summary: event.payload.summary,
-      }
-    })
+    .filter((event, index, all) => index === 0 || event.sequence !== all[index - 1].sequence)
+  const blocks = stages.map(event => {
+    const agent = event.payload?.name ?? ''
+    const status = event.payload?.status ?? ''
+    return {
+      key: `a-${run.runId}-${event.sequence}`,
+      agent,
+      agentLabel: STAGE_AGENT_LABELS[agent] ?? '协作 Agent',
+      phase: event.payload?.phase ?? '',
+      phaseLabel: STAGE_PHASE_LABELS[event.payload?.phase ?? ''] ?? event.payload?.phase ?? '',
+      status,
+      statusLabel: status === 'RUNNING' ? '运行中' : status === 'COMPLETED' ? '已完成' : status === 'FAILED' ? '失败' : status || '—',
+      summary: event.payload?.summary ?? null,
+      at: event.createdAt ?? '',
+      tools: [] as ToolInvocation[],
+    }
+  })
+  // 把工具调用归属到“该工具开始时间之后的第一个已完成阶段”，即执行该工具的那个 Agent。
+  for (const tool of toolsForRun(run.runId)) {
+    const target = blocks.find(block => block.at && new Date(block.at).getTime() >= new Date(tool.startedAt).getTime())
+    if (target) target.tools.push(tool)
+    else if (blocks.length) blocks[blocks.length - 1].tools.push(tool)
+  }
+  for (const block of blocks) block.tools.sort((left, right) => left.sequence - right.sequence)
+  return blocks
+}
+
+/** 仅保留非过程消息（知识缺口记录），供 Agent 块之外的独立卡片展示；SUB_AGENT/调度过程摘要由 Agent 块承载。 */
+function leftoverMessagesForRun(run: KnowledgeTaskRun): Message[] {
+  return props.task.messages.filter(message => message.runId === run.runId
+      && message.subjectName?.startsWith('finding_record:'))
 }
 
 function toolsForRun(runId: number): ToolInvocation[] {
@@ -246,24 +247,6 @@ function userMessagesForRun(runId: number): Message[] {
 function finalMessageForRun(run: KnowledgeTaskRun): Message | null {
   return props.task.messages.filter(message => message.runId === run.runId
       && message.role === 'COORDINATOR_AGENT' && message.subjectName === run.definition.skillName).at(-1) ?? null
-}
-function processTimelineForRun(run: KnowledgeTaskRun): TimelineItem[] {
-  const finalMessageId = finalMessageForRun(run)?.messageId
-  const messages = props.task.messages.filter(message => message.runId === run.runId
-      && message.role !== 'USER' && message.messageId !== finalMessageId)
-    .map(message => ({ key: `m-${message.messageId}`, kind: 'message' as const, at: message.createdAt, value: message }))
-  const tools = toolsForRun(run.runId)
-    .map(tool => ({ key: `t-${tool.invocationId}`, kind: 'tool' as const, at: tool.startedAt, value: tool }))
-  const ordered = [...messages, ...tools].sort((left, right) => left.at.localeCompare(right.at))
-  return ordered.reduce<TimelineItem[]>((blocks, item) => {
-    if (item.kind === 'message') return [...blocks, item]
-    const previous = blocks.at(-1)
-    if (previous?.kind === 'tools') {
-      previous.values.push(item.value)
-      return blocks
-    }
-    return [...blocks, { key: `tg-${item.value.invocationId}`, kind: 'tools', at: item.at, values: [item.value] }]
-  }, [])
 }
 function runIsInProgress(run: KnowledgeTaskRun): boolean {
   return ['ACCEPTED', 'RUNNING', 'PAUSE_REQUESTED'].includes(run.status)
@@ -286,7 +269,7 @@ function scrollToLatest(): void {
   hasUnseen.value = false
 }
 function messageClass(role: string): string { return `message-card message-card--${role.toLowerCase()}` }
-function messageLabel(role: string): string { return ({ SYSTEM_TRIGGER: '系统', USER: '你', COORDINATOR_AGENT: '知识整理 Agent', SUB_AGENT: '协作 Agent', TOOL: '工具结果' } as Record<string, string>)[role] ?? role }
+function messageLabel(role: string): string { return ({ SYSTEM_TRIGGER: '系统', USER: '你', COORDINATOR_AGENT: '调度 Agent', SUB_AGENT: '协作 Agent', TOOL: '工具结果' } as Record<string, string>)[role] ?? role }
 function finding(message: Message): { type: string; topic: string; summary: string; recommendation?: string; humanQuestion?: string } | null {
   if (!message.subjectName?.startsWith('finding_record:')) return null
   try {
@@ -322,8 +305,9 @@ watch(() => props.task.lastEventSequence, async (current, previous) => {
 .conversation-shell{position:relative;width:min(780px,100%);height:min(760px,calc(100vh - 255px));min-height:620px;align-self:center;display:flex;flex-direction:column;border:1px solid var(--border);border-radius:14px;background:var(--surface);overflow:hidden}.conversation-header{min-height:52px;border-bottom:1px solid var(--border);padding:0 17px}.conversation-header>div{display:flex;align-items:center;gap:8px}.conversation-header .icon-glyph{width:16px;color:var(--accent)}.conversation-header h2{margin:0;font-size:14px}.conversation-header>span{color:var(--quiet);font-size:10px}.timeline{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:10px;padding:14px 18px 20px}.new-message{position:absolute;z-index:3;right:18px;bottom:112px;border:1px solid var(--accent);border-radius:99px;padding:7px 11px;color:var(--accent);background:var(--surface);box-shadow:0 4px 12px #13211d1a;font-size:10px;cursor:pointer}.input-card,.tool-card{border:1px solid var(--border);border-radius:10px;background:var(--neutral-soft)}.input-card{padding:11px}.input-card summary,.tool-card summary{cursor:pointer;list-style:none;font-size:11px;font-weight:650}.input-card summary span{float:right;color:var(--quiet);font-weight:400}.input-card ol{display:grid;gap:7px;margin:10px 0 0;padding:0;list-style:none}.input-card li{display:flex;align-items:center;gap:9px}.input-card li>span{width:27px;height:27px;display:grid;place-items:center;border-radius:8px;color:var(--accent);background:var(--accent-soft);font-size:10px}.input-card li div{display:flex;flex-direction:column;font-size:11px}.input-card small{color:var(--quiet)}
 .run-section{display:flex;flex-direction:column;gap:9px}.run-divider{display:flex;align-items:center;gap:9px;margin:5px 0;color:var(--quiet);font-size:10px}.run-divider::before,.run-divider::after{content:"";height:1px;flex:1;background:var(--border)}.run-divider span{color:var(--muted);font-weight:700}.message-card{border-radius:10px;padding:11px 12px;background:var(--neutral-soft)}.message-card--coordinator_agent,.message-card--sub_agent{margin-right:42px;border-left:2px solid var(--accent);background:var(--accent-soft)}.message-card--user{margin-left:72px}.message-card--final{margin-right:0}.message-card header{display:flex;justify-content:space-between;color:var(--muted);font-size:10px}.message-card time{color:var(--quiet)}.message-card p{margin:5px 0 0;white-space:pre-wrap;font-size:12px;line-height:1.55}.message-card>small{display:block;margin-top:5px;color:var(--accent);font-size:10px}.finding-card{display:flex;align-items:flex-start;gap:9px;border:1px solid color-mix(in srgb,var(--warning) 32%,var(--border));border-radius:10px;padding:10px;background:var(--warning-soft)}.finding-card>span{border-radius:99px;padding:3px 7px;color:var(--warning);background:var(--surface);font-size:10px;font-weight:700}.finding-card>div{display:flex;flex-direction:column;gap:3px}.finding-card strong{font-size:11px}.finding-card p{margin:0;font-size:11px}.finding-card small{color:var(--muted);font-size:10px}
 .run-process{overflow:hidden;border:1px solid var(--border);border-radius:10px;background:var(--neutral-soft)}.run-process>summary{min-height:36px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;cursor:pointer;list-style:none}.run-process>summary>span{display:flex;align-items:center;gap:7px;font-size:10px}.run-process>summary .icon-glyph{width:12px;color:var(--accent)}.run-process>summary small{color:var(--quiet);font-size:9px}.run-process__content{display:flex;flex-direction:column;gap:7px;border-top:1px solid var(--border);padding:8px}.run-process__content>.message-card{margin-left:0;margin-right:0}
+.agent-block{overflow:hidden;border:1px solid var(--border);border-radius:10px;background:var(--surface)}.agent-block>summary{min-height:38px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 11px;cursor:pointer;list-style:none;background:var(--neutral-soft)}.agent-block__head{display:flex;align-items:center;gap:7px}.agent-block__head .icon-glyph{width:13px;color:var(--accent)}.agent-block__head strong{font-size:11px}.agent-block__head em{font-style:normal;color:var(--muted);font-size:10px}.agent-block__status{flex:none;color:var(--quiet);font-size:9px}.agent-block__body{display:flex;flex-direction:column;gap:7px;border-top:1px solid var(--border);padding:9px 11px}.agent-block__summary{margin:0;color:var(--ink);font-size:11px;line-height:1.6}.agent-block--running>summary{background:color-mix(in srgb,var(--accent-soft) 60%,var(--surface))}.agent-block--running .agent-block__status{color:var(--accent)}.agent-block--failed .agent-block__status{color:var(--danger)}
 .stage-strip{display:flex;flex-wrap:wrap;gap:6px}.stage-card{display:grid;grid-template-columns:auto auto;align-items:center;gap:2px 7px;border:1px solid var(--border);border-radius:8px;padding:5px 8px;background:var(--surface);font-size:10px}.stage-card__name{color:var(--accent);font-weight:700}.stage-card__phase{color:var(--ink)}.stage-card__status{grid-column:1/2;color:var(--quiet)}.stage-card__summary{grid-column:1/3;max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}.stage-card--running{border-color:color-mix(in srgb,var(--accent) 40%,var(--border))}.stage-card--failed{border-color:color-mix(in srgb,var(--danger) 32%,var(--border))}.stage-card--failed .stage-card__status{color:var(--danger)}.message-card--final :deep(.markdown-preview){margin-top:6px;font-size:12px;line-height:1.62}.message-card--final :deep(.markdown-preview)>:first-child{margin-top:0}.message-card--final :deep(.markdown-preview)>:last-child{margin-bottom:0}.message-card--final :deep(.markdown-preview p),.message-card--final :deep(.markdown-preview ul),.message-card--final :deep(.markdown-preview ol),.message-card--final :deep(.markdown-preview blockquote),.message-card--final :deep(.markdown-preview pre){margin:7px 0}.message-card--final :deep(.markdown-preview ul),.message-card--final :deep(.markdown-preview ol){padding-left:20px}.message-card--final :deep(.markdown-preview h1),.message-card--final :deep(.markdown-preview h2),.message-card--final :deep(.markdown-preview h3),.message-card--final :deep(.markdown-preview h4),.message-card--final :deep(.markdown-preview h5),.message-card--final :deep(.markdown-preview h6){margin:12px 0 5px;line-height:1.35}.message-card--final :deep(.markdown-preview h1){font-size:17px}.message-card--final :deep(.markdown-preview h2){font-size:15px}.message-card--final :deep(.markdown-preview h3){font-size:13px}.message-card--final :deep(.markdown-preview code){border-radius:4px;padding:1px 4px;background:color-mix(in srgb,var(--surface) 72%,var(--border));font:10px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}.message-card--final :deep(.markdown-preview pre){overflow:auto;border-radius:8px;padding:9px;background:var(--surface)}.message-card--final :deep(.markdown-preview pre code){padding:0;background:transparent}.message-card--final :deep(.markdown-preview blockquote){border-left:2px solid var(--accent);padding-left:9px;color:var(--muted)}.message-card--final :deep(.markdown-preview a){color:var(--accent)}
-.tool-group{border:1px solid var(--border);border-radius:8px;padding:0 8px;background:var(--neutral-soft)}.tool-group>summary{min-height:32px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;list-style:none}.tool-group>summary>span{display:flex;align-items:center;gap:6px;font-size:10px}.tool-group>summary .icon-glyph{width:12px;color:var(--accent)}.tool-group>summary small{color:var(--quiet);font-size:9px}.tool-group__list{display:grid;gap:4px;border-top:1px solid var(--border);padding:5px 0 7px}.tool-card{padding:0 8px;border-radius:8px;background:var(--surface)}.tool-card summary{min-height:34px;gap:7px}.tool-card__icon{width:22px;height:22px;border-radius:6px}.tool-card__icon>.icon-glyph{width:12px}.tool-card__meta{min-width:0;flex:1;display:flex;align-items:baseline;gap:6px;white-space:nowrap}.tool-card__meta strong{overflow:hidden;text-overflow:ellipsis;font-size:10px}.tool-card summary small,.tool-card time{flex:none;color:var(--quiet);font-size:9px}.tool-card__details{display:grid;gap:6px;border-top:1px solid var(--border);padding:8px 0}.tool-card__details label{color:var(--muted);font-size:10px;font-weight:700}.tool-card__details em{color:var(--warning)}.tool-card pre{max-height:190px;overflow:auto;margin:0;border-radius:8px;padding:9px;background:var(--neutral-soft);white-space:pre-wrap;font-size:10px}
+.tool-group{border:1px solid var(--border);border-radius:8px;padding:0 8px;background:var(--neutral-soft)}.tool-group>summary{min-height:32px;display:flex;align-items:center;justify-content:space-between;cursor:pointer;list-style:none}.tool-group>summary>span{display:flex;align-items:center;gap:6px;font-size:10px}.tool-group>summary .icon-glyph{width:12px;color:var(--accent)}.tool-group>summary small{color:var(--quiet);font-size:9px}.tool-group__list{display:grid;gap:4px;border-top:1px solid var(--border);padding:5px 0 7px}.tool-list{display:grid;gap:5px}.tool-card{padding:0 8px;border-radius:8px;background:var(--surface)}.tool-card summary{min-height:34px;gap:7px}.tool-card__icon{width:22px;height:22px;border-radius:6px}.tool-card__icon>.icon-glyph{width:12px}.tool-card__meta{min-width:0;flex:1;display:flex;align-items:baseline;gap:6px;white-space:nowrap}.tool-card__meta strong{overflow:hidden;text-overflow:ellipsis;font-size:10px}.tool-card summary small,.tool-card time{flex:none;color:var(--quiet);font-size:9px}.tool-card__details{display:grid;gap:6px;border-top:1px solid var(--border);padding:8px 0}.tool-card__details label{color:var(--muted);font-size:10px;font-weight:700}.tool-card__details em{color:var(--warning)}.tool-card pre{max-height:190px;overflow:auto;margin:0;border-radius:8px;padding:9px;background:var(--neutral-soft);white-space:pre-wrap;font-size:10px}
 .patch-card{overflow:hidden;border:1px solid color-mix(in srgb,var(--accent) 32%,var(--border));border-radius:11px;background:var(--surface)}.patch-card header{padding:10px 12px;background:var(--accent-soft);font-size:11px}.patch-card header>div{display:flex;align-items:center;gap:7px}.patch-card header .icon-glyph{width:14px;color:var(--accent)}.patch-card header>span{color:var(--accent)}.patch-card button{width:100%;display:grid;grid-template-columns:auto 1fr auto 16px;align-items:center;gap:10px;border:0;border-top:1px solid var(--border);padding:10px 12px;background:transparent;text-align:left;cursor:pointer}.patch-card button>span:nth-child(2){display:flex;flex-direction:column;gap:2px}.patch-card button small{color:var(--quiet);font-size:10px}.line-count{color:var(--muted);font-size:10px}.patch-card button>.icon-glyph{width:14px;color:var(--quiet)}.failure-card{display:flex;gap:9px;border-radius:10px;padding:11px;color:var(--danger);background:var(--danger-soft)}.failure-card>.icon-glyph{width:17px}.failure-card p{margin:3px 0;color:var(--ink);font-size:11px}.failure-card small{font-size:10px}
 .composer{position:sticky;bottom:0;border-top:1px solid var(--border);padding:12px 16px;background:var(--surface)}.composer textarea{width:100%;min-height:62px;box-sizing:border-box;border:1px solid var(--border);border-radius:10px;padding:11px 12px;resize:vertical;font:inherit;font-size:12px}.composer textarea:disabled{background:var(--neutral-soft)}.composer__footer{margin-top:7px}.composer__footer>span{color:var(--quiet);font-size:10px}.readonly-notice{display:flex;align-items:center;gap:9px;color:var(--muted)}.readonly-notice>.icon-glyph{width:17px}.readonly-notice span{display:flex;flex-direction:column;font-size:11px}.readonly-notice small{color:var(--quiet)}
 .drawer-layer{position:fixed;z-index:40;inset:0;background:#13211d24}.diff-drawer{position:absolute;top:0;right:0;width:min(620px,46vw);height:100%;display:flex;flex-direction:column;background:var(--surface);box-shadow:-14px 0 36px #14211d26}.diff-drawer>header{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--border);padding:18px}.diff-drawer>header>div{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:5px 8px}.diff-drawer h2{margin:0;font-size:15px}.diff-drawer header small{grid-column:2;color:var(--muted);font-size:10px}.diff-drawer header button{border:0;background:transparent;font-size:24px;cursor:pointer}.diff-drawer__summary{display:flex;align-items:center;gap:10px;border-bottom:1px solid var(--border);padding:10px 18px;font-size:10px}.diff-drawer__summary span:first-child{color:#087b58}.diff-drawer__summary span:nth-child(2){color:var(--danger)}.diff-drawer__summary strong{margin-left:auto}.diff-lines{flex:1;overflow:auto;padding:14px 0;background:#fbfcfb;font:11px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}.diff-lines code{display:block;min-height:17px;padding:0 18px;white-space:pre-wrap}.diff-lines .added{color:#087b58;background:#eaf8f1}.diff-lines .deleted{color:#a93232;background:#fff0f0}.diff-lines .range{color:#5668a8;background:#f1f3fb}.diff-drawer>footer{border-top:1px solid var(--border);padding:11px 18px;color:var(--muted);font-size:10px}.drawer-state{margin:auto;color:var(--muted)}
