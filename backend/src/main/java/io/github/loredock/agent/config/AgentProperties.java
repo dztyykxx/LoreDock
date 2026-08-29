@@ -116,7 +116,7 @@ public record AgentProperties(
             @DecimalMin("0.0") @DecimalMax("1.0") double minimumRelevance
     ) {
         public Limits {
-            requireDuration(totalTimeout, Duration.ofSeconds(1), Duration.ofMinutes(5), "运行总超时");
+            requireDuration(totalTimeout, Duration.ofSeconds(1), Duration.ofMinutes(15), "运行总超时");
         }
 
         /** @return 不可变的应用层运行上限 */

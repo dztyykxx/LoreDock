@@ -116,7 +116,7 @@ loredock:
       max-model-calls: ${LOREDOCK_AGENT_MAX_MODEL_CALLS:8}
       curation-max-tool-calls: ${LOREDOCK_AGENT_CURATION_MAX_TOOL_CALLS:48}
       curation-max-model-calls: ${LOREDOCK_AGENT_CURATION_MAX_MODEL_CALLS:24}
-      total-timeout: ${LOREDOCK_AGENT_TOTAL_TIMEOUT:90s}
+      total-timeout: ${LOREDOCK_AGENT_TOTAL_TIMEOUT:600s}
       max-results-per-tool: ${LOREDOCK_AGENT_MAX_RESULTS_PER_TOOL:10}
       max-snippet-characters: ${LOREDOCK_AGENT_MAX_SNIPPET_CHARACTERS:2000}
       max-context-characters: ${LOREDOCK_AGENT_MAX_CONTEXT_CHARACTERS:24000}
