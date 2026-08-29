@@ -277,6 +277,7 @@ public interface KnowledgeTaskService {
             String toolCallId,
             int sequence,
             String toolName,
+            String agentNode,
             String purpose,
             String arguments,
             String result,

@@ -541,7 +541,7 @@ public class KnowledgeCurationRunExecutor {
                     String purpose = toolPurpose(toolName);
                     Instant started = clock.instant();
                     toolInvocations.start(conversationId, runId, request.getToolCallId(), toolName,
-                            purpose, request.getArguments(), started);
+                            agentNode(request), purpose, request.getArguments(), started);
                     events.append(runId, AgentEventType.TOOL_STARTED, AgentEvent.SubjectType.TOOL,
                             toolPayload(toolName, purpose, null, null, "STARTED", false), started);
                     try {
@@ -736,5 +736,20 @@ public class KnowledgeCurationRunExecutor {
             failure = failure.getCause();
         }
         return "AGENT_MODEL_RESPONSE_INVALID";
+    }
+
+    /**
+     * @return 当前正在执行该工具调用的 Agent 节点名（coordinator/retriever/drafter/reviewer）。
+     *         工具发生在某个 ReactAgent 子图内，框架在 RunnableConfig.metadata 的 {@code _AGENT_} 中写入
+     *         {@code subgraph_<节点名>}，据此去掉前缀即可稳定归属，避免前端靠阶段事件时间推断。
+     */
+    private static String agentNode(ToolCallRequest request) {
+        Map<String, Object> context = request.getContext() == null ? null : request.getContext();
+        Object value = context == null ? null : context.get("_AGENT_");
+        String agent = value == null ? null : String.valueOf(value);
+        if (agent != null && agent.startsWith("subgraph_")) {
+            agent = agent.substring("subgraph_".length());
+        }
+        return agent;
     }
 }

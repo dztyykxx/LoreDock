@@ -35,6 +35,7 @@ public class KnowledgeToolInvocationService {
             Long runId,
             String toolCallId,
             String toolName,
+            String agentNode,
             String purpose,
             String arguments,
             Instant startedAt
@@ -53,6 +54,7 @@ public class KnowledgeToolInvocationService {
                 .toolCallId(required(toolCallId, 128))
                 .sequence(sequence)
                 .toolName(required(toolName, 128))
+                .agentNode(agentNode)
                 .purpose(required(purpose, 500))
                 .argumentsText(bounded.text())
                 .status("STARTED")

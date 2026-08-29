@@ -618,8 +618,8 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
     private ToolInvocation toolInvocation(KnowledgeToolInvocationEntity value) {
         return new ToolInvocation(
                 value.getId(), value.getRunId(), value.getToolCallId(), defaultInt(value.getSequence()),
-                value.getToolName(), value.getPurpose(), value.getArgumentsText(), value.getResultText(),
-                value.getResultSummary(), value.getErrorText(), ToolStatus.valueOf(value.getStatus()),
+                value.getToolName(), value.getAgentNode(), value.getPurpose(), value.getArgumentsText(),
+                value.getResultText(), value.getResultSummary(), value.getErrorText(), ToolStatus.valueOf(value.getStatus()),
                 Boolean.TRUE.equals(value.getArgumentsTruncated()), Boolean.TRUE.equals(value.getResultTruncated()),
                 value.getStartedAt(), value.getFinishedAt(), value.getDurationMillis());
     }

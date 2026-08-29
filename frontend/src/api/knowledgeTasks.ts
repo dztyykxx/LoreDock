@@ -89,6 +89,7 @@ export interface ToolInvocation {
   toolCallId: string
   sequence: number
   toolName: string
+  agentNode: string | null
   purpose: string
   arguments: string
   result: string | null

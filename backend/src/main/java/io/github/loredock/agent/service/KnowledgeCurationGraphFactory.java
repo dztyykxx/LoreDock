@@ -19,6 +19,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.loredock.agent.model.result.KnowledgeCurationGraphResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -112,6 +113,10 @@ public class KnowledgeCurationGraphFactory {
     private static final String DECISION_CONTEXT = "【调度决策 · 草稿写入要求】";
     private static final String DRAFT_CONTEXT = "【草稿结果 · 本次修订】";
     private static final String REVIEW_CONTEXT = "【审查结果】";
+    private static final String STAGE_DECIDE_INSTRUCTION =
+            "【当前阶段：DECIDE】\n检索已完成。请依据上方检索结果决定下一步：只能输出 DRAFT、ASK_USER 或 NO_CHANGE。切勿输出 CHAT 或 RETRIEVE。";
+    private static final String STAGE_FINISH_INSTRUCTION =
+            "【当前阶段：FINISH】\n所有工作已完成。你作为调度 Agent 是唯一汇报口径：请输出 action=END，并在 summary 给出面向管理员的最终汇报（结论、主要依据、已写入/未写入内容、待人工判断项）。切勿再次输出“请提供…”“现在开始检索…”等开场白。";
 
     private static final Logger log = LoggerFactory.getLogger(KnowledgeCurationGraphFactory.class);
 
@@ -219,16 +224,16 @@ public class KnowledgeCurationGraphFactory {
         graph.addNode("set_decide", (AsyncNodeAction) state -> {
             Map<String, Object> out = new HashMap<>();
             out.put("stage", "DECIDE");
-            putContext(out, state, "retrievalResult", RETRIEVAL_CONTEXT);
-            log.info("knowledge graph 节点推进 set_decide：stage -> DECIDE，注入候选=检索结果 {}", !out.isEmpty());
+            appendContextAndStage(out, state, "retrievalResult", RETRIEVAL_CONTEXT, STAGE_DECIDE_INSTRUCTION);
+            log.info("knowledge graph 节点推进 set_decide：stage -> DECIDE");
             return CompletableFuture.completedFuture(out);
         });
-        // 调度 Agent 的两条结束路径先推进到 FINISH 再回到调度 Agent 汇总；此处注入审查结果供收尾总结。
+        // 调度 Agent 的两条结束路径先推进到 FINISH 再回到调度 Agent 汇总；此处注入审查结果供收尾总结 + 明确 FINISH 阶段。
         graph.addNode("set_finish", (AsyncNodeAction) state -> {
             Map<String, Object> out = new HashMap<>();
             out.put("stage", "FINISH");
-            putContext(out, state, "reviewResult", REVIEW_CONTEXT);
-            log.info("knowledge graph 节点推进 set_finish：stage -> FINISH，注入候选=审查结果 {}", !out.isEmpty());
+            appendContextAndStage(out, state, "reviewResult", REVIEW_CONTEXT, STAGE_FINISH_INSTRUCTION);
+            log.info("knowledge graph 节点推进 set_finish：stage -> FINISH");
             return CompletableFuture.completedFuture(out);
         });
         // 审查返工节点：REVISE 未达上限时递增起草轮数再回到草稿 Agent，保证最多返工两轮（draftRound 最大 2）。
@@ -504,6 +509,18 @@ public class KnowledgeCurationGraphFactory {
         if (context != null) {
             out.put("messages", List.of(context));
         }
+    }
+
+    /** 追加前序结果上下文（若有）与一条明确的【当前阶段】指令，供调度 Agent 可靠识别所处阶段（修 NO_CHANGE 等无草稿/审查路径误判）。 */
+    private static void appendContextAndStage(Map<String, Object> out, com.alibaba.cloud.ai.graph.OverAllState state,
+            String resultKey, String label, String stageInstruction) {
+        List<Message> messages = new ArrayList<>();
+        Message context = contextMessage(state, resultKey, label);
+        if (context != null) {
+            messages.add(context);
+        }
+        messages.add(new UserMessage(stageInstruction));
+        out.put("messages", messages);
     }
 
     /** @return 把前序结构化结果编码成一条带阶段标签的用户消息，用于让下一环 Agent 明确识别所处阶段与可用事实。 */

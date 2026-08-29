@@ -44,6 +44,7 @@ const task = {
   ],
   toolInvocations: [{
     invocationId: 91, runId: 61, toolCallId: 'call-1', sequence: 1, toolName: 'knowledge_search',
+    agentNode: 'retriever',
     purpose: '检索相关业务知识', arguments: '{"query":"发布权限"}', result: '找到 3 份相关知识', resultSummary: '已完成近似文档检索', error: null,
     status: 'COMPLETED' as const, argumentsTruncated: false, resultTruncated: false,
     startedAt: '2026-08-02T00:00:20Z', finishedAt: '2026-08-02T00:00:21Z', durationMillis: 900,

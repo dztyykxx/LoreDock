@@ -469,7 +469,7 @@ backend/src/main/resources/agent-specs/knowledge-curation/
 - 每次 `AGENT_STAGE` 事件提交后，向现有 `knowledge_task_event` 追加 `AGENT_STAGE_UPDATED`，`subjectId` 继续使用 run ID。该事件只通知前端刷新快照，不复制 Agent Event 载荷；任务级 SSE 继续只发送已提交事件及单调递增游标；
 - 三个专家节点需要展示的公开结果继续使用现有 `knowledge_task_message.role=SUB_AGENT` 和稳定 `subject_name` 投影，但不得把专家完整结构化 JSON 直接展示给用户；
 - 最终回复继续使用 `COORDINATOR_AGENT`，并保留当前按 `run.definition.skillName` 识别最终消息的契约，避免破坏现有页面和历史任务；
-- 现有 `knowledge_tool_invocation` 继续记录业务 Tool 的参数摘要、结果摘要和耗时；Agent Stage 与 Tool 按公开事件顺序交错展示，不为 Tool 增加冗余 Agent 外键；
+- 现有 `knowledge_tool_invocation` 继续记录业务 Tool 的参数摘要、结果摘要和耗时；为让前端能在工具运行中即把工具归到正确的 Agent（而非仅靠阶段事件时间推断导致中途误归上一 Agent），为工具调用增加 `agent_node` 列记录执行该调用的 Agent 节点名，取自框架 `RunnableConfig.metadata["_AGENT_"]`（`subgraph_<节点名>` 去前缀）；Agent Stage 与 Tool 按公开事件顺序交错展示；
 - 任务快照已经包含公开 `events`、`messages`、`toolInvocations` 和 `patchSets`，刷新页面和 SSE 重连后均从数据库重建，不依赖浏览器内存保存执行过程。
 
 ### 10.7 前端过程展示

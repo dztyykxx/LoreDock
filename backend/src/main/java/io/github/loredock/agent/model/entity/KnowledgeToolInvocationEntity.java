@@ -25,6 +25,7 @@ public class KnowledgeToolInvocationEntity {
     @TableField("tool_call_id") private String toolCallId;
     @TableField("sequence") private Integer sequence;
     @TableField("tool_name") private String toolName;
+    @TableField("agent_node") private String agentNode;
     @TableField("purpose") private String purpose;
     @TableField("arguments_text") private String argumentsText;
     @TableField("result_text") private String resultText;

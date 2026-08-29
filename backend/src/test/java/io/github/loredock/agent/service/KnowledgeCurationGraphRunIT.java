@@ -384,6 +384,62 @@ class KnowledgeCurationGraphRunIT {
                 coordinator.get(2).contains("【审查结果】"));
     }
 
+    @Test
+    void injectsExplicitFinishStageMarkerOnNoChangePath() throws Exception {
+        Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .schemas(schema).defaultSchema(schema).locations("classpath:db/migration")
+                .load().migrate();
+        PostgresSaver saver = PostgresSaver.builder().datasource(dataSource())
+                .createOption(CreateOption.CREATE_NONE).build();
+
+        // NO_CHANGE 路径：检索后调度判定“无需修改”→ set_finish → 调度 FINISH。因为没有草稿/审查，
+        // 若只靠标签数量判断阶段，调度 Agent 会误判为 DECIDE 甚至输出闲聊。验证 set_finish 注入的【当前阶段：FINISH】标记。
+        AgentAwareChatModel model = new AgentAwareChatModel(Map.of(
+                "coordinator", List.of(
+                        "{\"stage\":\"START\",\"action\":\"RETRIEVE\",\"reason\":\"需整理\","
+                                + "\"draftInstruction\":null,\"question\":null,\"summary\":\"开始整理\"}",
+                        "{\"stage\":\"DECIDE\",\"action\":\"NO_CHANGE\",\"reason\":\"已覆盖\","
+                                + "\"draftInstruction\":null,\"question\":null,\"summary\":\"无需修改\"}",
+                        "{\"stage\":\"FINISH\",\"action\":\"END\",\"reason\":\"完成\","
+                                + "\"draftInstruction\":null,\"question\":null,\"summary\":\"已完成整理\"}"),
+                "retriever", List.of(
+                        "{\"issueType\":\"NONE\",\"candidateTargetDocumentId\":710004,"
+                                + "\"facts\":[],\"unresolvedQuestions\":[],\"summary\":\"无缺口\"}")));
+        KnowledgeCurationGraphFactory factory = new KnowledgeCurationGraphFactory(new ObjectMapper());
+        List<AgentSpec> specs = loadSpecs();
+        factory.validate(specs, ALL_TOOLS);
+        Map<String, ToolCallback> callbacks = ALL_TOOLS.stream().collect(Collectors.toMap(
+                n -> n, KnowledgeCurationGraphRunIT::tool, (a, b) -> a, LinkedHashMap::new));
+        StaticToolCallbackResolver resolver = new StaticToolCallbackResolver(List.copyOf(callbacks.values()));
+        KnowledgeCurationGraphFactory.GraphBundle bundle = factory.build(
+                new KnowledgeCurationGraphFactory.AgentSpecSet(specs), model, resolver,
+                Map.of("operatorId", "admin", "projectIdentifier", "atlas",
+                        "conversationId", 1L, "runId", 2L),
+                saver, List.of(), List.of(), KnowledgeCurationRunExecutor.toolExceptionProcessor());
+        RunnableConfig config = RunnableConfig.builder().threadId("curation-no-change").build();
+        Map<String, Object> initial = Map.of("goal", "整理项目知识", "stage", "START", "draftRound", 0,
+                "messages", List.of(new UserMessage("请整理背景")));
+
+        RunnableConfig resumeConfig = config;
+        Map<String, Object> input = initial;
+        for (int rounds = 0; rounds < 20; rounds++) {
+            bundle.graph().stream(input, resumeConfig).collectList().block(Duration.ofSeconds(20));
+            var snapshot = bundle.graph().getState(config);
+            String next = snapshot == null ? null : snapshot.next();
+            if (next == null || "__END__".equals(next)) break;
+            input = Map.of();
+            resumeConfig = snapshot.config();
+        }
+
+        // 关键回归：NO_CHANGE 路径的 FINISH 阶段必须收到明确的【当前阶段：FINISH】指令，否则调度 Agent 会误判阶段。
+        List<String> coordinator = model.prompts("coordinator");
+        assertThat(coordinator).hasSize(3);
+        assertThat(coordinator.get(2)).contains("【当前阶段：FINISH】");
+        System.out.printf("测试证据：场景=NO_CHANGE路径FINISH带阶段标记，coordinator进入=%d，FINISH含阶段标记=%s%n",
+                coordinator.size(), coordinator.get(2).contains("【当前阶段：FINISH】"));
+    }
+
     private DataSource dataSource() {
         String separator = POSTGRES.getJdbcUrl().contains("?") ? "&" : "?";
         return new DriverManagerDataSource(

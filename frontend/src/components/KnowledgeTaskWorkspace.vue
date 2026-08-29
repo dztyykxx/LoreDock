@@ -222,11 +222,13 @@ function agentBlocksForRun(run: KnowledgeTaskRun): AgentBlock[] {
       tools: [] as ToolInvocation[],
     }
   })
-  // 把工具调用归属到“该工具开始时间之后的第一个已完成阶段”，即执行该工具的那个 Agent。
+  // 优先按后端记录的 agentNode 归组（工具运行中即可归属到正确的 Agent，不再受阶段事件时序影响）；
+  // 旧数据无 agentNode 时退回“该工具开始时间之后第一个已完成阶段”的时间推断。
   for (const tool of toolsForRun(run.runId)) {
-    const target = blocks.find(block => block.at && new Date(block.at).getTime() >= new Date(tool.startedAt).getTime())
+    const byAgent = tool.agentNode ? blocks.find(block => block.agent === tool.agentNode) : undefined
+    const byTime = blocks.find(block => block.at && new Date(block.at).getTime() >= new Date(tool.startedAt).getTime())
+    const target = byAgent ?? byTime ?? (blocks.length ? blocks[blocks.length - 1] : undefined)
     if (target) target.tools.push(tool)
-    else if (blocks.length) blocks[blocks.length - 1].tools.push(tool)
   }
   for (const block of blocks) block.tools.sort((left, right) => left.sequence - right.sequence)
   return blocks
