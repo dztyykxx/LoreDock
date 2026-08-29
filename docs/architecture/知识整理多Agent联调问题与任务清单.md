@@ -21,46 +21,42 @@
 
 ## 二、联调暴露的问题（按优先级）
 
-### 问题 1（高）：各 Agent 上下文实际只注入 goal，导致重复工具调用
+### 问题 1（高）：各 Agent 上下文能看到前序结果，但为无标签、含自引用原始 JSON，导致重复工具调用与阶段误判
 
 **现象**（run 28 日志）：
 - 检索 Agent 总共 49 次工具调用，且 `knowledge_grep` 反复命中同一段（doc 11 第 13 行被 grep 多次）、多条 grep 返回空；
 - 草稿 Agent 重新执行 `workspace_document_list` + `selected_draft_read`(doc 10) + `knowledge_document_read`(doc 11)，把检索 Agent 已读过的材料又读一遍；
-- 审查 Agent 同样重新 `workspace_document_list` + `draft_read` + `selected_draft_list/read` + `knowledge_document_read`(doc 11) + `knowledge_search`。
+- 审查 Agent 同样重新 `workspace_document_list` + `draft_read` + `selected_draft_list/read` + `knowledge_document_read`(doc 11) + `knowledge_search`；
+- 调度 Agent 在 FINISH 阶段重复 START 输出（“现在开始检索…”），最终回复错误。
 
-**根因**：`asNode(true, false)` 只把父 state 的 `messages`（恒为 `[goal]`）传给各 Agent；而 `templateRenderer` 是 passthrough（指令含 JSON 大括号/`|`，模板渲染会崩），所以 state 里的 `retrievalResult / draftResult / reviewResult / stage` **不会**被替换进任何 Agent 的指令。因此每个 Agent 只知道「本轮 goal + 自己的角色」，不知道前任 Agent 的结构化结果，只能重做全部读取。
+**先修正认知（实测验证**）：**各 Agent 并不是“只能看到 goal”**。框架在 `asNode(true, false)` 下会把每个 Agent 的最后一条结构化输出（原始 JSON）自动追加到父 `messages`（`ReactAgent` 的 `AgentToSubCompiledGraphNodeAdapter` + `processLastResponse` 只保留最后一条消息并 `mergeIntoCurrentState`）。因此下一环 Agent 的模型 prompt 实际已包含前序结果，只是以**无标签、且混入调度 Agent 自身早期 `stage=START/DECIDE` 输出**的原始 JSON 形式出现。
 
-**设计意图**（§7.1–7.4 要求）：
-- 调度 DECIDE：读 `retrievalResult`；
-- 草稿：读 `retrievalResult` + 调度 `draftInstruction`；
-- 审查：读 `retrievalResult` + 调度决策 + `draftResult`；
-- 调度 FINISH：读全部结果后汇总。
+**真正根因**：
+1. 前序结果是原始 JSON，没有阶段标签；调度 Agent 无法可靠识别自己处于 `START/DECIDE/FINISH`，看到上下文里自己上一轮输出的 `stage=START` 就照抄，→ FINISH 重复开场白；
+2. 提示词只强调“读取草稿/来源”，没有告诉各 Agent“已提供的事实直接用、不要重复检索”，→ 草稿/审查重复读同名文档；
+3. 检索提示词未约束去重，→ 大量重复 grep。
 
-这些均未实现。
+**修复（已落地）**：在 Graph 状态推进节点合成**带标签、可识别阶段**的上下文消息（`set_decide` 注入【检索结果 · 供调度决策】、`set_draft_context` 注入【调度决策 · 草稿写入要求】、`set_review_context` 注入【草稿结果 · 本次修订】、`set_finish`/`set_draft_round` 注入【审查结果】），并重写四份 `.md` 提示词：调度 Agent 只据【 】标签判断阶段、忽略自身早期输出；草稿/审查/检索直接使用已给事实、不再重复检索。
 
-### 问题 2（高）：调度 Agent 在 FINISH 阶段重复 START 输出，最终回复错误
+**已知局限**：框架仍会把原始 JSON 一并追加，上下文存在“原始 + 带标签”双份冗余；提示词已要求优先读标签。后续若需彻底消除冗余，需在框架层关闭子图 `messages` 回传或在适配器层过滤。
 
-**现象**（run 28 日志，迭代=8）：
-```
-node=coordinator phase=START 公开摘要=已收到任务：将勾选草稿合并为稳定业务知识…现在开始检索相关草稿…
-coordinatorRoute：stage=FINISH action=RETRIEVE -> FINISH
-```
-最终回复与 START 阶段完全一致（“现在开始检索…”），而不是面向管理员的收尾总结。
+### 问题 2（高，已随问题 1 修复）：调度 Agent 在 FINISH 阶段重复 START 输出，最终回复错误
 
-**根因**：调度 Agent 进入 FINISH 时，上下文仍只有 `goal`，不知道检索/草稿/审查结果，于是重复 START 的“开始检索”话术；`finalReply` 取 `coordinationResult.summary()` 得到该话术。同时调度 Agent 根本不知道自己处于 `START / DECIDE / FINISH` 哪个 stage（`stage` state 键未进 prompt），其阶段输出本质是模型猜测——本次恰好在 DECIDE 猜对、FINISH 猜错。
+**现象**（run 28 日志，迭代=8）：`node=coordinator phase=START 公开摘要=已收到任务…现在开始检索…`，最终回复与 START 阶段完全一致。
 
-### 问题 3（高）：`draft_update` 持续报“引用了当前 run 或会话之外的来源”，3 次失败后以 sourceCount=0 落库
+**根因（与问题 1 同源）**：调度 Agent 收到的是无标签、含自身早期 `stage=START` 输出的原始 JSON，无法识别自己处于 FINISH；提示词也没有“据【 】标签判断阶段、忽略自身早期输出”的措辞。
+
+**修复**：见问题 1；`coordinator.md` 已新增“据【 】标签判断阶段，忽略自身早期 `stage=START/DECIDE`”的明确指令，FINISH 阶段必须输出 `action=END` 与最终总结。
+
+### 问题 3（高，已随问题 1 修复）：`draft_update` 持续报“引用了当前 run 或会话之外的来源”，3 次失败后以 sourceCount=0 落库
 
 **现象**（run 28 日志 20:52:24 / 20:52:28 / 20:52:49 三次 `TOOL_ERROR`，最终 20:52:56 成功但 `sourceCount=0`）。
 
-**根因**：`KnowledgeCurationTools.validateDraftSources` 只接受三类来源，且 ID 必须是：
-- `EVIDENCE`：本 run 已落库的证据 ID（`agent_evidence`）；
-- `USER_MESSAGE`：本会话的 USER 消息 ID；
-- `SELECTED_DRAFT`：本会话选中草稿的文档 ID。
+**根因**：`KnowledgeCurationTools.validateDraftSources` 只接受三类来源且 ID 必须是本 run 的 `agent_evidence` 证据 ID、本会话的 USER 消息 ID、或本会话选中草稿的文档 ID。草稿 Agent 看到的是无标签原始检索 JSON，无法稳定认出真正的证据 ID，便用**文档 ID**（doc 11/20/16/6）作来源引用，被 `evidenceIds.contains(...)` 拒绝；反复失败后放弃引用，落库 `sourceCount=0`。
 
-草稿 Agent 因看不到检索 Agent 的结构化结果，不知道本 run 的真实证据 ID，便用**文档 ID**（如 doc 11/20/16/6）作来源引用，被 `evidenceIds.contains(...)` 拒绝；反复失败后放弃引用，落库的草稿 `sourceCount=0`，缺少来源支撑。
+**修复**：见问题 1；`drafter.md` 已要求直接使用【检索结果 · 供调度决策】里带 `sourceRefs` 的 SUPPORTED 事实，引用其中真实的证据 ID，不再用文档 ID 猜测。
 
-**结论**：问题 3 是问题 1 的连带症状。修好消息传递（让草稿 Agent 拿到 `retrievalResult` 里的正确 `sourceRefs`）后，草稿 Agent 会引用真实证据 ID，不再重复读取也不再被拒。
+**结论**：问题 3 是问题 1 的连带症状。修好消息传递后，草稿 Agent 会引用真实证据 ID，不再重复读取也不再被拒。
 
 ### 问题 4（中）：前端所有 Agent 输出挤进首张卡片，未按时间/Agent/工具调用分组
 

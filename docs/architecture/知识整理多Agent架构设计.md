@@ -206,6 +206,8 @@ Graph State 中的草稿只记录 `draftId + revision`，来源只记录现有�
 
 之所以必须把 `goal` 作为用户消息而不是塞进指令模板，是因为各 Agent 指令正文含 JSON 大括号与 `|`，框架模板渲染会解析失败，只能使用不做替换的 passthrough renderer；因此 `goal` 必须经由 `messages` 注入，否则调度 Agent 看不到“整理了哪份文档”，会把整理请求误判为 CHAT 而短路（实际联调发现的 bug）。
 
+框架在 `asNode(true, false)` 下还会把每个 Agent 的最后一条结构化输出（原始 JSON）自动追加到父 `messages`，使下一环 Agent 的上下文出现无标签、且混入调度 Agent 自身早期 `stage=START/DECIDE` 输出的冗余 JSON，调度 Agent 因此难以识别所处阶段。为此在状态推进节点合成**带标签、可识别阶段**的上下文消息（§10.1 的 `set_decide`/`set_draft_context`/`set_review_context`/`set_finish`/`set_draft_round`），并让各 Agent 的指令优先读取这些带标签上下文；框架追加的原始 JSON 仍会存在，提示词要求 Agent 忽略其中的阶段字段、只认标签。
+
 ## 7. 四个 Agent 的职责与权限
 
 ### 7.1 调度 Agent

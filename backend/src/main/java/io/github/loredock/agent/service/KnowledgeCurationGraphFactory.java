@@ -19,12 +19,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.loredock.agent.model.result.KnowledgeCurationGraphResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.execution.ToolExecutionExceptionProcessor;
@@ -99,6 +102,16 @@ public class KnowledgeCurationGraphFactory {
             RETRIEVER, "retrievalResult",
             DRAFTER, "draftResult",
             REVIEWER, "reviewResult");
+
+    /**
+     * 各状态推进节点注入 messages 时使用的带标签上下文前缀。框架会把每个 Agent 的最后一条结构化输出
+     * （原始 JSON）自动追加到父 messages，导致下个 Agent 看到一串无标签、且含调度 Agent 自身早期输出的
+     * 原始 JSON，难以识别所处阶段。这里额外注入带明确标签与阶段含义的上下文，让 Agent 优先读取。
+     */
+    private static final String RETRIEVAL_CONTEXT = "【检索结果 · 供调度决策】";
+    private static final String DECISION_CONTEXT = "【调度决策 · 草稿写入要求】";
+    private static final String DRAFT_CONTEXT = "【草稿结果 · 本次修订】";
+    private static final String REVIEW_CONTEXT = "【审查结果】";
 
     private static final Logger log = LoggerFactory.getLogger(KnowledgeCurationGraphFactory.class);
 
@@ -201,22 +214,44 @@ public class KnowledgeCurationGraphFactory {
             // 因此这里不会造成“继承前序 Agent 完整消息历史”的设计顾虑。
             graph.addNode(role, agent.asNode(true, false));
         }
-        // 两个状态推进节点：RETRIEVE 之后推进到 DECIDE；各结束路径先推进到 FINISH 再回到调度 Agent 汇总。
+        // 状态推进与上下文合成节点：在推进 stage 的同时，把上一环的结构化结果以带标签的消息追加到 messages，
+        // 使下一环 Agent 优先读取到清晰、可识别阶段的前序结果（修掉“只有原始 JSON、调度 Agent 误判阶段”的问题）。
         graph.addNode("set_decide", (AsyncNodeAction) state -> {
-            int draftRound = integer(state, "draftRound");
-            log.info("knowledge graph 节点推进 set_decide：stage START|RETRIEVE -> DECIDE，draftRound={}", draftRound);
-            return CompletableFuture.completedFuture(Map.of("stage", "DECIDE"));
+            Map<String, Object> out = new HashMap<>();
+            out.put("stage", "DECIDE");
+            putContext(out, state, "retrievalResult", RETRIEVAL_CONTEXT);
+            log.info("knowledge graph 节点推进 set_decide：stage -> DECIDE，注入候选=检索结果 {}", !out.isEmpty());
+            return CompletableFuture.completedFuture(out);
         });
+        // 调度 Agent 的两条结束路径先推进到 FINISH 再回到调度 Agent 汇总；此处注入审查结果供收尾总结。
         graph.addNode("set_finish", (AsyncNodeAction) state -> {
-            int draftRound = integer(state, "draftRound");
-            log.info("knowledge graph 节点推进 set_finish：各结束路径 -> FINISH，draftRound={}", draftRound);
-            return CompletableFuture.completedFuture(Map.of("stage", "FINISH"));
+            Map<String, Object> out = new HashMap<>();
+            out.put("stage", "FINISH");
+            putContext(out, state, "reviewResult", REVIEW_CONTEXT);
+            log.info("knowledge graph 节点推进 set_finish：stage -> FINISH，注入候选=审查结果 {}", !out.isEmpty());
+            return CompletableFuture.completedFuture(out);
         });
         // 审查返工节点：REVISE 未达上限时递增起草轮数再回到草稿 Agent，保证最多返工两轮（draftRound 最大 2）。
         graph.addNode("set_draft_round", (AsyncNodeAction) state -> {
             int round = integer(state, "draftRound") + 1;
-            log.info("knowledge graph 节点推进 set_draft_round：REVISE 未达上限，draftRound -> {}（最大 2）", round);
-            return CompletableFuture.completedFuture(Map.of("draftRound", round));
+            Map<String, Object> out = new HashMap<>();
+            out.put("draftRound", round);
+            putContext(out, state, "reviewResult", REVIEW_CONTEXT);
+            log.info("knowledge graph 节点推进 set_draft_round：REVISE 未达上限，draftRound -> {}（最大 2），注入候选=审查结果", round);
+            return CompletableFuture.completedFuture(out);
+        });
+        // 草稿与审查节点各自的入口前合成上下文：草稿看到“检索结果 + 调度决策”，审查看到“检索结果 + 调度决策 + 草稿结果”。
+        graph.addNode("set_draft_context", (AsyncNodeAction) state -> {
+            Map<String, Object> out = new HashMap<>();
+            putContext(out, state, "coordinationResult", DECISION_CONTEXT);
+            log.info("knowledge graph 节点推进 set_draft_context：注入候选=调度决策 {}", !out.isEmpty());
+            return CompletableFuture.completedFuture(out);
+        });
+        graph.addNode("set_review_context", (AsyncNodeAction) state -> {
+            Map<String, Object> out = new HashMap<>();
+            putContext(out, state, "draftResult", DRAFT_CONTEXT);
+            log.info("knowledge graph 节点推进 set_review_context：注入候选=草稿结果 {}", !out.isEmpty());
+            return CompletableFuture.completedFuture(out);
         });
 
         // 父 Graph 从 START 进入调度 Agent，保证存在唯一的有效入口点。
@@ -230,6 +265,9 @@ public class KnowledgeCurationGraphFactory {
         graph.addConditionalEdges(REVIEWER, reviewRouter(), reviewRoutes());
         graph.addEdge("set_draft_round", DRAFTER);
         graph.addEdge("set_finish", COORDINATOR);
+        // 调度 DECIDE(草稿动作)→合成调度决策→草稿；草稿 WRITTEN→合成草稿结果→审查。
+        graph.addEdge("set_draft_context", DRAFTER);
+        graph.addEdge("set_review_context", REVIEWER);
 
         CompileConfig compileConfig = CompileConfig.builder()
                 .saverConfig(SaverConfig.builder().register(saver).build())
@@ -386,7 +424,7 @@ public class KnowledgeCurationGraphFactory {
         Map<String, String> routes = new LinkedHashMap<>();
         routes.put("CHAT", StateGraph.END);
         routes.put("RETRIEVE", RETRIEVER);
-        routes.put("DRAFT", DRAFTER);
+        routes.put("DRAFT", "set_draft_context");
         routes.put("ASK_USER", "set_finish");
         routes.put("NO_CHANGE", "set_finish");
         routes.put("FINISH", StateGraph.END);
@@ -396,7 +434,7 @@ public class KnowledgeCurationGraphFactory {
     private Map<String, String> draftRoutes() {
         Map<String, String> routes = new LinkedHashMap<>();
         routes.put("BLOCKED", "set_finish");
-        routes.put("WRITTEN", REVIEWER);
+        routes.put("WRITTEN", "set_review_context");
         return routes;
     }
 
@@ -457,6 +495,37 @@ public class KnowledgeCurationGraphFactory {
             }
         }
         return String.valueOf(map);
+    }
+
+    /** 若指定结果键已产出，则以带标签的用户消息追加到返回的 state 更新里（messages 为 APPEND 会追加）。 */
+    private static void putContext(Map<String, Object> out, com.alibaba.cloud.ai.graph.OverAllState state,
+            String resultKey, String label) {
+        Message context = contextMessage(state, resultKey, label);
+        if (context != null) {
+            out.put("messages", List.of(context));
+        }
+    }
+
+    /** @return 把前序结构化结果编码成一条带阶段标签的用户消息，用于让下一环 Agent 明确识别所处阶段与可用事实。 */
+    private static Message contextMessage(com.alibaba.cloud.ai.graph.OverAllState state, String resultKey, String label) {
+        Object value = state.data().get(resultKey);
+        if (value == null) {
+            return null;
+        }
+        String text;
+        if (value instanceof AssistantMessage message) {
+            text = message.getText();
+        } else if (value instanceof String string) {
+            text = string;
+        } else if (value instanceof Map<?, ?> map) {
+            text = messageTextFromMap(map);
+        } else {
+            text = String.valueOf(value);
+        }
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        return new UserMessage(label + "\n" + text);
     }
 
     private String text(com.alibaba.cloud.ai.graph.OverAllState state, String key) {

@@ -22,6 +22,7 @@ selected_draft_list、selected_draft_read、knowledge_directory_list、knowledge
 
 ## 要求
 
+- 只读取与当前管理员目标（本轮 goal）相关的材料。对同一文档、同一段落不要反复读取或反复 grep；已经定位到的事实不要再重复搜索。
 - 逐项核对候选材料与现有知识，对每一条关键事实标记证据充分性：有明确来源标记 SUPPORTED；与现有知识冲突标记 CONFLICTED；信息不完整或找不到来源标记 INSUFFICIENT。
 - 只提交与当前管理员目标相关的事实，不要罗列无关内容；sourceRefs 使用真实存在的证据、候选草稿或用户消息 ID。
 - 无法解决的问题写入 unresolvedQuestions，但不能据此决定结束方式。

@@ -311,6 +311,79 @@ class KnowledgeCurationGraphRunIT {
                 data.get("draftRound"), model.callsByAgent("drafter"));
     }
 
+    @Test
+    void composesStageContextIntoEachAgentPrompt() throws Exception {
+        Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .schemas(schema).defaultSchema(schema).locations("classpath:db/migration")
+                .load().migrate();
+        PostgresSaver saver = PostgresSaver.builder().datasource(dataSource())
+                .createOption(CreateOption.CREATE_NONE).build();
+
+        // 完整路径（调度 3 次 + 检索/草稿/审查各 1 次），脚本化模型按角色返回固定结构化结果。
+        AgentAwareChatModel model = new AgentAwareChatModel(Map.of(
+                "coordinator", List.of(
+                        "{\"stage\":\"START\",\"action\":\"RETRIEVE\",\"reason\":\"需整理\","
+                                + "\"draftInstruction\":null,\"question\":null,\"summary\":\"开始整理\"}",
+                        "{\"stage\":\"DECIDE\",\"action\":\"DRAFT\",\"reason\":\"有支持事实\","
+                                + "\"draftInstruction\":\"写入背景\",\"question\":null,\"summary\":\"决定起草\"}",
+                        "{\"stage\":\"FINISH\",\"action\":\"END\",\"reason\":\"完成\","
+                                + "\"draftInstruction\":null,\"question\":null,\"summary\":\"已完成整理\"}"),
+                "retriever", List.of(
+                        "{\"issueType\":\"MISSING\",\"candidateTargetDocumentId\":710004,"
+                                + "\"facts\":[{\"statement\":\"新增背景\",\"support\":\"SUPPORTED\","
+                                + "\"sourceRefs\":[{\"type\":\"EVIDENCE\",\"id\":88}]}],"
+                                + "\"unresolvedQuestions\":[],\"summary\":\"检索到背景事实\"}"),
+                "drafter", List.of(
+                        "{\"status\":\"WRITTEN\",\"drafts\":[{\"draftId\":19,\"revision\":3,\"operation\":\"ADD\"}],"
+                                + "\"question\":null,\"summary\":\"已写入\"}"),
+                "reviewer", List.of(
+                        "{\"verdict\":\"PASS\",\"reviewedDrafts\":[{\"draftId\":19,\"revision\":3}],"
+                                + "\"findings\":[],\"question\":null,\"summary\":\"审查通过\"}")));
+        KnowledgeCurationGraphFactory factory = new KnowledgeCurationGraphFactory(new ObjectMapper());
+        List<AgentSpec> specs = loadSpecs();
+        factory.validate(specs, ALL_TOOLS);
+        Map<String, ToolCallback> callbacks = ALL_TOOLS.stream().collect(Collectors.toMap(
+                n -> n, KnowledgeCurationGraphRunIT::tool, (a, b) -> a, LinkedHashMap::new));
+        StaticToolCallbackResolver resolver = new StaticToolCallbackResolver(List.copyOf(callbacks.values()));
+        KnowledgeCurationGraphFactory.GraphBundle bundle = factory.build(
+                new KnowledgeCurationGraphFactory.AgentSpecSet(specs), model, resolver,
+                Map.of("operatorId", "admin", "projectIdentifier", "atlas",
+                        "conversationId", 1L, "runId", 2L),
+                saver,
+                List.of(), List.of(), KnowledgeCurationRunExecutor.toolExceptionProcessor());
+        RunnableConfig config = RunnableConfig.builder().threadId("curation-context").build();
+        Map<String, Object> initial = Map.of("goal", "整理项目知识", "stage", "START", "draftRound", 0,
+                "messages", List.of(new UserMessage("请整理背景")));
+
+        RunnableConfig resumeConfig = config;
+        Map<String, Object> input = initial;
+        for (int rounds = 0; rounds < 20; rounds++) {
+            bundle.graph().stream(input, resumeConfig).collectList().block(Duration.ofSeconds(20));
+            var snapshot = bundle.graph().getState(config);
+            String next = snapshot == null ? null : snapshot.next();
+            if (next == null || "__END__".equals(next)) break;
+            input = Map.of();
+            resumeConfig = snapshot.config();
+        }
+
+        // 每一环 Agent 的模型 prompt 必须带有服务端合成的、带标签的前序结果（而非只有原始 JSON 或只有 goal），
+        // 以便调度 Agent 可靠识别所处阶段、其他 Agent 直接使用已给事实而不再重复检索：
+        // 调度 DECIDE 看到【检索结果】、草稿看到【调度决策·草稿写入要求】、审查看到【草稿结果·本次修订】、调度 FINISH 看到【审查结果】。
+        List<String> coordinator = model.prompts("coordinator");
+        assertThat(coordinator).hasSize(3);
+        assertThat(coordinator.get(1)).contains("【检索结果");
+        assertThat(model.prompts("drafter").get(0)).contains("【调度决策 · 草稿写入要求】");
+        assertThat(model.prompts("reviewer").get(0)).contains("【草稿结果 · 本次修订】");
+        assertThat(coordinator.get(2)).contains("【审查结果】");
+        System.out.printf("测试证据：场景=服务端按阶段合成带标签上下文，coordinator进入=%d，DECIDE含检索标签=%s，草稿含决策标签=%s，审查含草稿标签=%s，FINISH含审查标签=%s%n",
+                coordinator.size(),
+                coordinator.get(1).contains("【检索结果"),
+                model.prompts("drafter").get(0).contains("【调度决策 · 草稿写入要求】"),
+                model.prompts("reviewer").get(0).contains("【草稿结果 · 本次修订】"),
+                coordinator.get(2).contains("【审查结果】"));
+    }
+
     private DataSource dataSource() {
         String separator = POSTGRES.getJdbcUrl().contains("?") ? "&" : "?";
         return new DriverManagerDataSource(
@@ -346,6 +419,7 @@ class KnowledgeCurationGraphRunIT {
     private static final class AgentAwareChatModel implements ChatModel {
         private final Map<String, List<String>> agentResponses;
         private final Map<String, AtomicInteger> counters = new LinkedHashMap<>();
+        private final Map<String, List<String>> promptsByAgent = new LinkedHashMap<>();
         private final AtomicInteger total = new AtomicInteger();
 
         private AgentAwareChatModel(Map<String, List<String>> agentResponses) {
@@ -356,6 +430,8 @@ class KnowledgeCurationGraphRunIT {
         public ChatResponse call(Prompt prompt) {
             String agent = detectAgent(prompt.getContents());
             int index = counters.computeIfAbsent(agent, ignored -> new AtomicInteger()).getAndIncrement();
+            promptsByAgent.computeIfAbsent(agent, ignored -> new ArrayList<>())
+                    .add(prompt.getContents());
             List<String> responses = agentResponses.get(agent);
             String json = responses.get(Math.min(index, responses.size() - 1));
             total.incrementAndGet();
@@ -370,6 +446,11 @@ class KnowledgeCurationGraphRunIT {
         int callsByAgent(String agent) {
             AtomicInteger counter = counters.get(agent);
             return counter == null ? 0 : counter.get();
+        }
+
+        /** @return 该角色各次进入时收到的完整模型 prompt 内容（用于断言前序结构化结果已注入上下文）。 */
+        List<String> prompts(String agent) {
+            return promptsByAgent.getOrDefault(agent, List.of());
         }
 
         private static String detectAgent(String contents) {
