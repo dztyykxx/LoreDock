@@ -27,19 +27,20 @@ const task = {
   ],
   runs: [{
     runId: 61, conversationId: 41, threadId: 'knowledge-task-41-run-61', status: 'RUNNING' as const,
-    checkpointSavedAt: null, stepCount: 4, modelCallCount: 2, toolCallCount: 1, errorCode: null,
+    checkpointSavedAt: null, stepCount: 4, modelCallCount: 2, toolCallCount: 1,
+    inputTokens: 2100, outputTokens: 210, errorCode: null,
     acceptedAt: '2026-08-02T00:00:05Z', startedAt: '2026-08-02T00:00:06Z', finishedAt: null,
     definition: { skillName: 'knowledge-curator', skillDigest: 'abc', agentSpecDigest: 'def', modelName: 'deepseek-v4-flash', toolNames: ['draft_read', 'draft_update'] },
   }],
   events: [
     { eventId: 101, runId: 61, sequence: 1, type: 'AGENT_STAGE' as const, subjectType: 'AGENT' as const,
-      payload: { phase: 'START', name: 'coordinator', purpose: null, parameterSummary: null, resultSummary: null, count: null, durationMillis: null, status: 'COMPLETED', summary: '我会先核对两份输入与现有发布规则，再分别修订冲突文档。', textDelta: null, resultType: null, errorCode: null, modelGenerated: false, truncated: false },
+      payload: { phase: 'START', name: 'coordinator', purpose: null, parameterSummary: null, resultSummary: null, count: null, durationMillis: null, status: 'COMPLETED', summary: '我会先核对两份输入与现有发布规则，再分别修订冲突文档。', textDelta: null, resultType: null, errorCode: null, modelGenerated: false, truncated: false, promptTokens: 120, completionTokens: 15 },
       createdAt: '2026-08-02T00:00:08Z' },
     { eventId: 102, runId: 61, sequence: 2, type: 'AGENT_STAGE' as const, subjectType: 'AGENT' as const,
-      payload: { phase: 'RETRIEVE', name: 'retriever', purpose: null, parameterSummary: null, resultSummary: null, count: null, durationMillis: null, status: 'COMPLETED', summary: '检索到发布权限相关事实。', textDelta: null, resultType: null, errorCode: null, modelGenerated: false, truncated: false },
+      payload: { phase: 'RETRIEVE', name: 'retriever', purpose: null, parameterSummary: null, resultSummary: null, count: null, durationMillis: null, status: 'COMPLETED', summary: '检索到发布权限相关事实。', textDelta: null, resultType: null, errorCode: null, modelGenerated: false, truncated: false, promptTokens: 300, completionTokens: 40 },
       createdAt: '2026-08-02T00:00:30Z' },
     { eventId: 103, runId: 61, sequence: 3, type: 'AGENT_STAGE' as const, subjectType: 'AGENT' as const,
-      payload: { phase: 'DECIDE', name: 'coordinator', purpose: null, parameterSummary: null, resultSummary: null, count: null, durationMillis: null, status: 'COMPLETED', summary: '因此我会修改它，而不是新增重复文档。', textDelta: null, resultType: null, errorCode: null, modelGenerated: false, truncated: false },
+      payload: { phase: 'DECIDE', name: 'coordinator', purpose: null, parameterSummary: null, resultSummary: null, count: null, durationMillis: null, status: 'COMPLETED', summary: '因此我会修改它，而不是新增重复文档。', textDelta: null, resultType: null, errorCode: null, modelGenerated: false, truncated: false, promptTokens: 450, completionTokens: 55 },
       createdAt: '2026-08-02T00:00:32Z' },
   ],
   toolInvocations: [{
@@ -91,6 +92,14 @@ describe('KnowledgeTaskWorkspace', () => {
     expect(tool.get('.tool-card__meta').text()).toContain('knowledge_search · 已完成')
     expect(tool.attributes('open')).toBeUndefined()
     expect(wrapper.text()).toContain('不展示内部思维')
+  })
+
+  /** 业务目的：后端记录的 token 用量必须在每轮汇总与各 Agent 折叠块可见，让管理员知道哪个 Agent 最耗 token。 */
+  it('shows run-level and per-agent token usage', () => {
+    const wrapper = mount(KnowledgeTaskWorkspace, { props: { task } })
+    expect(wrapper.get('.task-summary__metrics').text()).toContain('输入 2,100 / 输出 210')
+    const retrieverBlock = wrapper.findAll('[data-testid="agent-block"]').find(block => block.text().includes('检索 Agent'))
+    expect(retrieverBlock?.text()).toContain('输入 300 / 输出 40')
   })
 
   /** 业务目的：终态运行默认只露出模型最终回复；执行过程整体可展开，最终回复安全渲染 Markdown。 */

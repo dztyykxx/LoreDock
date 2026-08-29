@@ -9,7 +9,7 @@
         <p>{{ triggerLabel }} · {{ task.targetSkill || 'knowledge-curator' }} · {{ task.runs.length }} 轮运行</p>
       </div>
       <div class="task-summary__metrics">
-        <strong>模型 {{ totalModelCalls }} 次 · 工具 {{ task.toolInvocations.length }} 次</strong>
+        <strong>模型 {{ totalModelCalls }} 次 · 工具 {{ task.toolInvocations.length }} 次<template v-if="totalTokensKnown"> · 输入 {{ totalTokenLabel(totalInputTokens) }} / 输出 {{ totalTokenLabel(totalOutputTokens) }}</template></strong>
         <span>最近运行 {{ runStatusLabel(activeRun?.status) }}</span>
       </div>
     </header>
@@ -71,7 +71,7 @@
                 <details data-testid="agent-block" class="agent-block" :class="`agent-block--${agent.status.toLowerCase()}`" :open="agent.status === 'RUNNING' || agent.tools.length === 0">
                   <summary>
                     <span class="agent-block__head"><IconGlyph name="settings" /><strong>{{ agent.agentLabel }}</strong><em>{{ agent.phaseLabel }}</em></span>
-                    <small class="agent-block__status">{{ agent.statusLabel }}<template v-if="agent.tools.length"> · 工具 {{ agent.tools.length }} 次</template></small>
+                    <small class="agent-block__status">{{ agent.statusLabel }}<template v-if="agent.tools.length"> · 工具 {{ agent.tools.length }} 次</template><template v-if="agent.promptTokens != null"> · 输入 {{ agent.promptTokens }} / 输出 {{ agent.completionTokens }}</template></small>
                   </summary>
                   <div class="agent-block__body">
                     <p v-if="agent.summary" class="agent-block__summary">{{ agent.summary }}</p>
@@ -187,6 +187,11 @@ const runIsActive = computed(() => ['ACCEPTED', 'RUNNING', 'PAUSE_REQUESTED'].in
 const changedDocuments = computed(() => props.task.workspaceDocuments.filter(document => document.currentRevision > 0))
 const selectedDocument = computed(() => props.task.workspaceDocuments.find(document => document.draftId === props.selectedDraftId))
 const totalModelCalls = computed(() => props.task.runs.reduce((sum, run) => sum + run.modelCallCount, 0))
+const totalInputTokens = computed(() => props.task.runs.reduce((sum, run) => sum + (run.inputTokens ?? 0), 0))
+const totalOutputTokens = computed(() => props.task.runs.reduce((sum, run) => sum + (run.outputTokens ?? 0), 0))
+/** 至少有一轮 run 记录了完整 token 用量才在汇总区展示，避免旧数据把 0 当真实值。 */
+const totalTokensKnown = computed(() => props.task.runs.some(run => run.inputTokens != null && run.outputTokens != null))
+const totalTokenLabel = (value: number) => value.toLocaleString('zh-CN')
 const totalAdditions = computed(() => props.task.patchSets.reduce((sum, patch) => sum + patch.additions, 0))
 const totalDeletions = computed(() => props.task.patchSets.reduce((sum, patch) => sum + patch.deletions, 0))
 const canPublish = computed(() => props.task.status === 'PROCESSING' && activeRun.value?.status === 'COMPLETED' && changedDocuments.value.length > 0 && !props.publicationConflict)
@@ -196,7 +201,7 @@ const unassignedMessages = computed(() => props.task.messages.filter(message => 
 const diffLines = computed(() => (props.selectedDiff?.unifiedDiff ?? '').split('\n'))
 
 type Message = KnowledgeTask['messages'][number]
-type AgentBlock = { key: string; agent: string; agentLabel: string; phase: string; phaseLabel: string; status: string; statusLabel: string; summary: string | null; at: string; tools: ToolInvocation[] }
+type AgentBlock = { key: string; agent: string; agentLabel: string; phase: string; phaseLabel: string; status: string; statusLabel: string; summary: string | null; at: string; tools: ToolInvocation[]; promptTokens: number | null; completionTokens: number | null }
 const STAGE_AGENT_LABELS: Record<string, string> = { coordinator: '调度 Agent', retriever: '检索 Agent', drafter: '协作 Agent', reviewer: '审查 Agent' }
 const STAGE_PHASE_LABELS: Record<string, string> = { START: '识别任务', DECIDE: '决定下一步', FINISH: '汇总结果', RETRIEVE: '检索知识', DRAFT: '创建草稿', REVIEW: '审查草稿' }
 
@@ -220,6 +225,8 @@ function agentBlocksForRun(run: KnowledgeTaskRun): AgentBlock[] {
       summary: event.payload?.summary ?? null,
       at: event.createdAt ?? '',
       tools: [] as ToolInvocation[],
+      promptTokens: event.payload?.promptTokens ?? null,
+      completionTokens: event.payload?.completionTokens ?? null,
     }
   })
   // 优先按后端记录的 agentNode 归组（工具运行中即可归属到正确的 Agent，不再受阶段事件时序影响）；

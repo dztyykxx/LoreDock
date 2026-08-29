@@ -19,6 +19,8 @@ export interface KnowledgeTaskEventPayload {
   errorCode: string | null
   modelGenerated: boolean
   truncated: boolean
+  promptTokens: number | null
+  completionTokens: number | null
 }
 
 export interface KnowledgeTaskEvent {
@@ -40,6 +42,8 @@ export interface KnowledgeTaskRun {
   stepCount: number
   modelCallCount: number
   toolCallCount: number
+  inputTokens: number | null
+  outputTokens: number | null
   errorCode: string | null
   acceptedAt: string
   startedAt: string | null

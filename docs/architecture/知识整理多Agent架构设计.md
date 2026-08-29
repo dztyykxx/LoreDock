@@ -470,6 +470,7 @@ backend/src/main/resources/agent-specs/knowledge-curation/
 - 三个专家节点需要展示的公开结果继续使用现有 `knowledge_task_message.role=SUB_AGENT` 和稳定 `subject_name` 投影，但不得把专家完整结构化 JSON 直接展示给用户；
 - 最终回复继续使用 `COORDINATOR_AGENT`，并保留当前按 `run.definition.skillName` 识别最终消息的契约，避免破坏现有页面和历史任务；
 - 现有 `knowledge_tool_invocation` 继续记录业务 Tool 的参数摘要、结果摘要和耗时；为让前端能在工具运行中即把工具归到正确的 Agent（而非仅靠阶段事件时间推断导致中途误归上一 Agent），为工具调用增加 `agent_node` 列记录执行该调用的 Agent 节点名，取自框架 `RunnableConfig.metadata["_AGENT_"]`（`subgraph_<节点名>` 去前缀）；Agent Stage 与 Tool 按公开事件顺序交错展示；
+- token 用量不新增表、不新增迁移：run 级输入/输出 token 直接复用 `agent_run.input_tokens/output_tokens`（该列已存在并被 project_qa 流程使用，知识整理执行器此前未填充）；逐 Agent 用量复用每个 Agent 已有的 `AGENT_STAGE` 事件，在 `AgentEvent.Payload` 追加 `promptTokens/completionTokens` 两个可空字段（保留 15 参旧构造兼容既有调用点）；**阶段事件只报该次阶段自身的增量**（相对该 Agent 上一次阶段事件的累计水位，新增事件即把水位推进），保证公开事件按阶段相加等于 run 级总量，不会因调度 Agent 多次进入的累计值重复计入而导致前端“总和对不上”（联调实测问题）——水位表必须存副本快照，与累计 Map 共享同一可变对象会使增量恒为 0；采集点是在 Executor 的 run 级 `RunMetrics` 上实现 `StreamingModelInterceptor`：`beforeStreamCall` 清空缓存，`onStreamChunk` 暂存 `ChatResponse.getMetadata().getUsage()`（deepseek 通常只在末分片回传，依赖 `stream-usage=true`），`afterStreamComplete` 按 `ModelRequest.getContext()["_AGENT_"]` 归属该次调用的 Agent 并累加到 run 级与逐 Agent 原子计数；任一模型调用缺失 usage 时整轮 token 记为 null（避免把部分汇总当完整值）；回调触发的前提是 Graph Factory 把流式拦截器显式传入 ReactAgent 的 `streamingInterceptors(...)`——框架的扁平 `interceptors(...)` 只接入模型 `call()` 与 Tool 节点，不触发 `onStreamChunk/afterStreamComplete`（project_qa 接线即如此，联调实测缺失该接线时 token 恒为 0）；
 - 任务快照已经包含公开 `events`、`messages`、`toolInvocations` 和 `patchSets`，刷新页面和 SSE 重连后均从数据库重建，不依赖浏览器内存保存执行过程。
 
 ### 10.7 前端过程展示
@@ -492,6 +493,7 @@ backend/src/main/resources/agent-specs/knowledge-curation/
 
 - 补全 `KnowledgeTask.events` 的 TypeScript 类型，使其与后端公开 `AgentEvent` 契约一致；
 - 在 `KnowledgeTaskWorkspace` 中把 `AGENT_STAGE` 投影为阶段卡片，并将四个稳定 Agent 名称映射为“调度 Agent、检索 Agent、草稿 Agent、审查 Agent”；
+- 每轮汇总区展示 run 级输入/输出 token（`KnowledgeTaskRun.inputTokens/outputTokens`），每个 Agent 折叠块状态栏展示该阶段自身消耗（`AgentEvent.Payload.promptTokens/completionTokens`）；二者均来自服务端白名单字段，未记录用量的旧数据不展示（判别“是否已知”而非把 0 当真实值）；
 - 继续复用现有 Tool 卡片、Patch Set、Diff 抽屉、最终回复和失败卡片；
 - 收到 `AGENT_STAGE_UPDATED` SSE 后沿用现有任务游标去重和快照刷新机制；阶段事件在页面内使用 `runId + sequence` 去重；
 - 页面只展示服务端白名单字段，不展示 Prompt、Graph State、Checkpoint、完整证据正文和任何隐藏推理。

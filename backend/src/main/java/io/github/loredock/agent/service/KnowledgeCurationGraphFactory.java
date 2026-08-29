@@ -11,6 +11,7 @@ import com.alibaba.cloud.ai.graph.action.AsyncNodeAction;
 import com.alibaba.cloud.ai.graph.agent.ReactAgent;
 import com.alibaba.cloud.ai.graph.agent.hook.Hook;
 import com.alibaba.cloud.ai.graph.agent.interceptor.Interceptor;
+import com.alibaba.cloud.ai.graph.agent.interceptor.StreamingModelInterceptor;
 import com.alibaba.cloud.ai.graph.agent.tools.task.AgentSpec;
 import com.alibaba.cloud.ai.graph.checkpoint.config.SaverConfig;
 import com.alibaba.cloud.ai.graph.checkpoint.savers.postgresql.PostgresSaver;
@@ -193,6 +194,12 @@ public class KnowledgeCurationGraphFactory {
         Objects.requireNonNull(saver, "checkpoint saver");
         StateGraph graph = new StateGraph(keyStrategies());
         Map<String, ReactAgent> built = new LinkedHashMap<>();
+        // 框架 `.interceptors(...)` 只把拦截器接入模型 `call()` 与工具节点；流式 token 采集必须显式通过
+        // `.streamingInterceptors(...)` 接入，否则 `StreamingModelInterceptor.onStreamChunk/afterStreamComplete`
+        // 不会触发（project_qa 接线即如此）。这里从共享列表筛出流式拦截器透传给每个 ReactAgent。
+        List<StreamingModelInterceptor> streamingInterceptors = interceptors == null ? List.of()
+                : interceptors.stream().filter(StreamingModelInterceptor.class::isInstance)
+                        .map(StreamingModelInterceptor.class::cast).toList();
         for (String role : ROLES) {
             AgentSpec spec = agents.spec(role);
             ReactAgent agent = ReactAgent.builder()
@@ -207,6 +214,7 @@ public class KnowledgeCurationGraphFactory {
                     .saver(saver)
                     .hooks(hooks)
                     .interceptors(interceptors)
+                    .streamingInterceptors(streamingInterceptors)
                     .toolExecutionExceptionProcessor(exceptionProcessor)
                     .releaseThread(false)
                     .parallelToolExecution(false)

@@ -638,7 +638,8 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
                 value.getId(), value.getKnowledgeTaskConversationId(), value.getThreadId(),
                 RunStatus.valueOf(value.getStatus()), runtime, value.getCheckpointSavedAt(),
                 defaultInt(value.getStepCount()), defaultInt(value.getModelCallCount()),
-                defaultInt(value.getToolCallCount()), value.getErrorCode(), value.getAcceptedAt(),
+                defaultInt(value.getToolCallCount()), value.getInputTokens(), value.getOutputTokens(),
+                value.getErrorCode(), value.getAcceptedAt(),
                 value.getStartedAt(), value.getFinishedAt());
     }
 

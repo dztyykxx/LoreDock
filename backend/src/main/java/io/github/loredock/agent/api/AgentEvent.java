@@ -117,10 +117,38 @@ public record AgentEvent(
             AgentRun.ResultType resultType,
             AgentRun.ErrorCode errorCode,
             boolean modelGenerated,
-            boolean truncated
+            boolean truncated,
+            Integer promptTokens,
+            Integer completionTokens
     ) {
         public Payload {
             sources = sources == null ? List.of() : List.copyOf(sources);
+        }
+
+        /**
+         * 兼容旧调用方的 15 参构造：不提供逐 Agent token 时默认为 null。
+         * 多 Agent 知识整理使用更细的 token 统计，故在 record 尾追加两字段但保留此构造以零改动既有调用点。
+         */
+        public Payload(
+                String phase,
+                String name,
+                String purpose,
+                String parameterSummary,
+                String resultSummary,
+                Integer count,
+                Long durationMillis,
+                String status,
+                List<Source> sources,
+                String summary,
+                String textDelta,
+                AgentRun.ResultType resultType,
+                AgentRun.ErrorCode errorCode,
+                boolean modelGenerated,
+                boolean truncated
+        ) {
+            this(phase, name, purpose, parameterSummary, resultSummary, count, durationMillis,
+                    status, sources, summary, textDelta, resultType, errorCode, modelGenerated,
+                    truncated, null, null);
         }
     }
 

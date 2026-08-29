@@ -120,6 +120,7 @@ public interface AgentRunMapper extends BaseMapper<AgentRunEntity> {
             update agent_run set status = 'COMPLETED', result_text = #{resultText}, error_code = null,
                    step_count = #{stepCount}, model_call_count = #{modelCallCount},
                    tool_call_count = #{toolCallCount}, elapsed_millis = #{elapsedMillis},
+                   input_tokens = #{inputTokens}, output_tokens = #{outputTokens},
                    finished_at = #{finishedAt}, updated_at = #{finishedAt}
             where id = #{runId} and task_type = 'knowledge_curation' and status in ('RUNNING', 'PAUSE_REQUESTED')
             """)
@@ -130,6 +131,8 @@ public interface AgentRunMapper extends BaseMapper<AgentRunEntity> {
             @Param("modelCallCount") int modelCallCount,
             @Param("toolCallCount") int toolCallCount,
             @Param("elapsedMillis") long elapsedMillis,
+            @Param("inputTokens") Long inputTokens,
+            @Param("outputTokens") Long outputTokens,
             @Param("finishedAt") Instant finishedAt
     );
 

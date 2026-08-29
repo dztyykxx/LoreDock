@@ -13,6 +13,7 @@ import com.alibaba.cloud.ai.graph.agent.interceptor.ModelCallHandler;
 import com.alibaba.cloud.ai.graph.agent.interceptor.ModelInterceptor;
 import com.alibaba.cloud.ai.graph.agent.interceptor.ModelRequest;
 import com.alibaba.cloud.ai.graph.agent.interceptor.ModelResponse;
+import com.alibaba.cloud.ai.graph.agent.interceptor.StreamingModelInterceptor;
 import com.alibaba.cloud.ai.graph.agent.interceptor.ToolCallHandler;
 import com.alibaba.cloud.ai.graph.agent.interceptor.ToolCallRequest;
 import com.alibaba.cloud.ai.graph.agent.interceptor.ToolCallResponse;
@@ -47,10 +48,15 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.metadata.EmptyUsage;
+import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.tool.execution.ToolExecutionExceptionProcessor;
@@ -204,7 +210,8 @@ public class KnowledgeCurationRunExecutor {
             events.append(run.getId(), AgentEventType.RUN_COMPLETED, AgentEvent.SubjectType.AGENT,
                     payload("COMPLETED", run.getAgentName(), "COMPLETED"), finished);
             runs.completeKnowledge(run.getId(), finalReply, metrics.steps(), metrics.modelCalls(), metrics.toolCalls(),
-                    Duration.between(started, finished).toMillis(), finished);
+                    Duration.between(started, finished).toMillis(), metrics.inputTokens(), metrics.outputTokens(),
+                    finished);
             taskEvents.append(run.getKnowledgeTaskConversationId(), run.getId(), "RUN_UPDATED", run.getId(), finished);
             active.remove(run.getId(), running);
             System.out.println("知识整理模型最终原始响应：" + finalReply);
@@ -248,7 +255,7 @@ public class KnowledgeCurationRunExecutor {
                 run.getKnowledgeTaskConversationId(), run.getId(), run.getThreadId(), bounded(goal, 200));
         int rounds = 0;
         while (rounds++ < 32) {
-            consume(graph.stream(input, resumeConfig), run);
+            consume(graph.stream(input, resumeConfig), run, metrics);
             AgentRunEntity current = runs.selectById(run.getId());
             if (current != null && "CANCELLED".equals(current.getStatus())) {
                 throw new IllegalStateException("Agent cancelled");
@@ -272,11 +279,11 @@ public class KnowledgeCurationRunExecutor {
         throw new IllegalStateException("Agent graph exceeded resume rounds");
     }
 
-    private void consume(Flux<NodeOutput> stream, AgentRunEntity run) {
+    private void consume(Flux<NodeOutput> stream, AgentRunEntity run, RunMetrics metrics) {
         stream.doOnNext(output -> {
                     if (output instanceof StreamingOutput<?> streaming
                             && streaming.getOutputType() == OutputType.AGENT_MODEL_FINISHED) {
-                        persistAgentResult(run, output, streaming);
+                        persistAgentResult(run, output, streaming, metrics);
                     }
                 })
                 .timeout(properties.totalTimeout())
@@ -285,7 +292,8 @@ public class KnowledgeCurationRunExecutor {
     }
 
     /** 每个专家 Agent 完成时把结构化结果投影为公开消息：调度 Agent 阶段性说明为进度，三个专家结果为 SUB_AGENT。 */
-    private void persistAgentResult(AgentRunEntity run, NodeOutput output, StreamingOutput<?> streaming) {
+    private void persistAgentResult(
+            AgentRunEntity run, NodeOutput output, StreamingOutput<?> streaming, RunMetrics metrics) {
         if (!(streaming.getOriginData() instanceof ChatResponse response)
                 || response.getResult() == null || response.getResult().getOutput() == null) {
             return;
@@ -304,7 +312,7 @@ public class KnowledgeCurationRunExecutor {
         log.info("知识整理 Agent 节点完成 conversationId={} runId={} node={} phase={} 公开摘要={}",
                 run.getKnowledgeTaskConversationId(), run.getId(), node, phase,
                 bounded(projectSummary(node, message.getText()), MAX_PUBLIC_PROGRESS_CODE_POINTS));
-        persistStageEvent(run, node, message);
+        persistStageEvent(run, node, message, metrics);
         if (KnowledgeCurationGraphFactory.COORDINATOR.equals(node)) {
             String stage = stageOf(message.getText());
             if (!"FINISH".equals(stage) && !isChatReply(message.getText())) {
@@ -316,13 +324,16 @@ public class KnowledgeCurationRunExecutor {
     }
 
     /** 每次专家节点完成时写入一条 {@code AGENT_STAGE} 公开事件，并追加 {@code AGENT_STAGE_UPDATED} 刷新通知。 */
-    private void persistStageEvent(AgentRunEntity run, String node, AssistantMessage message) {
+    private void persistStageEvent(
+            AgentRunEntity run, String node, AssistantMessage message, RunMetrics metrics) {
         String phase = stagePhase(node, message.getText());
         String summary = bounded(projectSummary(node, message.getText()), MAX_PUBLIC_PROGRESS_CODE_POINTS);
+        RunMetrics.AgentToken tokens = metrics.takeStageTokens(node);
         Instant now = clock.instant();
         events.append(run.getId(), AgentEventType.AGENT_STAGE, AgentEvent.SubjectType.AGENT,
                 new AgentEvent.Payload(phase, node, null, null, null, null, null, "COMPLETED",
-                        List.of(), summary, null, null, null, false, false),
+                        List.of(), summary, null, null, null, false, false,
+                        tokens.promptTokens(), tokens.completionTokens()),
                 now);
         taskEvents.append(run.getKnowledgeTaskConversationId(), run.getId(), "AGENT_STAGE_UPDATED",
                 run.getId(), now);
@@ -508,13 +519,20 @@ public class KnowledgeCurationRunExecutor {
         return text;
     }
 
-    /** 框架 Interceptor 记录真实经过模型与 Tool 节点的次数，不推测调用数量。 */
-    private final class RunMetrics extends ModelInterceptor {
+    /** 框架 Interceptor 记录真实经过模型与 Tool 节点的次数与 token 用量，不推测调用数量。 */
+    private final class RunMetrics extends ModelInterceptor implements StreamingModelInterceptor {
         private static final int MAX_TOOL_PREVIEW_CODE_POINTS = 500;
         private final Long runId;
         private final Long conversationId;
         private final AtomicInteger modelCalls = new AtomicInteger();
         private final AtomicInteger toolCalls = new AtomicInteger();
+        private final AtomicLong inputTokens = new AtomicLong();
+        private final AtomicLong outputTokens = new AtomicLong();
+        private final AtomicBoolean usageComplete = new AtomicBoolean(true);
+        private final Map<String, AgentToken> tokensByAgent = new ConcurrentHashMap<>();
+        /** 各 Agent 已随 AGENT_STAGE 事件提交过的累计水位，用于阶段事件只报“本次增量”而非累计值。 */
+        private final Map<String, AgentToken> committedTokensByAgent = new ConcurrentHashMap<>();
+        private final AtomicReference<Usage> streamUsage = new AtomicReference<>();
 
         private RunMetrics(Long runId, Long conversationId) {
             this.runId = runId;
@@ -525,6 +543,44 @@ public class KnowledgeCurationRunExecutor {
         public ModelResponse interceptModel(ModelRequest request, ModelCallHandler handler) {
             modelCalls.incrementAndGet();
             return handler.call(request);
+        }
+
+        @Override
+        public ModelRequest beforeStreamCall(ModelRequest request) {
+            streamUsage.set(null);
+            return request;
+        }
+
+        // 流式响应可能只在最后一个分片携带 usage，此处先缓存到 streamUsage，待流结束的 afterStreamComplete 统一累计。
+        @Override
+        public ChatResponse onStreamChunk(ChatResponse chunk, ModelRequest request) {
+            if (chunk != null && chunk.getMetadata().getUsage() != null) {
+                streamUsage.set(chunk.getMetadata().getUsage());
+            }
+            return chunk;
+        }
+
+        @Override
+        public void afterStreamComplete(AssistantMessage aggregatedMessage, ModelRequest request) {
+            record(streamUsage.getAndSet(null), request);
+        }
+
+        /** 按当前 Agent 归属累计该次模型调用的输入/输出 token；缺失 usage 时视为用量未知，整 run 报 null。 */
+        private void record(Usage usage, ModelRequest request) {
+            if (usage == null || usage instanceof EmptyUsage
+                    || usage.getPromptTokens() == null || usage.getCompletionTokens() == null) {
+                usageComplete.set(false);
+                return;
+            }
+            int prompt = usage.getPromptTokens();
+            int completion = usage.getCompletionTokens();
+            inputTokens.addAndGet(prompt);
+            outputTokens.addAndGet(completion);
+            // _AGENT_ 元数据缺失时只累计 run 级总量，避免并发 Map 空键 NPE 且不产生无归属展示项。
+            String agent = agentNode(request);
+            if (agent != null) {
+                tokensByAgent.computeIfAbsent(agent, ignored -> new AgentToken()).add(prompt, completion);
+            }
         }
 
         @Override
@@ -588,6 +644,59 @@ public class KnowledgeCurationRunExecutor {
 
         private int steps() {
             return modelCalls() + toolCalls();
+        }
+
+        /** @return 整轮 run 的输入 token 总数；任一模型调用缺失 usage 时返回 null（避免部分汇总被当作完整值）。 */
+        private Long inputTokens() {
+            return usageComplete.get() ? inputTokens.get() : null;
+        }
+
+        /** @return 整轮 run 的输出 token 总数；任一模型调用缺失 usage 时返回 null。 */
+        private Long outputTokens() {
+            return usageComplete.get() ? outputTokens.get() : null;
+        }
+
+        /**
+         * @return 指定 Agent 本次阶段新增的 token（相对上次阶段事件的增量），并把该 Agent 的提交水位推进到当前累计。
+         *         同一 Agent 多次进入（调度 START/DECIDE/FINISH、返工）时，各阶段事件只报自身消耗，
+         *         保证公开事件按阶段相加等于 run 级总量，不会因累计值重复计入使前端“总和对不上”。
+         */
+        private AgentToken takeStageTokens(String agent) {
+            AgentToken current = tokensByAgent.getOrDefault(agent, AgentToken.EMPTY);
+            AgentToken committed = committedTokensByAgent.getOrDefault(agent, AgentToken.EMPTY);
+            AgentToken delta = new AgentToken();
+            delta.add(current.prompt.intValue() - committed.prompt.intValue(),
+                    current.completion.intValue() - committed.completion.intValue());
+            // 必须存副本：直接存 current 引用会与 tokensByAgent 共享同一对象，后续累计同时改动“水位”，delta 恒为 0。
+            committedTokensByAgent.put(agent, current.copy());
+            return delta;
+        }
+
+        /** 单个 Agent 的累计输入/输出 token。 */
+        private static final class AgentToken {
+            private static final AgentToken EMPTY = new AgentToken();
+            private final AtomicLong prompt = new AtomicLong();
+            private final AtomicLong completion = new AtomicLong();
+
+            private void add(int promptTokens, int completionTokens) {
+                prompt.addAndGet(promptTokens);
+                completion.addAndGet(completionTokens);
+            }
+
+            /** @return 当前值的独立快照，避免与累计 Map 共享同一可变对象。 */
+            private AgentToken copy() {
+                AgentToken token = new AgentToken();
+                token.add(prompt.intValue(), completion.intValue());
+                return token;
+            }
+
+            private Integer promptTokens() {
+                return prompt.intValue();
+            }
+
+            private Integer completionTokens() {
+                return completion.intValue();
+            }
         }
 
         private AgentEvent.Payload toolPayload(
@@ -744,7 +853,15 @@ public class KnowledgeCurationRunExecutor {
      *         {@code subgraph_<节点名>}，据此去掉前缀即可稳定归属，避免前端靠阶段事件时间推断。
      */
     private static String agentNode(ToolCallRequest request) {
-        Map<String, Object> context = request.getContext() == null ? null : request.getContext();
+        return agentNode(request.getContext());
+    }
+
+    /** @return 当前正在执行该模型调用的 Agent 节点名（与工具归属同一 {@code _AGENT_} 来源）。 */
+    private static String agentNode(ModelRequest request) {
+        return agentNode(request.getContext());
+    }
+
+    private static String agentNode(Map<String, Object> context) {
         Object value = context == null ? null : context.get("_AGENT_");
         String agent = value == null ? null : String.valueOf(value);
         if (agent != null && agent.startsWith("subgraph_")) {

@@ -320,6 +320,8 @@ public interface KnowledgeTaskService {
             int stepCount,
             int modelCallCount,
             int toolCallCount,
+            Long inputTokens,
+            Long outputTokens,
             String errorCode,
             Instant acceptedAt,
             Instant startedAt,
