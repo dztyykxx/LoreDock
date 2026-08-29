@@ -334,8 +334,8 @@ MVP 规划以下面向用户的协调 Skill：
 | FR-AGENT-06 | P0 | 可追溯运行 | 保存 Skill 摘要、模型、Agent/Tool 调用摘要、输入来源、最终引用和运行状态 |
 | FR-AGENT-07 | P0 | 写入隔离 | Agent 只能创建或修订任务工作草稿，不能直接修改或发布正式知识 |
 | FR-AGENT-08 | P0 | 知识整理 Skill | 手动任务能够调用 `knowledge-curator`，并将一篇或多篇工作文档修订保存为待审核产物 |
-| FR-AGENT-09 | P1 | 多文档任务 | 同一会话的单一 Agent 只能读取启动时服务端固定的一份或多份勾选草稿，并将结果写入最多 10 份有效工作文档 |
-| FR-AGENT-10 | P0 | 单 Agent 边界 | `knowledge-curator` 不加载 Agent Spec、不使用 `TaskTool`/`AgentTool` 和子 Agent，检索、复核、冲突分析和草稿整理均在同一 Agent run 中完成 |
+| FR-AGENT-09 | P1 | 多文档任务 | 同一会话的 Agent 只能读取启动时服务端固定的一份或多份勾选草稿，并将结果写入最多 10 份有效工作文档 |
+| FR-AGENT-10 | P0 | 多 Agent 图编排边界 | 知识整理由显式 `StateGraph` 编排四个职责不同的 `ReactAgent`（调度/检索/草稿/审查），调度 Agent 只做意图识别与动作决策，检索 Agent 只提交证据事实，草稿 Agent 只执行写入，审查 Agent 独立核对；Graph 固定顺序、条件分支与最多两轮草稿返工，任何 Agent 都没有发布能力；`knowledge-curator` 作为 run 级稳定标识保留 |
 | FR-AGENT-11 | P0 | 人在回路 | 证据不足或检查阻断时，模型在最终回复中提出问题并结束本轮；管理员的新消息创建独立 run |
 | FR-AGENT-12 | P0 | 运行过程展示 | Web 整体折叠每轮公开过程和 Tool 调用，折叠区外以安全 Markdown 展示最终 AssistantMessage 和文档变更，不把模型自述当成已执行事实 |
 | FR-AGENT-13 | P0 | 模型自主 Tool 调用 | Agent 根据 Workflow Skill 动态选择已注册业务 Tool；Java 不固定检索、复核和整理的业务顺序 |

@@ -3,6 +3,34 @@ import { requestJson } from './http'
 export type KnowledgeTaskRunStatus = 'ACCEPTED' | 'RUNNING' | 'PAUSE_REQUESTED' | 'WAITING_FOR_USER' | 'COMPLETED' | 'FAILED' | 'TERMINATED' | 'CANCELLED'
 export type KnowledgeTaskStatus = 'PROCESSING' | 'PUBLISHED' | 'CLOSED_NO_CHANGE' | 'ABANDONED'
 
+/** 与后端公开 AgentEvent 契约一致的字段白名单；不含 Prompt、思维链、Checkpoint、完整 Graph State 或 Tool 原始返回。 */
+export interface KnowledgeTaskEventPayload {
+  phase: string | null
+  name: string | null
+  purpose: string | null
+  parameterSummary: string | null
+  resultSummary: string | null
+  count: number | null
+  durationMillis: number | null
+  status: string | null
+  summary: string | null
+  textDelta: string | null
+  resultType: string | null
+  errorCode: string | null
+  modelGenerated: boolean
+  truncated: boolean
+}
+
+export interface KnowledgeTaskEvent {
+  eventId: number | null
+  runId: number | null
+  sequence: number
+  type: string
+  subjectType: 'AGENT' | 'MODEL' | 'TOOL' | 'VALIDATOR'
+  payload: KnowledgeTaskEventPayload
+  createdAt: string | null
+}
+
 export interface KnowledgeTaskRun {
   runId: number
   conversationId: number
@@ -37,7 +65,7 @@ export interface KnowledgeTask {
   currentDraftRevision: number | null
   messages: Array<{ messageId: number; runId: number | null; role: string; subjectName: string | null; content: string; createdAt: string }>
   runs: KnowledgeTaskRun[]
-  events: Array<{ sequence: number; type: string; payload: { name?: string; purpose?: string; resultSummary?: string; status?: string } }>
+  events: KnowledgeTaskEvent[]
   workspaceDocuments: WorkspaceDocument[]
   toolInvocations: ToolInvocation[]
   patchSets: RunPatchSet[]

@@ -17,7 +17,7 @@
 - LoreDock 负责接收 Markdown，与平台已发布知识比对，整理重复、冲突、过期和缺口，并产生待审核 Diff；
 - 管理员负责最终判断和发布；
 - LoreDock 不导入原始需求、PR diff、完整代码或测试输出，不在服务端建设需求到代码的生成流水线；
-- 知识整理只使用一个 Agent 和一份 `knowledge-curator` Workflow Skill，不使用子 Agent 或多 Agent。
+- 知识整理由显式 `StateGraph` 编排四个职责不同的 Agent（调度/检索/草稿/审查），调度 Agent 决定动作，检索 Agent 只提交证据事实，草稿 Agent 执行写入，审查 Agent 独立核对；Graph 固定顺序、条件分支与最多两轮草稿返工。详见 [`docs/architecture/知识整理多Agent架构设计.md`](../architecture/知识整理多Agent架构设计.md)。
 
 ## 2. 主流程
 

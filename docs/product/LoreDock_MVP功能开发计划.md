@@ -24,7 +24,7 @@
 
 为尽早验证 LoreDock 的核心用户价值，当前首个可用闭环收口为：管理员上传并发布知识，用户随后可以在指定项目内进行混合检索与带引用问答。代码快照和前端分支操作均已退出当前 MVP；后端保留既有分支能力，所有 Web 流程省略分支并使用默认 `main`。
 
-首个可用闭环不等同于需求基线定义的完整 MVP。T6B 已接入 Spring AI Alibaba 的本地 Skill、Hook、原生模型/Tool 循环和受控 Tool 基础。后续不再建设多 Agent、同 run 人工等待恢复、需求/PR/代码服务端生成、定期整理或额外运营任务；只完成 Web Markdown 提交、平台文档检索与读取 Tool、单一 `knowledge-curator` Workflow、多文档 Diff 和人工原子发布，再增加复用同一 Service 的 MCP 入口。
+首个可用闭环不等同于需求基线定义的完整 MVP。T6B 已接入 Spring AI Alibaba 的本地 Skill、Hook、原生模型/Tool 循环和受控 Tool 基础；知识整理已升级为四个职责不同 ReactAgent 的显式 `StateGraph` 编排（调度/检索/草稿/审查，见 [`docs/architecture/知识整理多Agent架构设计.md`](../architecture/知识整理多Agent架构设计.md)）。后续不再做需求/PR/代码服务端生成、定期整理、自动发布或额外运营任务；只完成 Web Markdown 提交、平台文档检索与读取 Tool、多文档 Diff 和人工原子发布，再增加复用同一 Service 的 MCP 入口。
 
 ## 2. 功能依赖关系
 
