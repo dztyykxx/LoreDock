@@ -617,6 +617,95 @@ class KnowledgeCurationRunExecutorDriveIT {
     }
 
     /**
+     * 业务目的：专家（检索 Agent）返回结构合法但省略 summary 的 JSON 时，run 必须正常完成，
+     * 不得崩成 AGENT_MODEL_RESPONSE_INVALID——summary 在四种结果契约里可空（模型可能省略），
+     * 公开摘要提取应对 null 回退全文截断（与解析失败同路径），而不是对 null 调 strip()。
+     * <p>复现生产 runId=63：retriever 调用 knowledge_document_read 后返回无 summary 的结果，
+     * persistAgentResult 公开投影阶段 NPE 把整个知识整理 run 打挂。</p>
+     */
+    @Test
+    void expertResultWithoutSummaryDoesNotFailRun() throws Exception {
+        Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .schemas(schema).defaultSchema(schema).locations("classpath:db/migration")
+                .load().migrate();
+        PostgresSaver saver = PostgresSaver.builder().datasource(dataSource())
+                .createOption(CreateOption.CREATE_NONE).build();
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""),
+                KnowledgeTaskConversationEntity.class);
+
+        // 完整路径脚本（与 token 统计用例同序），唯一差异：retriever 结果省略 summary 字段。
+        ScriptedChatModel model = new ScriptedChatModel(List.of(
+                answer("{\"action\":\"FULL_CURATION\",\"summary\":\"开始整理\",\"expertCalls\":[]}"),
+                answer("{\"issueType\":\"MISSING\",\"candidateTargetDocumentId\":710004,"
+                        + "\"facts\":[{\"statement\":\"新增背景\",\"support\":\"SUPPORTED\","
+                        + "\"sourceRefs\":[{\"type\":\"EVIDENCE\",\"id\":88}]}],"
+                        + "\"unresolvedQuestions\":[]}"),
+                answer("{\"stage\":\"DECIDE\",\"action\":\"DRAFT\",\"reason\":\"有支持事实\","
+                        + "\"draftInstruction\":\"写入背景\",\"question\":null,\"summary\":\"决定起草\"}"),
+                answer("{\"status\":\"WRITTEN\",\"drafts\":[{\"draftId\":19,\"revision\":3,\"operation\":\"ADD\"}],"
+                        + "\"question\":null,\"summary\":\"已写入\"}"),
+                answer("{\"verdict\":\"PASS\",\"reviewedDrafts\":[{\"draftId\":19,\"revision\":3}],"
+                        + "\"findings\":[],\"question\":null,\"summary\":\"审查通过\"}"),
+                answer("{\"stage\":\"FINISH\",\"action\":\"END\",\"reason\":\"完成\","
+                        + "\"draftInstruction\":null,\"question\":null,\"summary\":\"已完成整理\"}"),
+                answer("{\"action\":\"TURN_DONE\",\"summary\":\"已完成整理\",\"expertCalls\":[]}")));
+        ObjectProvider<ChatModel> modelProvider = new ObjectProvider<ChatModel>() {
+            @Override public ChatModel getObject(Object... args) { return model; }
+            @Override public ChatModel getIfAvailable() { return model; }
+            @Override public ChatModel getIfUnique() { return model; }
+            @Override public ChatModel getObject() { return model; }
+        };
+
+        KnowledgeAgentDefinitionService definitions = mock(KnowledgeAgentDefinitionService.class);
+        when(definitions.graphSpecs()).thenReturn(new KnowledgeCurationGraphFactory.AgentSpecSet(loadSpecs()));
+
+        AgentRunMapper runs = mock(AgentRunMapper.class);
+        AgentRunEntity run = runEntity();
+        when(runs.selectById(run.getId())).thenReturn(run);
+        when(runs.markKnowledgeRunning(eq(run.getId()), any())).thenReturn(1);
+
+        KnowledgeTaskMessageMapper messages = mock(KnowledgeTaskMessageMapper.class);
+        AgentEventService events = mock(AgentEventService.class);
+        KnowledgeTaskEventService taskEvents = mock(KnowledgeTaskEventService.class);
+
+        Map<String, ToolCallback> callbacks = ALL_TOOLS.stream().collect(Collectors.toMap(
+                n -> n, KnowledgeCurationRunExecutorDriveIT::tool, (a, b) -> a, LinkedHashMap::new));
+        StaticToolCallbackResolver resolver = new StaticToolCallbackResolver(List.copyOf(callbacks.values()));
+
+        BoundedAgentRunScheduler scheduler = mock(BoundedAgentRunScheduler.class);
+        when(scheduler.schedule(eq(run.getId()), any())).thenAnswer(inv -> {
+            ((Runnable) inv.getArgument(1)).run();
+            return true;
+        });
+
+        KnowledgeCurationRunExecutor executor = new KnowledgeCurationRunExecutor(
+                modelProvider, properties(), resolver, saver, definitions, new ObjectMapper(),
+                runs, mock(KnowledgeTaskConversationMapper.class), messages, events, taskEvents,
+                mock(KnowledgeToolInvocationService.class), mock(KnowledgeTaskRunProjectionService.class),
+                scheduler, ContextAssemblyFixtures.budget(), Clock.systemUTC(),
+                noMemorySupply());
+
+        executor.start(run, "请整理背景", new KnowledgeAgentDefinitionService.LoadedDefinition(
+                new io.github.loredock.agent.api.KnowledgeTaskService.RuntimeDefinition(
+                        "knowledge-curator", "s", "d", "m", ALL_TOOLS)));
+
+        // 不得进入失败终态：7 次模型调用全路径完成后正常 COMPLETED，且最终回复为汇总。
+        assertThat(model.calls()).isEqualTo(7);
+        verify(runs, never()).failKnowledge(any(Long.class), any(String.class), anyInt(), anyInt(),
+                anyInt(), anyLong(), any(Instant.class));
+        verify(runs).completeKnowledge(eq(run.getId()), eq("已完成整理"), any(int.class), any(int.class),
+                any(int.class), any(long.class), any(), any(), any(Instant.class));
+        // 检索 Agent 的公开消息以全文截断回退（内容为原始 JSON），不得为空或泄出 null。
+        verify(messages).insert(org.mockito.ArgumentMatchers.<KnowledgeTaskMessageEntity>argThat(message ->
+                "SUB_AGENT".equals(message.getRole())
+                        && "检索 Agent".equals(message.getSubjectName())
+                        && message.getContent() != null && message.getContent().contains("issueType")));
+        System.out.println("测试证据：场景=专家结果省略summary，模型调用=7，run=COMPLETED，"
+                + "retriever公开消息=全文回退，无失败终态");
+    }
+
+    /**
      * 业务目的：暂停后恢复（resume，同一 run）时，管理员追加指导必须作为本轮用户消息进入协调 Agent 输入；
      * 否则协调 Agent 只看到最初 goal、看不到后续指令，会把"继续聊聊"当整理任务盲跑完整流程（联调缺陷）。
      */

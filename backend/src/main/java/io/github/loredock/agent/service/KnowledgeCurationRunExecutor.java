@@ -755,20 +755,24 @@ public class KnowledgeCurationRunExecutor {
 
     private String projectSummary(String node, String text) {
         try {
-            if (KnowledgeCurationGraphFactory.MAIN_AGENT.equals(node)) {
-                return objectMapper.readValue(text, KnowledgeCurationGraphResult.MainTurnResult.class).summary();
-            }
-            if (KnowledgeCurationGraphFactory.COORDINATOR.equals(node)) {
-                return objectMapper.readValue(text, KnowledgeCurationGraphResult.CoordinatorResult.class).summary();
-            }
-            if (KnowledgeCurationGraphFactory.RETRIEVER.equals(node)) {
-                return objectMapper.readValue(text, KnowledgeCurationGraphResult.RetrievalResult.class).summary();
-            }
-            if (KnowledgeCurationGraphFactory.DRAFTER.equals(node)) {
-                return objectMapper.readValue(text, KnowledgeCurationGraphResult.DraftResult.class).summary();
-            }
-            if (KnowledgeCurationGraphFactory.REVIEWER.equals(node)) {
-                return objectMapper.readValue(text, KnowledgeCurationGraphResult.ReviewResult.class).summary();
+            String summary = switch (node) {
+                case KnowledgeCurationGraphFactory.MAIN_AGENT ->
+                        objectMapper.readValue(text, KnowledgeCurationGraphResult.MainTurnResult.class).summary();
+                case KnowledgeCurationGraphFactory.COORDINATOR ->
+                        objectMapper.readValue(text, KnowledgeCurationGraphResult.CoordinatorResult.class).summary();
+                case KnowledgeCurationGraphFactory.RETRIEVER ->
+                        objectMapper.readValue(text, KnowledgeCurationGraphResult.RetrievalResult.class).summary();
+                case KnowledgeCurationGraphFactory.DRAFTER ->
+                        objectMapper.readValue(text, KnowledgeCurationGraphResult.DraftResult.class).summary();
+                case KnowledgeCurationGraphFactory.REVIEWER ->
+                        objectMapper.readValue(text, KnowledgeCurationGraphResult.ReviewResult.class).summary();
+                default -> null;
+            };
+            // summary 在结果契约中可空：结构合法但省略摘要时与解析失败同样回退全文截断，
+            // 否则 bounded 对 null 调 strip() 会让整个知识整理 run 崩成 AGENT_MODEL_RESPONSE_INVALID
+            // （生产 runId=63：retriever 返回无 summary 的合法 JSON，公开投影阶段 NPE）。
+            if (summary != null && !summary.isBlank()) {
+                return summary;
             }
         } catch (Exception ignore) {
             // 结构化结果无效时以全文截断展示，避免丢失模型结论。

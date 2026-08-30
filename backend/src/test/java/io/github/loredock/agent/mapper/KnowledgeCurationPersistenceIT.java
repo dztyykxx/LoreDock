@@ -426,7 +426,7 @@ class KnowledgeCurationPersistenceIT {
         KnowledgeTaskService.KnowledgeTask started = tasks.start(start(
                 "event-projection", "admin", "atlas", KnowledgeTaskService.TriggerType.MANUAL));
         Long runId = started.runs().getFirst().runId();
-        jdbc.update("update agent_run set status = 'RUNNING', started_at = now() where id = ?", runId);
+        markRunRunning(runId);
         AgentEvent.Payload payload = new AgentEvent.Payload(
                 "RETRIEVING", "knowledge_search", "检索项目知识", "项目=atlas", "命中 2 条",
                 2, 12L, "COMPLETED", List.of(), null, null, null, null, false, false);
@@ -483,7 +483,7 @@ class KnowledgeCurationPersistenceIT {
 
         assertThat(first.messages()).isNotEmpty();
         assertThat(first.messages().getFirst().role()).isEqualTo(KnowledgeTaskService.MessageRole.SYSTEM_TRIGGER);
-        jdbc.update("update agent_run set status = 'COMPLETED', finished_at = now() where id = ?", firstRun.runId());
+        markRunCompleted(firstRun.runId());
         jdbc.update("insert into knowledge_task_message(conversation_id, run_id, role, subject_name, content, created_at) "
                         + "values (?, ?, 'USER', null, ?, now()), (?, ?, 'COORDINATOR_AGENT', '公开行动摘要', ?, now()), "
                         + "(?, ?, 'TOOL', 'finding_record:legacy', ?, now()), "
@@ -525,8 +525,7 @@ class KnowledgeCurationPersistenceIT {
         KnowledgeTaskService.KnowledgeTask first = tasks.start(start(
                 "failed-follow-up", "admin", "atlas", KnowledgeTaskService.TriggerType.MANUAL));
         KnowledgeTaskService.KnowledgeTaskRun failed = first.runs().getFirst();
-        jdbc.update("update agent_run set status = 'FAILED', error_code = 'AGENT_MODEL_RESPONSE_INVALID', "
-                + "finished_at = now() where id = ?", failed.runId());
+        markRunFailed(failed.runId());
 
         KnowledgeTaskService.KnowledgeTaskRun retried = tasks.continueTask(
                 new KnowledgeTaskService.ContinueRequest(
@@ -554,7 +553,7 @@ class KnowledgeCurationPersistenceIT {
         KnowledgeTaskService.KnowledgeTask task = tasks.start(start(
                 "pause-resume", "admin", "atlas", KnowledgeTaskService.TriggerType.MANUAL));
         KnowledgeTaskService.KnowledgeTaskRun running = task.runs().getFirst();
-        jdbc.update("update agent_run set status = 'RUNNING', started_at = now() where id = ?", running.runId());
+        markRunRunning(running.runId());
         KnowledgeTaskService.KnowledgeTaskRun requested = tasks.requestPause(
                 new KnowledgeTaskService.PauseRequest(running.runId(), "admin"));
         RunnableConfig config = RunnableConfig.builder().threadId(running.threadId()).build();
@@ -592,7 +591,7 @@ class KnowledgeCurationPersistenceIT {
         KnowledgeTaskService.KnowledgeTask task = tasks.start(start(
                 "restart-split", "admin", "atlas", KnowledgeTaskService.TriggerType.MANUAL));
         KnowledgeTaskService.KnowledgeTaskRun run = task.runs().getFirst();
-        jdbc.update("update agent_run set status = 'RUNNING', started_at = now() where id = ?", run.runId());
+        markRunRunning(run.runId());
         RunnableConfig config = RunnableConfig.builder().threadId(run.threadId()).build();
         checkpointSaver().put(config, Checkpoint.builder()
                 .id("8e6a41cd-fcd3-42e8-a88d-71c7154c26a1")
@@ -609,6 +608,36 @@ class KnowledgeCurationPersistenceIT {
         assertThat(checkpointSaver().get(config)).isPresent();
         System.out.printf("测试证据：场景=重启恢复分流，run=%s，taskType=knowledge_curation，状态=%s，checkpoint=1%n",
                 recovered.runId(), recovered.status());
+    }
+
+    /**
+     * 把 run 直接置为 RUNNING 的夹具动作：started_at 若用 PG now()，会与服务写入 accepted_at 的
+     * JVM 时钟存在亚毫秒偏差（测试容器 PG 时钟可能落后 JVM 时钟），正常时序下偶发
+     * started_at < accepted_at，违反 ck_agent_run_time（started_at >= accepted_at）。
+     * 该约束在生产由同一 Java 时钟保证，纯属夹具的时钟混用噪声（本机容器实测一次内 5/5 崩），
+     * 故 clamp 到 accepted_at 下界；夹具只关心「run 已开始」，不关心毫秒级精确时刻。
+     */
+    private void markRunRunning(long runId) {
+        jdbc.update("update agent_run set status = 'RUNNING', "
+                + "started_at = greatest(now(), accepted_at) where id = ?", runId);
+    }
+
+    /**
+     * 把 run 置为 COMPLETED 的夹具动作：finished_at 同样存在与
+     * {@link #markRunRunning(long)} 相同的 PG/JVM 时钟偏差风险，clamp 到 accepted_at 下界。
+     */
+    private void markRunCompleted(long runId) {
+        jdbc.update("update agent_run set status = 'COMPLETED', "
+                + "finished_at = greatest(now(), accepted_at) where id = ?", runId);
+    }
+
+    /**
+     * 把 run 置为 FAILED（模型响应无效）的夹具动作：finished_at 的时钟偏差处理同
+     * {@link #markRunRunning(long)}。
+     */
+    private void markRunFailed(long runId) {
+        jdbc.update("update agent_run set status = 'FAILED', error_code = 'AGENT_MODEL_RESPONSE_INVALID', "
+                + "finished_at = greatest(now(), accepted_at) where id = ?", runId);
     }
 
     private PostgresSaver checkpointSaver() throws Exception {
