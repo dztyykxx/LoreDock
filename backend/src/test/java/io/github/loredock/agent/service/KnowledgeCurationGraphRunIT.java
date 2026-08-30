@@ -53,7 +53,8 @@ class KnowledgeCurationGraphRunIT {
             "selected_draft_list", "selected_draft_read", "knowledge_directory_list",
             "knowledge_document_list", "knowledge_document_read", "knowledge_grep",
             "knowledge_search", "workspace_document_list",
-            "draft_create", "draft_read", "draft_update", "draft_rename", "draft_diff");
+            "draft_create", "draft_read", "draft_update", "draft_rename", "draft_diff",
+            "memory_search", "memory_read", "memory_write");
 
     @Container
     private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(

@@ -30,7 +30,8 @@ class KnowledgeCurationGraphAssemblyTest {
             "knowledge_directory_list", "knowledge_document_list",
             "knowledge_document_read", "knowledge_grep", "knowledge_search",
             "workspace_document_list",
-            "draft_create", "draft_read", "draft_update", "draft_rename", "draft_diff");
+            "draft_create", "draft_read", "draft_update", "draft_rename", "draft_diff",
+            "memory_search", "memory_read", "memory_write");
 
     private final KnowledgeCurationGraphFactory factory = new KnowledgeCurationGraphFactory(new ObjectMapper(), ContextAssemblyFixtures.assembly(new ObjectMapper()));
 
@@ -117,6 +118,19 @@ class KnowledgeCurationGraphAssemblyTest {
         assertThat(bundle.agents().get("drafter").getOutputKey()).isEqualTo("draftResult");
         assertThat(bundle.agents().get("reviewer").getOutputKey()).isEqualTo("reviewResult");
         System.out.println("测试证据：场景=多Agent Graph组装，节点数=4，编译成功=true，输出键=4");
+    }
+
+    /** 业务目的：服务端没有注册任何记忆工具时主 Agent spec 与之不一致，应用必须启动失败；
+     *  防止主 Agent 拿到模型声明的记忆工具却无服务端实现（或被框架静默移除）。 */
+    @Test
+    void validateRejectsUnregisteredMemoryToolForMainAgent() throws Exception {
+        List<String> withoutMemory = ALL_BUSINESS_TOOLS.stream()
+                .filter(name -> !name.equals("memory_search")).toList();
+
+        assertThatThrownBy(() -> factory.validate(loadSpecs(), withoutMemory))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("未知 Tool").hasMessageContaining("memory_search");
+        System.out.println("测试证据：场景=记忆工具未注册校验，主Agent声明memory_search缺失实现，启动失败=true");
     }
 
     /** @return retriever 在五份定义中的位置（main, coord, retriever, drafter, reviewer）。 */

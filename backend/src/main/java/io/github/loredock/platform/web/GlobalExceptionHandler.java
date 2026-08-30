@@ -11,6 +11,7 @@ import io.github.loredock.auth.exception.LoginRequiredException;
 import io.github.loredock.knowledge.exception.DocumentReplacementConflictException;
 import io.github.loredock.knowledge.exception.DocumentStateConflictException;
 import io.github.loredock.knowledge.api.KnowledgeDraftException;
+import io.github.loredock.memory.api.MemoryRequestException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.time.Clock;
@@ -97,6 +98,22 @@ public class GlobalExceptionHandler {
                     ? ErrorCode.KNOWLEDGE_DRAFT_NOT_FOUND : ErrorCode.KNOWLEDGE_DRAFT_CONFLICT;
         }
         LOGGER.warn("knowledge_task_failure traceId={} code={}", traceId(), code.name());
+        return response(code, List.of());
+    }
+
+    /** 把记忆业务的稳定失败语义映射为公开 400/404/409/503，不透传内部异常文本。 */
+    @ExceptionHandler(MemoryRequestException.class)
+    public ResponseEntity<ApiError> handleMemoryRequest(MemoryRequestException exception) {
+        ErrorCode code = switch (exception.code()) {
+            case MEMORY_NOT_FOUND -> ErrorCode.MEMORY_NOT_FOUND;
+            case MEMORY_SCOPE_VIOLATION -> ErrorCode.MEMORY_SCOPE_VIOLATION;
+            case MEMORY_PROJECT_INVALID -> ErrorCode.MEMORY_PROJECT_INVALID;
+            case MEMORY_FIELD_INVALID -> ErrorCode.MEMORY_FIELD_INVALID;
+            case MEMORY_SCOPE_EDIT_FORBIDDEN -> ErrorCode.MEMORY_SCOPE_EDIT_FORBIDDEN;
+            case MEMORY_BUDGET_EXCEEDED -> ErrorCode.MEMORY_BUDGET_EXCEEDED;
+            case MEMORY_JUDGE_UNAVAILABLE -> ErrorCode.MEMORY_JUDGE_UNAVAILABLE;
+        };
+        LOGGER.warn("memory_failure traceId={} code={}", traceId(), code.name());
         return response(code, List.of());
     }
 

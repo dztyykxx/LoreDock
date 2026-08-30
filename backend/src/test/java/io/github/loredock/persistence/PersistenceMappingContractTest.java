@@ -17,6 +17,7 @@ import io.github.loredock.knowledge.model.entity.KnowledgeDocumentEntity;
 import io.github.loredock.knowledge.model.entity.KnowledgeImportBatchEntity;
 import io.github.loredock.knowledge.model.entity.KnowledgeIndexGenerationEntity;
 import io.github.loredock.knowledge.model.entity.KnowledgeSearchChunkEntity;
+import io.github.loredock.memory.model.entity.UserMemoryEntity;
 import io.github.loredock.project.model.entity.ProjectBranchEntity;
 import io.github.loredock.project.model.entity.ProjectSpaceEntity;
 import io.github.loredock.qa.model.entity.WebQaMessageEntity;
@@ -54,7 +55,8 @@ class PersistenceMappingContractTest {
         assertExplicitMapping(WebQaMessageEntity.class, "web_qa_message");
         assertExplicitMapping(KnowledgeGapFeedbackEntity.class, "knowledge_gap_feedback");
         assertExplicitMapping(KnowledgeGapFeedbackCitationEntity.class, "knowledge_gap_feedback_citation");
-        System.out.println("测试证据：场景=持久化显式映射，T7新增实体数=4，全部字段均声明表列映射");
+        assertExplicitMapping(UserMemoryEntity.class, "user_memory");
+        System.out.println("测试证据：场景=持久化显式映射，实体类数与表绑定齐全，全部字段均声明表列映射");
     }
 
     /**

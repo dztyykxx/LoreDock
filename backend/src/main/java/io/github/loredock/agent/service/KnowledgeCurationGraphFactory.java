@@ -91,8 +91,9 @@ public class KnowledgeCurationGraphFactory {
     /** 需要修复回路的 Agent：主 Agent 与完整整理链四个专家。 */
     public static final List<String> FIXABLE = List.of(MAIN_AGENT, COORDINATOR, RETRIEVER, DRAFTER, REVIEWER);
 
-    /** 主 Agent：无业务 Tool，只持有框架 AgentTool（retrieve/draft/review 专家）。 */
-    public static final List<String> MAIN_AGENT_TOOLS = List.of();
+    /** 主 Agent：三个框架 AgentTool（retrieve/draft/review 专家）+ 记忆三工具（仅主 Agent 持有记忆层）。 */
+    public static final List<String> MAIN_AGENT_TOOLS = List.of(
+            "memory_search", "memory_read", "memory_write");
 
     /** 调度 Agent：无业务 Tool。 */
     public static final List<String> COORDINATOR_TOOLS = List.of();
@@ -260,16 +261,18 @@ public class KnowledgeCurationGraphFactory {
             // Saver，跨轮直调同一专家会复用其旧 Checkpoint 链，且与父图共享 Postgres 命名空间（会话级编排设计§10.3）。
             graph.addNode(role, agent.asNode(true, false));
         }
-        // 主 Agent：无业务 Tool，只持有三个专家 AgentTool；工具名即专家名（AgentTool 采用 agent.name()）。
+        // 主 Agent：三个专家 AgentTool（工具名即专家名）+ 记忆三工具（只注册主 Agent，专家白名单不变）。
+        List<ToolCallback> mainTools = new ArrayList<>(List.of(
+                com.alibaba.cloud.ai.graph.agent.AgentTool.create(built.get(RETRIEVER)),
+                com.alibaba.cloud.ai.graph.agent.AgentTool.create(built.get(DRAFTER)),
+                com.alibaba.cloud.ai.graph.agent.AgentTool.create(built.get(REVIEWER))));
+        mainTools.addAll(resolveTools(MAIN_AGENT_TOOLS, resolver));
         ReactAgent main = ReactAgent.builder()
                 .name(MAIN_AGENT)
                 .instruction(agents.instruction(MAIN_AGENT))
                 .templateRenderer((template, params) -> template)
                 .model(model)
-                .tools(List.of(
-                        com.alibaba.cloud.ai.graph.agent.AgentTool.create(built.get(RETRIEVER)),
-                        com.alibaba.cloud.ai.graph.agent.AgentTool.create(built.get(DRAFTER)),
-                        com.alibaba.cloud.ai.graph.agent.AgentTool.create(built.get(REVIEWER))))
+                .tools(mainTools)
                 .toolContext(toolContext)
                 .outputType(KnowledgeCurationGraphResult.MainTurnResult.class)
                 .outputKey(OUTPUT_KEYS.get(MAIN_AGENT))
@@ -403,7 +406,8 @@ public class KnowledgeCurationGraphFactory {
             ContextAssemblyRequest request = new ContextAssemblyRequest(
                     longOf(toolContext.get("conversationId")), longOf(toolContext.get("runId")),
                     node, purpose, currentInstruction(state), conversationContext(state),
-                    workflowContext(state, purpose), assembly.budget());
+                    workflowContext(state, purpose), assembly.budget(),
+                    nullableLongOf(toolContext.get("projectId")));
             ContextAssemblyService.AssemblyResult result = assembly.assemble(
                     request, summaryState(state), integer(state, ContextAssemblyService.COMPRESSION_CALLS_KEY), model);
             if (result.prepared().receipt().mode() == ContextMode.BLOCKED) {
@@ -558,6 +562,14 @@ public class KnowledgeCurationGraphFactory {
         } catch (NumberFormatException exception) {
             return 0L;
         }
+    }
+
+    /** 可空长整型：ToolContext 中 projectId 只在项目侧会话写入（Map.of 不允许 null 值，执行器按需加入）。 */
+    private static Long nullableLongOf(Object value) {
+        if (value == null) {
+            return null;
+        }
+        return longOf(value) > 0 ? longOf(value) : null;
     }
 
     private static long longState(com.alibaba.cloud.ai.graph.OverAllState state, String key) {

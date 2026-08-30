@@ -34,7 +34,7 @@ class FlywayMigrationIT {
         String schema = "empty_baseline";
         var result = migrationFor(schema).migrate();
 
-        assertThat(result.migrationsExecuted).isEqualTo(5);
+        assertThat(result.migrationsExecuted).isEqualTo(10);
         try (Connection connection = connection()) {
             assertThat(queryInt(connection, """
                     select count(*)
@@ -42,20 +42,20 @@ class FlywayMigrationIT {
                     where table_schema = 'empty_baseline'
                       and table_type = 'BASE TABLE'
                       and table_name <> 'flyway_schema_history'
-                    """)).isEqualTo(29);
+                    """)).isEqualTo(31);
             for (String table : new String[]{
                     "stored_object", "background_job", "project_space", "project_branch",
                     "knowledge_document", "knowledge_import_batch",
                     "knowledge_index_generation", "knowledge_search_chunk",
                     "code_snapshot", "code_index_generation",
-                    "agent_run", "agent_run_event", "agent_evidence",
+                    "agent_run", "agent_run_event", "agent_run_retrieval", "agent_evidence",
                     "graphthread", "graphcheckpoint",
                     "web_qa_conversation", "web_qa_question", "web_qa_message",
                     "knowledge_gap_feedback", "knowledge_gap_feedback_citation",
                     "knowledge_task_conversation", "knowledge_task_message",
                     "knowledge_draft", "knowledge_draft_revision", "knowledge_draft_revision_source",
                     "knowledge_task_selected_draft", "knowledge_tool_invocation",
-                    "knowledge_task_event", "knowledge_task_publication"}) {
+                    "knowledge_task_event", "knowledge_task_publication", "user_memory"}) {
                 assertThat(tableExists(connection, schema, table)).as(table).isTrue();
             }
             for (String removedTable : new String[]{
@@ -65,7 +65,7 @@ class FlywayMigrationIT {
                 assertThat(tableExists(connection, schema, removedTable)).as(removedTable).isFalse();
             }
         }
-        System.out.println("测试证据：场景=全新数据库初始化，迁移数=5，当前表数=29，多文档任务表=存在");
+        System.out.println("测试证据：场景=全新数据库初始化，迁移数=10，当前表数=31，用户记忆表=存在");
     }
 
     /**
@@ -76,16 +76,16 @@ class FlywayMigrationIT {
         String schema = "repeatable_baseline";
         Flyway flyway = migrationFor(schema);
 
-        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(5);
+        assertThat(flyway.migrate().migrationsExecuted).isEqualTo(10);
         assertThat(flyway.migrate().migrationsExecuted).isZero();
 
         try (Connection connection = connection()) {
             assertThat(queryInt(connection,
                     "select count(*) from repeatable_baseline.flyway_schema_history "
                             + "where success and version is not null"))
-                    .isEqualTo(5);
+                    .isEqualTo(10);
         }
-        System.out.println("测试证据：场景=重复启动，首次迁移数=5，第二次迁移数=0，成功历史版本数=5");
+        System.out.println("测试证据：场景=重复启动，首次迁移数=10，第二次迁移数=0，成功历史版本数=10");
     }
 
     /**
@@ -127,7 +127,7 @@ class FlywayMigrationIT {
 
         var result = migrationFor(schema).migrate();
 
-        assertThat(result.migrationsExecuted).isEqualTo(4);
+        assertThat(result.migrationsExecuted).isEqualTo(9);
         try (Connection connection = connection()) {
             assertThat(queryInt(connection, """
                     select count(*) from conversation_upgrade.web_qa_question q

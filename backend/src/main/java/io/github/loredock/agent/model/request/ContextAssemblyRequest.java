@@ -21,6 +21,7 @@ import io.github.loredock.agent.model.enums.ContextPurpose;
  * @param conversation 会话上下文
  * @param workflow 当前轮工作上下文
  * @param budget 预算配置
+ * @param projectId 会话归属项目（决定记忆预载与记忆工具的项目范围；GLOBAL 侧会话为空）
  */
 public record ContextAssemblyRequest(
         Long conversationId,
@@ -30,6 +31,7 @@ public record ContextAssemblyRequest(
         String currentInstruction,
         ConversationContext conversation,
         WorkflowContext workflow,
-        ContextBudget budget
+        ContextBudget budget,
+        Long projectId
 ) {
 }

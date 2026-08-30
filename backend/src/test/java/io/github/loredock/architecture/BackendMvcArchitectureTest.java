@@ -29,7 +29,7 @@ class BackendMvcArchitectureTest {
     private static final Path SOURCE_ROOT = Path.of("src/main/java/io/github/loredock");
     private static final Set<String> BUSINESS_MODULES = Set.of(
             "agent", "auth", "code", "feedback", "identity", "job",
-            "knowledge", "knowledgegap", "project", "qa", "storage");
+            "knowledge", "knowledgegap", "memory", "project", "qa", "storage");
     private static final Set<String> MODULE_PACKAGES = Set.of(
             "api", "controller", "service", "mapper", "model", "config",
             "exception", "scheduler", "converter", "skill");

@@ -105,6 +105,7 @@ public class KnowledgeCurationRunExecutor {
     private final ContextBudget contextBudget;
     private final ContextAssemblyService contextAssembly;
     private final ContextTokenEstimator contextEstimator;
+    private final MemoryPreloadSupply memoryPreload;
     private final Map<Long, RunningRun> active = new ConcurrentHashMap<>();
 
     /** 注入框架组件、多 Agent 定义、既有运行持久化和共享有界调度器。 */
@@ -124,7 +125,8 @@ public class KnowledgeCurationRunExecutor {
             KnowledgeTaskRunProjectionService projection,
             BoundedAgentRunScheduler scheduler,
             ContextBudget contextBudget,
-            Clock clock
+            Clock clock,
+            MemoryPreloadSupply memoryPreload
     ) {
         this.models = models;
         this.properties = properties;
@@ -142,8 +144,10 @@ public class KnowledgeCurationRunExecutor {
         this.scheduler = scheduler;
         this.contextBudget = Objects.requireNonNull(contextBudget, "context budget");
         this.contextEstimator = new ContextTokenEstimator();
+        this.memoryPreload = Objects.requireNonNull(memoryPreload, "memory preload supply");
         this.contextAssembly = new ContextAssemblyService(conversations, messages, contextBudget,
-                contextEstimator, new ContextCompressionService(objectMapper, messages, contextEstimator));
+                contextEstimator, new ContextCompressionService(objectMapper, messages, contextEstimator),
+                memoryPreload);
         this.clock = clock;
     }
 
@@ -277,11 +281,13 @@ public class KnowledgeCurationRunExecutor {
                     finished);
             taskEvents.append(run.getKnowledgeTaskConversationId(), run.getId(), "RUN_UPDATED", run.getId(), finished);
             active.remove(run.getId(), running);
+            memoryPreload.evict(run.getId());
             System.out.println("知识整理模型最终原始响应：" + result.reply());
         } catch (Exception exception) {
             AgentRunEntity current = runs.selectById(run.getId());
             if (current != null && "CANCELLED".equals(current.getStatus())) {
                 active.remove(run.getId(), running);
+                memoryPreload.evict(run.getId());
                 return;
             }
             if (current != null && "PAUSE_REQUESTED".equals(current.getStatus())
@@ -668,15 +674,20 @@ public class KnowledgeCurationRunExecutor {
                 .exitBehavior(ToolCallLimitHook.ExitBehavior.ERROR)
                 .build();
         try {
+            // projectId 只在项目侧会话写入（Map.of 不允许 null 值）；记忆工具/预载依此确定记忆范围。
+            java.util.Map<String, Object> toolContext = new HashMap<>();
+            toolContext.put("operatorId", run.getOperatorId());
+            toolContext.put("projectIdentifier", run.getProjectIdentifier());
+            toolContext.put("conversationId", run.getKnowledgeTaskConversationId());
+            toolContext.put("runId", run.getId());
+            if (run.getProjectId() != null) {
+                toolContext.put("projectId", run.getProjectId());
+            }
             KnowledgeCurationGraphFactory.GraphBundle bundle = new KnowledgeCurationGraphFactory(objectMapper, contextAssembly).build(
                     definitions.graphSpecs(),
                     Objects.requireNonNull(models.getIfAvailable(), "知识整理模型不可用"),
                     toolResolver,
-                    Map.of(
-                            "operatorId", run.getOperatorId(),
-                            "projectIdentifier", run.getProjectIdentifier(),
-                            "conversationId", run.getKnowledgeTaskConversationId(),
-                            "runId", run.getId()),
+                    toolContext,
                     checkpoints,
                     List.of(InterruptionHook.builder().build(), modelLimit, toolLimit, contextGuard),
                     List.of(metrics, metrics.toolInterceptor()),
@@ -999,6 +1010,9 @@ public class KnowledgeCurationRunExecutor {
                 case "draft_read" -> "已读取工作文档";
                 case "draft_update" -> "已生成工作文档新修订";
                 case "draft_diff" -> "已生成待审核 Diff";
+                case "memory_search" -> "已检索相关记忆摘要";
+                case "memory_read" -> "已读取记忆全文";
+                case "memory_write" -> "已完成记忆提炼判断";
                 default -> "工具执行完成";
             };
         }
@@ -1012,6 +1026,8 @@ public class KnowledgeCurationRunExecutor {
                 case "workspace_document_list" -> "恢复多文档工作区";
                 case "draft_create", "draft_read", "draft_rename", "draft_update" -> "生成或修改工作文档";
                 case "draft_diff" -> "生成审核差异";
+                case "memory_search", "memory_read" -> "查阅用户记忆";
+                case "memory_write" -> "提炼用户偏好记忆";
                 default -> "执行知识整理步骤";
             };
         }
@@ -1049,6 +1065,8 @@ public class KnowledgeCurationRunExecutor {
         Instant finished = clock.instant();
         runs.failKnowledge(runId, code, modelCalls + toolCalls, modelCalls, toolCalls,
                 Math.max(0, Duration.between(started, finished).toMillis()), finished);
+        // run 终态统一清理记忆快照：失败不可恢复，下一 run 重新计算。
+        memoryPreload.evict(runId);
     }
 
     static AssistantMessage completedAssistantMessage(NodeOutput output) {

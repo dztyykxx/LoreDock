@@ -1,7 +1,10 @@
 package io.github.loredock.agent.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.loredock.agent.mapper.KnowledgeTaskConversationMapper;
@@ -15,6 +18,11 @@ import io.github.loredock.agent.model.context.WorkflowContext;
 import io.github.loredock.agent.model.enums.AgentNode;
 import io.github.loredock.agent.model.enums.ContextPurpose;
 import io.github.loredock.agent.model.request.ContextAssemblyRequest;
+import io.github.loredock.memory.api.MemoryCategory;
+import io.github.loredock.memory.api.MemoryRelevant;
+import io.github.loredock.memory.api.MemoryRelevantQuery;
+import io.github.loredock.memory.api.MemoryScope;
+import io.github.loredock.memory.api.MemoryService;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.messages.Message;
@@ -147,9 +155,61 @@ class ContextAssemblyTest {
                 estimate.tokens(), expected, estimate.mode());
     }
 
+    /** 业务目的：记忆摘要块只注入主 Agent 组装视图（专家视图不含记忆内容与编号），且同一 run 内多次主 Agent
+     *  组装复用同一份快照（run 固定、前缀稳定）；检索词=原始目标+本轮指令，限制 30 条。 */
+    @Test
+    void memoryBlockInjectedOnlyForMainAgentAndPinnedPerRun() {
+        MemoryService memories = mock(MemoryService.class);
+        when(memories.listRelevant(any())).thenReturn(List.of(
+                new MemoryRelevant(12L, MemoryScope.GLOBAL, null, null, MemoryCategory.FORMAT,
+                        "正文使用三级标题", "段落用三级标题组织", 4)));
+        ContextAssemblyService memoryAssembly = new ContextAssemblyService(
+                mock(KnowledgeTaskConversationMapper.class), mock(KnowledgeTaskMessageMapper.class),
+                ContextAssemblyFixtures.budget(), new ContextTokenEstimator(),
+                new ContextCompressionService(OBJECT_MAPPER, mock(KnowledgeTaskMessageMapper.class),
+                        new ContextTokenEstimator()),
+                new MemoryPreloadSupply(memories));
+        ContextAssemblyRequest mainRequest = request(AgentNode.MAIN_AGENT, ContextPurpose.CHAT,
+                List.of(), conversation(), emptyWorkflow());
+
+        // 同一 run 内主 Agent 第二次组装（子图汇总/续跑）复用同一份快照：前缀稳定，记忆集不可漂移。
+        String first = text(memoryAssembly.assemble(mainRequest, noSummary(), 0, mock(ChatModel.class)).prepared().messages());
+        String second = text(memoryAssembly.assemble(mainRequest, noSummary(), 0, mock(ChatModel.class)).prepared().messages());
+
+        assertThat(first).contains("【用户记忆】").contains("[FORMAT/GLOBAL]")
+                .contains("正文使用三级标题：段落用三级标题组织（编号 12）")
+                .contains("如需核对全文请用 memory_read");
+        // 记忆块必须在【当前指令】之前（设计 §8 位置固定，避免被当作当前任务证据）。
+        assertThat(first.indexOf("【用户记忆】")).isLessThan(first.indexOf("【当前指令】"));
+        assertThat(second).isEqualTo(first);
+        for (AgentNode expert : List.of(AgentNode.RETRIEVER, AgentNode.COORDINATOR,
+                AgentNode.DRAFTER, AgentNode.REVIEWER)) {
+            String expertText = text(memoryAssembly.assemble(
+                    request(expert, ContextPurpose.CHAT, List.of(), conversation(), emptyWorkflow()),
+                    noSummary(), 0, mock(ChatModel.class)).prepared().messages());
+            assertThat(expertText).doesNotContain("【用户记忆】").doesNotContain("编号 12");
+        }
+        // 首组装一次性检索（run 固定快照），专家节点不触发检索。
+        verify(memories).listRelevant(
+                new MemoryRelevantQuery(List.of("整理项目知识", "测试目标"), null, 30));
+        System.out.printf("测试证据：场景=记忆块仅主Agent且按run固定，主Agent两次组装文本一致=%s，专家视图4个均无记忆=%s%n",
+                first.equals(second), true);
+    }
+
+    private static WorkflowContext emptyWorkflow() {
+        return new WorkflowContext(List.of(), List.of(), List.of(), List.of(), null, null, null, List.of());
+    }
+
     private static ContextAssemblyRequest request(
             AgentNode node, ContextPurpose purpose, List<ConversationContext.DialogueTurn> history,
             ConversationContext conversation, WorkflowContext workflow
+    ) {
+        return request(node, purpose, history, conversation, workflow, null);
+    }
+
+    private static ContextAssemblyRequest request(
+            AgentNode node, ContextPurpose purpose, List<ConversationContext.DialogueTurn> history,
+            ConversationContext conversation, WorkflowContext workflow, Long projectId
     ) {
         if (history != null) {
             conversation = new ConversationContext(conversation.originalGoal(), history,
@@ -157,7 +217,7 @@ class ContextAssemblyTest {
                     conversation.historyTruncated());
         }
         return new ContextAssemblyRequest(1L, 2L, node, purpose, "测试目标",
-                conversation, workflow, ContextAssemblyFixtures.budget());
+                conversation, workflow, ContextAssemblyFixtures.budget(), projectId);
     }
 
     private static ConversationContext conversation() {

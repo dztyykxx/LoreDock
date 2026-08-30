@@ -13,6 +13,7 @@ import io.github.loredock.agent.model.context.ConversationContext;
 import io.github.loredock.agent.model.context.PreparedModelContext;
 import io.github.loredock.agent.model.context.WorkflowContext;
 import io.github.loredock.agent.model.entity.KnowledgeTaskConversationEntity;
+import io.github.loredock.memory.api.MemoryRelevant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -55,6 +56,7 @@ public class ContextAssemblyService {
     private final ContextTokenEstimator estimator;
     private final ContextDeterministicCompressor compressor;
     private final ContextCompressionService compressionService;
+    private final MemoryPreloadSupply memoryPreload;
 
     public ContextAssemblyService(
             KnowledgeTaskConversationMapper conversations,
@@ -63,12 +65,27 @@ public class ContextAssemblyService {
             ContextTokenEstimator estimator,
             ContextCompressionService compressionService
     ) {
+        this(conversations, messages, budget, estimator, compressionService, null);
+    }
+
+    /**
+     * @param memoryPreload 用户记忆快照供应；为空时跳过记忆注入（组装单元测试与未装配记忆的场景）
+     */
+    public ContextAssemblyService(
+            KnowledgeTaskConversationMapper conversations,
+            KnowledgeTaskMessageMapper messages,
+            ContextBudget budget,
+            ContextTokenEstimator estimator,
+            ContextCompressionService compressionService,
+            MemoryPreloadSupply memoryPreload
+    ) {
         this.conversations = conversations;
         this.messages = messages;
         this.budget = budget;
         this.estimator = estimator;
         this.compressionService = compressionService;
         this.compressor = new ContextDeterministicCompressor(estimator);
+        this.memoryPreload = memoryPreload;
     }
 
     /** @return 本服务承载的预算配置（准备节点与组装共用同一常量）。 */
@@ -192,6 +209,10 @@ public class ContextAssemblyService {
             return repairBlock(request, workflow);
         }
         List<String> blocks = new ArrayList<>();
+        String memory = memoryBlock(request);
+        if (memory != null) {
+            blocks.add(memory);
+        }
         blocks.add("【当前指令】" + text(request.currentInstruction()));
         if (workflow != null) {
             if (!workflow.facts().isEmpty()) {
@@ -243,8 +264,52 @@ public class ContextAssemblyService {
         return String.join("\n\n", blocks);
     }
 
-    /** 阶段标记：只对 DECIDE/FINISH/REPORT 的节点入口生成，与 Agent Spec 契约的显式阶段语义一致。 */
-    private String stageMarker(ContextAssemblyRequest request) {
+    /** 用户记忆块硬上限（码点）：超出时从行尾确定性裁剪，结尾指引不变（设计文档 §8）。 */
+    static final int MEMORY_BLOCK_CODE_POINTS = 1_800;
+
+    /** 用户记忆块：仅主 Agent 入口（REPAIR 提前返回不注入）；查询词=原始目标+本轮指令。 */
+    private String memoryBlock(ContextAssemblyRequest request) {
+        if (memoryPreload == null || request.agentNode() != io.github.loredock.agent.model.enums.AgentNode.MAIN_AGENT) {
+            return null;
+        }
+        List<MemoryRelevant> snapshot = memoryPreload.snapshot(
+                request.runId(), request.projectId(), memoryQueryWords(request));
+        if (snapshot.isEmpty()) {
+            return null;
+        }
+        StringBuilder block = new StringBuilder("【用户记忆】");
+        for (MemoryRelevant entry : snapshot) {
+            String line = "\n- [" + entry.category().name() + "/" + entry.scope().name() + "] "
+                    + bounded(entry.title(), 200) + "：" + bounded(entry.summary(), 300) + "（编号 " + entry.id() + "）";
+            if (block.codePointCount(0, block.length()) + line.codePointCount(0, line.length()) > MEMORY_BLOCK_CODE_POINTS) {
+                break;
+            }
+            block.append(line);
+        }
+        // 结尾指引固定保留：全文用 memory_read（传行尾编号），冲突择优按当前任务语义。
+        block.append("\n如需核对全文请用 memory_read 并传行尾编号；冲突记忆按当前任务语义择优，当轮明确指令优先。");
+        log.info("用户记忆注入 runId={} agent={} projectId={} 命中={} 块码点={}",
+                request.runId(), request.agentNode(), request.projectId(), snapshot.size(),
+                block.codePointCount(0, block.length()));
+        return block.toString();
+    }
+
+    /** 记忆查询词：原始目标 + 本轮用户指令，各限 100 码点并按原顺序去重。 */
+    private static List<String> memoryQueryWords(ContextAssemblyRequest request) {
+        List<String> words = new ArrayList<>();
+        addMemoryWord(words, request.conversation().originalGoal());
+        addMemoryWord(words, request.currentInstruction());
+        return words;
+    }
+
+    private static void addMemoryWord(List<String> words, String value) {
+        String word = bounded(value, 100);
+        if (!word.isBlank() && !words.contains(word)) {
+            words.add(word);
+        }
+    }
+
+    /** 阶段标记：只对 DECIDE/FINISH/REPORT 的节点入口生成，与 Agent Spec 契约的显式阶段语义一致。 */    private String stageMarker(ContextAssemblyRequest request) {
         return switch (request.purpose()) {
             case FULL_CURATION_DECIDE ->
                     "【当前阶段：DECIDE】\n检索已完成。请依据上方事实决定下一步：只能输出 DRAFT、ASK_USER 或 NO_CHANGE。切勿输出 CHAT 或 RETRIEVE。";

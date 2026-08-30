@@ -30,9 +30,16 @@ import io.github.loredock.agent.model.entity.AgentRunEntity;
 import io.github.loredock.agent.model.entity.KnowledgeTaskConversationEntity;
 import io.github.loredock.agent.model.entity.KnowledgeTaskMessageEntity;
 import io.github.loredock.agent.scheduler.BoundedAgentRunScheduler;
+import io.github.loredock.memory.mapper.UserMemoryMapper;
+import io.github.loredock.memory.model.entity.UserMemoryEntity;
+import io.github.loredock.memory.service.MemoryServiceImpl;
+import io.github.loredock.memory.service.MemoryWriteJudger;
+import io.github.loredock.memory.testsupport.MemoryTestFixtures;
+import io.github.loredock.persistence.MybatisMapperFactory;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -51,9 +58,11 @@ import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.function.FunctionToolCallback;
+import org.springframework.ai.tool.method.MethodToolCallbackProvider;
 import org.springframework.ai.tool.resolution.StaticToolCallbackResolver;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.io.ClassPathResource;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -71,7 +80,8 @@ class KnowledgeCurationRunExecutorDriveIT {
             "selected_draft_list", "selected_draft_read", "knowledge_directory_list",
             "knowledge_document_list", "knowledge_document_read", "knowledge_grep",
             "knowledge_search", "workspace_document_list",
-            "draft_create", "draft_read", "draft_update", "draft_rename", "draft_diff");
+            "draft_create", "draft_read", "draft_update", "draft_rename", "draft_diff",
+            "memory_search", "memory_read", "memory_write");
 
     @Container
     private static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(
@@ -128,7 +138,8 @@ class KnowledgeCurationRunExecutorDriveIT {
                 modelProvider, properties(), resolver, saver, definitions, new ObjectMapper(),
                 runs, mock(KnowledgeTaskConversationMapper.class), messages, events, taskEvents,
                 mock(KnowledgeToolInvocationService.class), mock(KnowledgeTaskRunProjectionService.class),
-                scheduler, ContextAssemblyFixtures.budget(), Clock.systemUTC());
+                scheduler, ContextAssemblyFixtures.budget(), Clock.systemUTC(),
+                noMemorySupply());
 
         executor.start(run, "你好", new KnowledgeAgentDefinitionService.LoadedDefinition(
                 new io.github.loredock.agent.api.KnowledgeTaskService.RuntimeDefinition(
@@ -226,7 +237,8 @@ class KnowledgeCurationRunExecutorDriveIT {
                 modelProvider, properties(), resolver, saver, definitions, new ObjectMapper(),
                 runs, mock(KnowledgeTaskConversationMapper.class), messages, events, taskEvents,
                 mock(KnowledgeToolInvocationService.class), mock(KnowledgeTaskRunProjectionService.class),
-                scheduler, ContextAssemblyFixtures.budget(), Clock.systemUTC());
+                scheduler, ContextAssemblyFixtures.budget(), Clock.systemUTC(),
+                noMemorySupply());
 
         executor.start(run, "开始整理", new KnowledgeAgentDefinitionService.LoadedDefinition(
                 new io.github.loredock.agent.api.KnowledgeTaskService.RuntimeDefinition(
@@ -318,7 +330,8 @@ class KnowledgeCurationRunExecutorDriveIT {
                 modelProvider, properties(), resolver, saver, definitions, new ObjectMapper(),
                 runs, mock(KnowledgeTaskConversationMapper.class), messages, events, taskEvents,
                 mock(KnowledgeToolInvocationService.class), mock(KnowledgeTaskRunProjectionService.class),
-                scheduler, ContextAssemblyFixtures.budget(), Clock.systemUTC());
+                scheduler, ContextAssemblyFixtures.budget(), Clock.systemUTC(),
+                noMemorySupply());
 
         executor.start(run, "开始整理", new KnowledgeAgentDefinitionService.LoadedDefinition(
                 new io.github.loredock.agent.api.KnowledgeTaskService.RuntimeDefinition(
@@ -382,7 +395,8 @@ class KnowledgeCurationRunExecutorDriveIT {
                 modelProvider, properties(), resolver, saver, definitions, new ObjectMapper(),
                 runs, mock(KnowledgeTaskConversationMapper.class), messages, events, taskEvents,
                 mock(KnowledgeToolInvocationService.class), mock(KnowledgeTaskRunProjectionService.class),
-                scheduler, ContextAssemblyFixtures.budget(), Clock.systemUTC());
+                scheduler, ContextAssemblyFixtures.budget(), Clock.systemUTC(),
+                noMemorySupply());
 
         executor.start(run, "你好", new KnowledgeAgentDefinitionService.LoadedDefinition(
                 new io.github.loredock.agent.api.KnowledgeTaskService.RuntimeDefinition(
@@ -463,7 +477,8 @@ class KnowledgeCurationRunExecutorDriveIT {
                 modelProvider, properties(), resolver, saver, definitions, new ObjectMapper(),
                 runs, mock(KnowledgeTaskConversationMapper.class), messages, events, taskEvents,
                 mock(KnowledgeToolInvocationService.class), mock(KnowledgeTaskRunProjectionService.class),
-                scheduler, ContextAssemblyFixtures.budget(), Clock.systemUTC());
+                scheduler, ContextAssemblyFixtures.budget(), Clock.systemUTC(),
+                noMemorySupply());
 
         executor.start(run, "你好", new KnowledgeAgentDefinitionService.LoadedDefinition(
                 new io.github.loredock.agent.api.KnowledgeTaskService.RuntimeDefinition(
@@ -546,7 +561,8 @@ class KnowledgeCurationRunExecutorDriveIT {
                 modelProvider, properties(), resolver, saver, definitions, new ObjectMapper(),
                 runs, mock(KnowledgeTaskConversationMapper.class), messages, events, taskEvents,
                 mock(KnowledgeToolInvocationService.class), mock(KnowledgeTaskRunProjectionService.class),
-                scheduler, ContextAssemblyFixtures.budget(), Clock.systemUTC());
+                scheduler, ContextAssemblyFixtures.budget(), Clock.systemUTC(),
+                noMemorySupply());
 
         executor.start(run, "请整理背景", new KnowledgeAgentDefinitionService.LoadedDefinition(
                 new io.github.loredock.agent.api.KnowledgeTaskService.RuntimeDefinition(
@@ -644,7 +660,8 @@ class KnowledgeCurationRunExecutorDriveIT {
                 runs, mock(KnowledgeTaskConversationMapper.class), mock(KnowledgeTaskMessageMapper.class),
                 mock(AgentEventService.class), mock(KnowledgeTaskEventService.class),
                 mock(KnowledgeToolInvocationService.class), mock(KnowledgeTaskRunProjectionService.class),
-                scheduler, ContextAssemblyFixtures.budget(), Clock.systemUTC());
+                scheduler, ContextAssemblyFixtures.budget(), Clock.systemUTC(),
+                noMemorySupply());
 
         executor.resume(run, "将勾选草稿合并为一份稳定的业务知识", "你能看到上轮对话的哪些信息",
                 new KnowledgeAgentDefinitionService.LoadedDefinition(
@@ -661,12 +678,200 @@ class KnowledgeCurationRunExecutorDriveIT {
                 "你好，我在线，能看到上轮结论。");
     }
 
+    /**
+     * 业务目的：端到端验证「偏好沉淀 → 下一轮预载注入 → 偏好随起草指令传达」完整闭环——
+     * run A 用户表达长期偏好，主 Agent 调 memory_write 由真实判断链写入一条 GLOBAL 记忆；
+     * 同一会话下一轮 run B 的主 Agent 上下文出现【用户记忆】块（行尾编号与 DB 一致、run 内两
+     * 次主 Agent 注入相同），起草指令携带该偏好、记忆标题/编号/正文不进入任何专家视图，
+     * 且完整整理路径与公开阶段事件、等待人工发布的门禁行为保持不变。
+     * 防止：记忆只写不注（沉淀后下一轮模型看不到自己的偏好），或记忆泄漏进专家视图被当成证据。
+     */
+    @Test
+    void memoryWrittenInRunCarriesIntoNextRunCurationAsStablePrefix() throws Exception {
+        Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .schemas(schema).defaultSchema(schema).locations("classpath:db/migration")
+                .load().migrate();
+        javax.sql.DataSource dataSource = dataSource();
+        PostgresSaver saver = PostgresSaver.builder().datasource(dataSource)
+                .createOption(CreateOption.CREATE_NONE).build();
+        // 协调 Agent 的 persistCoordinatorProgress 用 MyBatis-Plus lambdaUpdate 触达会话表，需手动注册 TableInfo。
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""),
+                KnowledgeTaskConversationEntity.class);
+
+        // 来源外键种子：memory_write 落库 user_memory.source_run_id/source_conversation_id 有真实外键
+        // （agent_run(2) + knowledge_task_conversation(100)），不能只依赖 Mockito 的 run mapper。
+        JdbcTemplate jdbc = new JdbcTemplate(dataSource);
+        String hex = "a".repeat(64);
+        String digestB = "b".repeat(64);
+        String digestC = "c".repeat(64);
+        Instant base = Instant.parse("2026-08-30T08:00:00Z");
+        String thread = "e2e-memory-thread-" + System.nanoTime();
+        jdbc.update("""
+                insert into knowledge_task_conversation
+                    (id, operator_id, idempotency_key, request_hash, project_id, project_identifier,
+                     trigger_type, trigger_reason, target_skill, goal, created_at, updated_at)
+                values (?, 'admin', 'e2e-conv-100', ?, null, 'atlas', 'MANUAL', '用户记忆端到端测试', 'knowledge-curator',
+                        '记录并整理项目背景', ?, ?)
+                """, 100L, hex, base.atOffset(ZoneOffset.UTC), base.atOffset(ZoneOffset.UTC));
+        jdbc.update("""
+                insert into agent_run
+                    (id, operator_id, idempotency_key, request_hash, task_type, question_hash,
+                     question_length, project_id, project_identifier, branch_id, branch_name,
+                     agent_name, model_name, config_summary, knowledge_task_conversation_id, thread_id,
+                     skill_digest, agent_spec_digest, tool_names, status, accepted_at, updated_at)
+                values (?, 'admin', 'e2e-run-2', ?, 'knowledge_curation', ?, 20, null, 'atlas', null, 'main',
+                        'knowledge-curator', 'fake', 'it-config', 100, ?, ?, ?, 'memory_search,memory_read,memory_write',
+                        'RUNNING', ?, ?)
+                """, 2L, hex, hex, thread, digestB, digestC, base.atOffset(ZoneOffset.UTC), base.atOffset(ZoneOffset.UTC));
+
+        // 真实记忆服务 + 真实 MemoryTools：memory_write 走完整判断链（脚本化判断模型返回 CREATED）。
+        UserMemoryMapper memoryMapper = MybatisMapperFactory.create(dataSource, UserMemoryMapper.class);
+        java.time.Clock clock = java.time.Clock.fixed(Instant.parse("2026-08-30T10:00:00Z"), ZoneOffset.UTC);
+        MemoryServiceImpl memoryService = new MemoryServiceImpl(
+                memoryMapper, MemoryTestFixtures.projectService(),
+                new MemoryWriteJudger(MemoryTestFixtures.single(new FixedChatModel("""
+                        [{"candidateIndex":0,"verdict":"CREATED","conflictsWith":[],"summary":"正文使用三级标题"}]
+                        """)), new ObjectMapper()),
+                MemoryTestFixtures.properties(), clock);
+        MemoryPreloadSupply supply = new MemoryPreloadSupply(memoryService);
+
+        ScriptedChatModel modelA = new ScriptedChatModel(List.of(
+                answerToolCall("memory_write", "{\"candidates\":[{\"title\":\"正文格式偏好\","
+                        + "\"content\":\"正文使用三级标题\",\"category\":\"FORMAT\",\"summary\":null}]}"),
+                answer("{\"action\":\"TURN_DONE\",\"summary\":\"已记住你的偏好：文档正文使用三级标题\",\"expertCalls\":[]}")));
+        // run B 完整整理脚本顺序：主 Agent FULL_CURATION → retriever → coordinator DECIDE（起草指令携带偏好）
+        // → drafter → reviewer PASS → coordinator FINISH/END → 主 Agent TURN_DONE。
+        ScriptedChatModel modelB = new ScriptedChatModel(List.of(
+                answer("{\"action\":\"FULL_CURATION\",\"summary\":\"开始整理\",\"expertCalls\":[]}"),
+                answer("{\"issueType\":\"MISSING\",\"candidateTargetDocumentId\":710004,"
+                        + "\"facts\":[{\"statement\":\"新增背景\",\"support\":\"SUPPORTED\","
+                        + "\"sourceRefs\":[{\"type\":\"EVIDENCE\",\"id\":88}]}],"
+                        + "\"unresolvedQuestions\":[],\"summary\":\"检索到事实\"}"),
+                answer("{\"stage\":\"DECIDE\",\"action\":\"DRAFT\",\"reason\":\"有支持事实\","
+                        + "\"draftInstruction\":\"正文按用户偏好使用三级标题\",\"question\":null,\"summary\":\"决定起草\"}"),
+                answer("{\"status\":\"WRITTEN\",\"drafts\":[{\"draftId\":19,\"revision\":3,\"operation\":\"ADD\"}],"
+                        + "\"question\":null,\"summary\":\"已写入\"}"),
+                answer("{\"verdict\":\"PASS\",\"reviewedDrafts\":[{\"draftId\":19,\"revision\":3}],"
+                        + "\"findings\":[],\"question\":null,\"summary\":\"审查通过\"}"),
+                answer("{\"stage\":\"FINISH\",\"action\":\"END\",\"reason\":\"完成\","
+                        + "\"draftInstruction\":null,\"question\":null,\"summary\":\"已完成整理\"}"),
+                answer("{\"action\":\"TURN_DONE\",\"summary\":\"已完成整理\",\"expertCalls\":[]}")));
+        java.util.concurrent.atomic.AtomicReference<ChatModel> activeModel =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        ObjectProvider<ChatModel> modelProvider = new ObjectProvider<ChatModel>() {
+            @Override public ChatModel getObject(Object... args) { return activeModel.get(); }
+            @Override public ChatModel getIfAvailable() { return activeModel.get(); }
+            @Override public ChatModel getIfUnique() { return activeModel.get(); }
+            @Override public ChatModel getObject() { return activeModel.get(); }
+        };
+
+        KnowledgeAgentDefinitionService definitions = mock(KnowledgeAgentDefinitionService.class);
+        when(definitions.graphSpecs()).thenReturn(new KnowledgeCurationGraphFactory.AgentSpecSet(loadSpecs()));
+
+        AgentRunMapper runs = mock(AgentRunMapper.class);
+        AgentRunEntity runA = runEntity(2L, thread);
+        AgentRunEntity runB = runEntity(3L, thread);
+        when(runs.selectById(2L)).thenReturn(runA);
+        when(runs.selectById(3L)).thenReturn(runB);
+        when(runs.markKnowledgeRunning(anyLong(), any())).thenReturn(1);
+
+        KnowledgeTaskMessageMapper messages = mock(KnowledgeTaskMessageMapper.class);
+        AgentEventService events = mock(AgentEventService.class);
+        KnowledgeTaskEventService taskEvents = mock(KnowledgeTaskEventService.class);
+
+        // 记忆三工具替换 echo 占位，其余工具仍为占位实现；工具名与占位一致，仅实现生效。
+        Map<String, ToolCallback> callbacks = ALL_TOOLS.stream().collect(Collectors.toMap(
+                n -> n, KnowledgeCurationRunExecutorDriveIT::tool, (a, b) -> a, LinkedHashMap::new));
+        MemoryTools memoryTools = new MemoryTools(memoryService, runs);
+        for (ToolCallback callback : MethodToolCallbackProvider.builder().toolObjects(memoryTools).build()
+                .getToolCallbacks()) {
+            callbacks.put(callback.getToolDefinition().name(), callback);
+        }
+        StaticToolCallbackResolver resolver = new StaticToolCallbackResolver(List.copyOf(callbacks.values()));
+
+        BoundedAgentRunScheduler scheduler = mock(BoundedAgentRunScheduler.class);
+        when(scheduler.schedule(anyLong(), any())).thenAnswer(inv -> {
+            ((Runnable) inv.getArgument(1)).run();
+            return true;
+        });
+
+        KnowledgeCurationRunExecutor executor = new KnowledgeCurationRunExecutor(
+                modelProvider, properties(), resolver, saver, definitions, new ObjectMapper(),
+                runs, mock(KnowledgeTaskConversationMapper.class), messages, events, taskEvents,
+                mock(KnowledgeToolInvocationService.class), mock(KnowledgeTaskRunProjectionService.class),
+                scheduler, ContextAssemblyFixtures.budget(), Clock.systemUTC(),
+                supply);
+        KnowledgeAgentDefinitionService.LoadedDefinition definition =
+                new KnowledgeAgentDefinitionService.LoadedDefinition(
+                        new io.github.loredock.agent.api.KnowledgeTaskService.RuntimeDefinition(
+                                "knowledge-curator", "s", "d", "m", ALL_TOOLS));
+
+        // —— run A：沉淀偏好（此时库里还没有任何记忆，主 Agent 上下文不得出现【用户记忆】块。
+        // 注意：主 Agent spec 本身含「记忆边界」说明文本，须用块独有标记（编号行/核对指引）断言块不存在。
+        activeModel.set(modelA);
+        executor.start(runA, "记住：我偏好正文使用三级标题", definition);
+        for (String prompt : modelA.prompts()) {
+            assertThat(prompt)
+                    .doesNotContain("（编号 ", "如需核对全文请用 memory_read 并传行尾编号")
+                    .doesNotContain("[FORMAT/GLOBAL]");
+        }
+        verify(runs).completeKnowledge(eq(2L), eq("已记住你的偏好：文档正文使用三级标题"), any(int.class),
+                any(int.class), any(int.class), any(long.class), isNull(), isNull(), any(Instant.class));
+
+        // —— DB 断言：记忆由真实服务写入（来源、范围、分类、摘要与判断结论一致）。
+        UserMemoryEntity persisted = memoryMapper.selectList(
+                com.baomidou.mybatisplus.core.toolkit.Wrappers.<UserMemoryEntity>lambdaQuery()
+                        .eq(UserMemoryEntity::getSourceRunId, 2L)).get(0);
+        assertThat(persisted.getScopeType()).isEqualTo("GLOBAL");
+        assertThat(persisted.getCategory()).isEqualTo("FORMAT");
+        assertThat(persisted.getTitle()).isEqualTo("正文格式偏好");
+        assertThat(persisted.getSummary()).isEqualTo("正文使用三级标题");
+        assertThat(persisted.getContent()).isEqualTo("正文使用三级标题");
+        assertThat(persisted.getStatus()).isEqualTo("ACTIVE");
+        assertThat(persisted.getSourceRunId()).isEqualTo(2L);
+        assertThat(persisted.getSourceConversationId()).isEqualTo(100L);
+        assertThat(persisted.getSourceType()).isEqualTo("KNOWLEDGE_CURATION");
+        assertThat(persisted.getCreatedBy()).isEqualTo("admin");
+
+        // —— run B：同一会话下一轮，主 Agent 两次进入都注入同一编号的【用户记忆】块（run 固定快照）。
+        activeModel.set(modelB);
+        executor.start(runB, "正文使用三级标题", definition);
+        List<String> prompts = modelB.prompts();
+        assertThat(prompts).hasSize(7);
+        String block = "- [FORMAT/GLOBAL] 正文格式偏好：正文使用三级标题（编号 " + persisted.getId() + "）";
+        for (int index : new int[]{0, 6}) {
+            assertThat(prompts.get(index)).contains("【用户记忆】").contains(block)
+                    .contains("如需核对全文请用 memory_read 并传行尾编号");
+        }
+        // 专家视图（retriever/coordinator DECIDE/drafter/reviewer/coordinator FINISH）不得出现记忆块痕迹。
+        for (int index : new int[]{1, 2, 3, 4, 5}) {
+            assertThat(prompts.get(index))
+                    .doesNotContain("【用户记忆】", "正文格式偏好", "（编号 " + persisted.getId() + "）");
+        }
+        // 起草指令携带偏好：drafter（第 4 次调用）拿到协调 Agent 下达的偏好指令。
+        assertThat(prompts.get(3)).contains("正文按用户偏好使用三级标题");
+        // 完整路径照常收口 + 公开阶段事件不因记忆注入变化。
+        verify(runs).completeKnowledge(eq(3L), eq("已完成整理"), any(int.class),
+                any(int.class), any(int.class), any(long.class), isNull(), isNull(), any(Instant.class));
+        verify(events, atLeast(1)).append(eq(3L), eq(io.github.loredock.agent.model.enums.AgentEventType.AGENT_STAGE),
+                eq(io.github.loredock.agent.api.AgentEvent.SubjectType.AGENT),
+                argThat(payload -> "main_agent".equals(payload.name()) && "MAIN".equals(payload.phase())),
+                any(Instant.class));
+        System.out.printf("测试证据：场景=记忆端到端，写入 id=%d(%s/%s)，runB主Agent两次注入=%s，专家视图无记忆块，发布门禁不变%n",
+                persisted.getId(), persisted.getScopeType(), persisted.getCategory(), block.replace("\n", ""));
+    }
+
     private AgentRunEntity runEntity() {
+        return runEntity(1L, "executor-thread-" + System.nanoTime());
+    }
+
+    private AgentRunEntity runEntity(long id, String threadId) {
         return AgentRunEntity.builder()
-                .id(1L).operatorId("admin").projectIdentifier("atlas")
+                .id(id).operatorId("admin").projectIdentifier("atlas")
                 .knowledgeTaskConversationId(100L).taskType("knowledge_curation")
                 .agentName("knowledge-curator").status("RUNNING")
-                .threadId("executor-thread-" + System.nanoTime())
+                .threadId(threadId)
                 .acceptedAt(Instant.now()).updatedAt(Instant.now()).build();
     }
 
@@ -706,6 +911,11 @@ class KnowledgeCurationRunExecutorDriveIT {
 
     private record EchoInput(String value) { }
 
+    /** 记忆未装配的测试场景：供应返回空快照 → 组装不注入【用户记忆】块（Mockito 默认空列表）。 */
+    private MemoryPreloadSupply noMemorySupply() {
+        return new MemoryPreloadSupply(mock(io.github.loredock.memory.api.MemoryService.class));
+    }
+
     private static ChatResponse answer(String json) {
         return new ChatResponse(List.of(new Generation(new AssistantMessage(json))),
                 ChatResponseMetadata.builder().build());
@@ -743,5 +953,16 @@ class KnowledgeCurationRunExecutorDriveIT {
         int calls() { return calls.get(); }
 
         List<String> prompts() { return List.copyOf(prompts); }
+    }
+
+    /** 固定结论的 ChatModel：驱动记忆写入判断链（返回预置 verdict JSON），模拟判断器模型。 */
+    private static final class FixedChatModel implements ChatModel {
+        private final String reply;
+
+        private FixedChatModel(String reply) { this.reply = reply; }
+
+        @Override public ChatResponse call(Prompt prompt) { return answer(reply); }
+
+        @Override public Flux<ChatResponse> stream(Prompt prompt) { return Flux.just(call(prompt)); }
     }
 }
