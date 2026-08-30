@@ -333,6 +333,71 @@ class KnowledgeCurationRunExecutorDriveIT {
     }
 
     /**
+     * 业务目的：主 Agent 最终输出包含重复 JSON 键与 JSON 后的附加散文（真实模型缺陷）时，
+     * 最终回复解析必须与路由条件边共用同一容错（JsonNode 层 last-wins + 首尾括号截取），
+     * 不能出现"路由能过、最终回复解析失败"把整个 run 打成 AGENT_MODEL_RESPONSE_INVALID 的分叉。
+     */
+    @Test
+    void duplicateKeyAndTrailingProseInFinalReplyStillCompletes() throws Exception {
+        Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .schemas(schema).defaultSchema(schema).locations("classpath:db/migration")
+                .load().migrate();
+        PostgresSaver saver = PostgresSaver.builder().datasource(dataSource())
+                .createOption(CreateOption.CREATE_NONE).build();
+
+        ScriptedChatModel model = new ScriptedChatModel(List.of(
+                answer("{\"action\":\"CHAT\",\"summary\":\"你好，我在线。\",\"expertCalls\":[],"
+                        + "\"action\":\"CHAT\"} Let me correct that - duplicate key")));
+        ObjectProvider<ChatModel> modelProvider = new ObjectProvider<ChatModel>() {
+            @Override public ChatModel getObject(Object... args) { return model; }
+            @Override public ChatModel getIfAvailable() { return model; }
+            @Override public ChatModel getIfUnique() { return model; }
+            @Override public ChatModel getObject() { return model; }
+        };
+
+        KnowledgeAgentDefinitionService definitions = mock(KnowledgeAgentDefinitionService.class);
+        when(definitions.graphSpecs()).thenReturn(new KnowledgeCurationGraphFactory.AgentSpecSet(loadSpecs()));
+
+        AgentRunMapper runs = mock(AgentRunMapper.class);
+        AgentRunEntity run = runEntity();
+        when(runs.selectById(run.getId())).thenReturn(run);
+        when(runs.markKnowledgeRunning(eq(run.getId()), any())).thenReturn(1);
+
+        KnowledgeTaskMessageMapper messages = mock(KnowledgeTaskMessageMapper.class);
+        AgentEventService events = mock(AgentEventService.class);
+        KnowledgeTaskEventService taskEvents = mock(KnowledgeTaskEventService.class);
+
+        Map<String, ToolCallback> callbacks = ALL_TOOLS.stream().collect(Collectors.toMap(
+                n -> n, KnowledgeCurationRunExecutorDriveIT::tool, (a, b) -> a, LinkedHashMap::new));
+        StaticToolCallbackResolver resolver = new StaticToolCallbackResolver(List.copyOf(callbacks.values()));
+
+        BoundedAgentRunScheduler scheduler = mock(BoundedAgentRunScheduler.class);
+        when(scheduler.schedule(eq(run.getId()), any())).thenAnswer(inv -> {
+            ((Runnable) inv.getArgument(1)).run();
+            return true;
+        });
+
+        KnowledgeCurationRunExecutor executor = new KnowledgeCurationRunExecutor(
+                modelProvider, properties(), resolver, saver, definitions, new ObjectMapper(),
+                runs, mock(KnowledgeTaskConversationMapper.class), messages, events, taskEvents,
+                mock(KnowledgeToolInvocationService.class), mock(KnowledgeTaskRunProjectionService.class),
+                scheduler, ContextAssemblyFixtures.budget(), Clock.systemUTC());
+
+        executor.start(run, "你好", new KnowledgeAgentDefinitionService.LoadedDefinition(
+                new io.github.loredock.agent.api.KnowledgeTaskService.RuntimeDefinition(
+                        "knowledge-curator", "s", "d", "m", ALL_TOOLS)));
+
+        // 重复键 + 尾随散文的最终输出仍应完成 run 并以 summary 作为最终回复。
+        verify(runs).completeKnowledge(eq(run.getId()), eq("你好，我在线。"), any(int.class), any(int.class),
+                any(int.class), any(long.class), isNull(), isNull(), any(Instant.class));
+        verify(messages).insert(org.mockito.ArgumentMatchers.<KnowledgeTaskMessageEntity>argThat(message ->
+                message.getRole().equals("COORDINATOR_AGENT")
+                        && message.getContent().equals("你好，我在线。")));
+        System.out.println("测试证据：场景=最终回复重复键+尾随散文容错，解析=last-wins+括号截取，最终回复=你好，我在线。");
+    }
+
+    /**
      * 业务目的：run 被取消后，即使图执行仍在推进，也绝不允许把最终回复消息与 COMPLETED 状态落库
      * （取消只在图边界可见，本轮不再产出任何结果）。防止取消后的旧 run 把半截轮次的总结写进会话。
      */

@@ -626,38 +626,29 @@ public class KnowledgeCurationRunExecutor {
         if (recovery != null && !recovery.isBlank()) {
             return bounded(recovery, MAX_FINAL_CODE_POINTS);
         }
-        Object main = snapshot.state().data().get("mainTurnResult");
-        String text = main instanceof AssistantMessage message ? message.getText()
-                : main == null ? null : String.valueOf(main);
-        if (text != null && !text.isBlank()) {
-            try {
-                KnowledgeCurationGraphResult.MainTurnResult result =
-                        objectMapper.readValue(text, KnowledgeCurationGraphResult.MainTurnResult.class);
-                if (result.summary() == null || result.summary().isBlank()) {
-                    throw new IllegalStateException("主 Agent final reply blank");
-                }
-                return bounded(result.summary(), MAX_FINAL_CODE_POINTS);
-            } catch (IllegalStateException exception) {
-                throw exception;
-            } catch (Exception exception) {
-                throw new IllegalStateException("主 Agent final structured result invalid", exception);
-            }
+        // 与路由条件边共用同一份宽容解析（Map/消息提取 + 重复键 last-wins + 首尾括号截取，见
+        // KnowledgeCurationGraphFactory.tolerantStructured）：主 Agent 最终输出即使带重复键/前后散文
+        // 也必须能取出 summary；单点坏输出不再把 run 打成 AGENT_MODEL_RESPONSE_INVALID，回退协调结果。
+        KnowledgeCurationGraphResult.MainTurnResult main = tryStructured(
+                snapshot.state().data().get("mainTurnResult"), KnowledgeCurationGraphResult.MainTurnResult.class);
+        if (main != null && main.summary() != null && !main.summary().isBlank()) {
+            return bounded(main.summary(), MAX_FINAL_CODE_POINTS);
         }
-        Object coordination = snapshot.state().data().get("coordinationResult");
-        text = coordination instanceof AssistantMessage message ? message.getText()
-                : coordination == null ? null : String.valueOf(coordination);
-        if (text == null || text.isBlank()) {
-            throw new IllegalStateException("Agent completed without a visible final AssistantMessage");
+        KnowledgeCurationGraphResult.CoordinatorResult coordinator = tryStructured(
+                snapshot.state().data().get("coordinationResult"), KnowledgeCurationGraphResult.CoordinatorResult.class);
+        if (coordinator != null && coordinator.summary() != null && !coordinator.summary().isBlank()) {
+            return bounded(coordinator.summary(), MAX_FINAL_CODE_POINTS);
         }
+        throw new IllegalStateException("Agent completed without a visible final AssistantMessage");
+    }
+
+    /** @return 宽容解析一个结果键；无正文或解析失败时返回 null（调用方回退到下一结果）。 */
+    private <T> T tryStructured(Object value, Class<T> type) {
         try {
-            KnowledgeCurationGraphResult.CoordinatorResult result =
-                    objectMapper.readValue(text, KnowledgeCurationGraphResult.CoordinatorResult.class);
-            if (result.summary() == null || result.summary().isBlank()) {
-                throw new IllegalStateException("Agent final reply blank");
-            }
-            return bounded(result.summary(), MAX_FINAL_CODE_POINTS);
-        } catch (Exception exception) {
-            throw new IllegalStateException("Agent final structured result invalid", exception);
+            return KnowledgeCurationGraphFactory.tolerantStructured(objectMapper, value, type);
+        } catch (RuntimeException exception) {
+            log.debug("最终回复结构化解析失败，回退下一结果：{}", exception.toString());
+            return null;
         }
     }
 
@@ -798,12 +789,12 @@ public class KnowledgeCurationRunExecutor {
 
         @Override
         public ModelResponse interceptModel(ModelRequest request, ModelCallHandler handler) {
-            // 取消/暂停的图级边界只在节点完成后才会检查，而单个 Agent 节点的失败循环可能长达数十秒；
-            // 每次模型调用前先看 run 状态（主键读取，成本忽略），该 run 已停止时立即中止，
+            // 取消的图级边界只在节点完成后才会检查，而单个 Agent 节点的失败循环可能长达数十秒；
+            // 每次模型调用前先看 run 状态（主键读取，成本忽略），已取消的 run 立即中止，
             // 否则"幽灵执行"会继续请求模型并让工具调用因 status≠RUNNING 全部失败。
+            // 注意 PAUSE_REQUESTED 是协作式"边界暂停"，走既有边界投影（测试与设计均如此），不在此处中止。
             AgentRunEntity current = runs.selectById(runId);
-            if (current != null && ("CANCELLED".equals(current.getStatus())
-                    || "PAUSE_REQUESTED".equals(current.getStatus()))) {
+            if (current != null && "CANCELLED".equals(current.getStatus())) {
                 throw new IllegalStateException("Agent cancelled");
             }
             modelCalls.incrementAndGet();

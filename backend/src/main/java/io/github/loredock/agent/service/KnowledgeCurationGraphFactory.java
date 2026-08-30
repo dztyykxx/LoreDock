@@ -1061,10 +1061,29 @@ public class KnowledgeCurationGraphFactory {
     }
 
     private <T> T structured(com.alibaba.cloud.ai.graph.OverAllState state, String key, Class<T> type) {
-        Object value = state.data().get(key);
-        if (value == null) {
-            return null;
+        try {
+            return tolerantStructured(objectMapper, state.data().get(key), type);
+        } catch (IllegalStateException exception) {
+            throw new IllegalStateException("Agent 结构化结果无法解析：" + key,
+                    exception.getCause() == null ? exception : exception.getCause());
         }
+    }
+
+    /**
+     * 宽容结构化解析（路由条件边与最终回复共用同一份容错，避免"路由能过、最终回复解析失败"的分叉）：
+     * 兼容类型实例 / 消息 / 字符串 / Checkpoint 往返后的 Map 四种形态；先截取最外层 JSON 再 readTree→treeToValue。
+     *
+     * <ul>
+     *   <li>重复键：模型长 JSON 输出存在把开头字段重复写在结尾的伪影（实测 candidateTargetDocumentId 两现）。
+     *       Jackson 对 record 按构造器属性反序列化时，同一 creator 属性第二次出现会走进"已建对象后再 set"路径，
+     *       record 没有 setter/field 可回退，直接抛 InvalidDefinitionException 使整个 run 失败；
+     *       JsonNode 层面重复键是 last-wins 覆盖（不抛错），因此先 readTree 再去树转换。</li>
+     *   <li>前后附加文字：模型常在 JSON 后补说明（本轮 run 60 即如此），先截取首尾括号再解析。</li>
+     * </ul>
+     *
+     * @return 解析后的结构；找不到正文文本时返回 null
+     */
+    public static <T> T tolerantStructured(ObjectMapper objectMapper, Object value, Class<T> type) {
         if (type.isInstance(value)) {
             return type.cast(value);
         }
@@ -1077,20 +1096,27 @@ public class KnowledgeCurationGraphFactory {
             // Checkpoint 恢复后节点输出被框架序列化为 Map，需重新取出正文文本再解析。
             text = messageTextFromMap(map);
         } else {
-            text = value.toString();
+            text = value == null ? null : value.toString();
         }
         if (text == null || text.isBlank()) {
             return null;
         }
         try {
-            // 模型长 JSON 输出存在把开头字段重复写在结尾的伪影（实测 candidateTargetDocumentId 在首尾各出现一次）。
-            // Jackson 对 record 按构造器属性反序列化时，同一 creator 属性第二次出现会走进“已建对象后再 set”路径，
-            // record 没有 setter/field 可回退，直接抛 InvalidDefinitionException 使整个 run 失败。
-            // JsonNode 层面重复键是 last-wins 覆盖（不抛错），因此先 readTree 再去树转换，即可容忍重复键。
-            return objectMapper.treeToValue(objectMapper.readTree(text), type);
+            return objectMapper.treeToValue(objectMapper.readTree(jsonObject(text)), type);
         } catch (Exception exception) {
-            throw new IllegalStateException("Agent 结构化结果无法解析：" + key, exception);
+            throw new IllegalStateException("Agent 结构化结果无法解析：" + type.getSimpleName(), exception);
         }
+    }
+
+    /** @return 截取最外层 JSON 对象（容忍模型在 JSON 前后附加说明性文字）。 */
+    private static String jsonObject(String text) {
+        String stripped = text.strip();
+        int start = stripped.indexOf('{');
+        int end = stripped.lastIndexOf('}');
+        if (start < 0 || end <= start) {
+            throw new IllegalStateException("结构化输出中未找到 JSON 对象");
+        }
+        return stripped.substring(start, end + 1);
     }
 
     /** @return 从框架序列化的消息 Map 中取出正文文本；无法定位时返回 null 触发安全失败。 */
