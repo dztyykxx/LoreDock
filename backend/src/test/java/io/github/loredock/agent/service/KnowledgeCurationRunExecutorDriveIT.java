@@ -63,7 +63,7 @@ import reactor.core.publisher.Flux;
 class KnowledgeCurationRunExecutorDriveIT {
 
     private static final List<String> SPEC_FILES = List.of(
-            "coordinator.md", "retriever.md", "drafter.md", "reviewer.md");
+            "main_agent.md", "coordinator.md", "retriever.md", "drafter.md", "reviewer.md");
     private static final List<String> ALL_TOOLS = List.of(
             "selected_draft_list", "selected_draft_read", "knowledge_directory_list",
             "knowledge_document_list", "knowledge_document_read", "knowledge_grep",
@@ -91,8 +91,7 @@ class KnowledgeCurationRunExecutorDriveIT {
                 .createOption(CreateOption.CREATE_NONE).build();
 
         ScriptedChatModel model = new ScriptedChatModel(List.of(
-                answer("{\"stage\":\"START\",\"action\":\"CHAT\",\"reason\":\"问候\","
-                        + "\"draftInstruction\":null,\"question\":null,\"summary\":\"你好，我在线。\"}")));
+                answer("{\"action\":\"CHAT\",\"summary\":\"你好，我在线，能看到上轮结论。\",\"expertCalls\":[]}")));
         ObjectProvider<ChatModel> modelProvider = new ObjectProvider<ChatModel>() {
             @Override public ChatModel getObject(Object... args) { return model; }
             @Override public ChatModel getIfAvailable() { return model; }
@@ -133,23 +132,23 @@ class KnowledgeCurationRunExecutorDriveIT {
                         "knowledge-curator", "s", "d", "m", ALL_TOOLS)));
 
         // 完成 run：最终回复取 coordinator 的 CHAT summary；闲聊响应不含 token 用量，故 run 级 token 记为 null。
-        verify(runs).completeKnowledge(eq(run.getId()), eq("你好，我在线。"), any(int.class), any(int.class),
+        verify(runs).completeKnowledge(eq(run.getId()), eq("你好，我在线，能看到上轮结论。"), any(int.class), any(int.class),
                 any(int.class), any(long.class), isNull(), isNull(), any(Instant.class));
         verify(messages).insert(org.mockito.ArgumentMatchers.<KnowledgeTaskMessageEntity>argThat(message ->
                 message.getRole().equals("COORDINATOR_AGENT")
-                        && message.getContent().equals("你好，我在线。")));
-        // §10.6：调度 Agent 完成必须提交一条 AGENT_STAGE 公开事件，用稳定名称 coordinator 与阶段 START。
+                        && message.getContent().equals("你好，我在线，能看到上轮结论。")));
+        // §10.6：主 Agent 完成必须提交一条 AGENT_STAGE 公开事件，用稳定名称 main_agent 与阶段 MAIN。
         verify(events).append(eq(run.getId()), eq(io.github.loredock.agent.model.enums.AgentEventType.AGENT_STAGE),
                 eq(io.github.loredock.agent.api.AgentEvent.SubjectType.AGENT),
                 org.mockito.ArgumentMatchers.argThat(payload ->
-                        "coordinator".equals(payload.name()) && "START".equals(payload.phase())
+                        "main_agent".equals(payload.name()) && "MAIN".equals(payload.phase())
                                 && "COMPLETED".equals(payload.status())),
                 any(Instant.class));
         verify(taskEvents).append(eq(run.getKnowledgeTaskConversationId()), eq(run.getId()),
                 eq("AGENT_STAGE_UPDATED"), eq(run.getId()), any(Instant.class));
         assertThat(model.calls()).isEqualTo(1);
         System.out.printf("测试证据：场景=Executor闲聊短路，模型调用=%d，最终回复=%s，阶段事件=AGENT_STAGE%n",
-                model.calls(), "你好，我在线。");
+                model.calls(), "你好，我在线，能看到上轮结论。");
     }
 
     /**
@@ -171,11 +170,11 @@ class KnowledgeCurationRunExecutorDriveIT {
         TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""),
                 KnowledgeTaskConversationEntity.class);
 
-        // 顺序：coordinator START→RETRIEVE, retriever, coordinator DECIDE→DRAFT, drafter, reviewer, coordinator FINISH→END。
+        // 顺序：主 Agent FULL_CURATION, retriever, coordinator DECIDE→DRAFT, drafter, reviewer,
+        // coordinator FINISH→END, 主 Agent TURN_DONE 汇总。
         // 每次调用灌注独立的 prompt/completion token，便于核对逐 Agent 归属与 run 级加和。
         ScriptedChatModel model = new ScriptedChatModel(List.of(
-                answer("{\"stage\":\"START\",\"action\":\"RETRIEVE\",\"reason\":\"需整理\","
-                        + "\"draftInstruction\":null,\"question\":null,\"summary\":\"开始整理\"}", 100, 10),
+                answer("{\"action\":\"FULL_CURATION\",\"summary\":\"开始整理\",\"expertCalls\":[]}", 100, 10),
                 answer("{\"issueType\":\"MISSING\",\"candidateTargetDocumentId\":710004,"
                         + "\"facts\":[{\"statement\":\"新增背景\",\"support\":\"SUPPORTED\","
                         + "\"sourceRefs\":[{\"type\":\"EVIDENCE\",\"id\":88}]}],"
@@ -187,7 +186,8 @@ class KnowledgeCurationRunExecutorDriveIT {
                 answer("{\"verdict\":\"PASS\",\"reviewedDrafts\":[{\"draftId\":19,\"revision\":3}],"
                         + "\"findings\":[],\"question\":null,\"summary\":\"审查通过\"}", 500, 50),
                 answer("{\"stage\":\"FINISH\",\"action\":\"END\",\"reason\":\"完成\","
-                        + "\"draftInstruction\":null,\"question\":null,\"summary\":\"已完成整理\"}", 600, 60)));
+                        + "\"draftInstruction\":null,\"question\":null,\"summary\":\"已完成整理\"}", 600, 60),
+                answer("{\"action\":\"TURN_DONE\",\"summary\":\"已完成整理\",\"expertCalls\":[]}", 700, 70)));
         ObjectProvider<ChatModel> modelProvider = new ObjectProvider<ChatModel>() {
             @Override public ChatModel getObject(Object... args) { return model; }
             @Override public ChatModel getIfAvailable() { return model; }
@@ -227,7 +227,7 @@ class KnowledgeCurationRunExecutorDriveIT {
                 new io.github.loredock.agent.api.KnowledgeTaskService.RuntimeDefinition(
                         "knowledge-curator", "s", "d", "m", ALL_TOOLS)));
 
-        // run 级：6 次调用输入 token = 100+200+300+400+500+600 = 2100，输出 = 10+20+30+40+50+60 = 210。
+        // run 级：7 次调用输入 token = 100+200+300+400+500+600+700 = 2800，输出 = 10+20+30+40+50+60+70 = 280。
         ArgumentCaptor<Long> inCaptor = ArgumentCaptor.forClass(Long.class);
         ArgumentCaptor<Long> outCaptor = ArgumentCaptor.forClass(Long.class);
         verify(runs).completeKnowledge(eq(run.getId()), eq("已完成整理"), any(int.class), any(int.class),
@@ -235,8 +235,8 @@ class KnowledgeCurationRunExecutorDriveIT {
         Long actualIn = inCaptor.getValue();
         Long actualOut = outCaptor.getValue();
         System.out.println("测试证据[token调试]: 实际 run 级 input=" + actualIn + " output=" + actualOut);
-        assertThat(actualIn).isEqualTo(2100L);
-        assertThat(actualOut).isEqualTo(210L);
+        assertThat(actualIn).isEqualTo(2800L);
+        assertThat(actualOut).isEqualTo(280L);
         // 逐 Agent：captor 收集所有 AGENT_STAGE 事件，断言各阶段“自身增量”token 归属正确。
         ArgumentCaptor<io.github.loredock.agent.api.AgentEvent.Payload> captor =
                 ArgumentCaptor.forClass(io.github.loredock.agent.api.AgentEvent.Payload.class);
@@ -250,11 +250,15 @@ class KnowledgeCurationRunExecutorDriveIT {
                 byAgent.put(payload.name(), payload); // 每 Agent 取最后一次(该阶段自身增量)事件
             }
         }
-        // 调度 3 个阶段各报增量：START 100/10、DECIDE 300-100=200/20、FINISH 600-300=300/30 → 最后事件 600/60。
-        // 按事件相加等于 run 级总量（2100/210），防止累计值重复计入造成前端总和对不上（联调 bug）。
+        // 主 Agent 2 次（FULL_CURATION/汇总）各报增量：最后事件 700/70；调度 2 次（DECIDE/FINISH）最后 600/60。
+        // 按事件相加等于 run 级总量（2800/280），防止累计值重复计入造成前端总和对不上（联调 bug）。
         int coordinatorEvents = captor.getAllValues().stream()
                 .filter(p -> "coordinator".equals(p.name())).toList().size();
-        assertThat(coordinatorEvents).isEqualTo(3);
+        assertThat(coordinatorEvents).isEqualTo(2);
+        assertThat(captor.getAllValues().stream()
+                .filter(p -> "main_agent".equals(p.name())).count()).isEqualTo(2);
+        assertThat(byAgent.get("main_agent").promptTokens()).isEqualTo(700);
+        assertThat(byAgent.get("main_agent").completionTokens()).isEqualTo(70);
         assertThat(byAgent.get("coordinator").promptTokens()).isEqualTo(600);
         assertThat(byAgent.get("coordinator").completionTokens()).isEqualTo(60);
         // 单次 Agent 归属准确：retriever=200/20、drafter=400/40、reviewer=500/50。
@@ -264,8 +268,8 @@ class KnowledgeCurationRunExecutorDriveIT {
         assertThat(byAgent.get("drafter").completionTokens()).isEqualTo(40);
         assertThat(byAgent.get("reviewer").promptTokens()).isEqualTo(500);
         assertThat(byAgent.get("reviewer").completionTokens()).isEqualTo(50);
-        System.out.printf("测试证据：场景=完整路径token统计，run输入=%d输出=%d，coordinator事件=%d(增量%d/%d)，retriever=%d/%d，drafter=%d/%d，reviewer=%d/%d%n",
-                2100, 210, coordinatorEvents, byAgent.get("coordinator").promptTokens(), byAgent.get("coordinator").completionTokens(),
+        System.out.printf("测试证据：场景=完整路径token统计，run输入=%d输出=%d，main事件=%d，coordinator事件=%d(增量%d/%d)，retriever=%d/%d，drafter=%d/%d，reviewer=%d/%d%n",
+                2800, 280, 2, coordinatorEvents, byAgent.get("coordinator").promptTokens(), byAgent.get("coordinator").completionTokens(),
                 byAgent.get("retriever").promptTokens(), byAgent.get("retriever").completionTokens(),
                 byAgent.get("drafter").promptTokens(), byAgent.get("drafter").completionTokens(),
                 byAgent.get("reviewer").promptTokens(), byAgent.get("reviewer").completionTokens());
@@ -285,8 +289,7 @@ class KnowledgeCurationRunExecutorDriveIT {
                 .createOption(CreateOption.CREATE_NONE).build();
 
         ScriptedChatModel model = new ScriptedChatModel(List.of(
-                answer("{\"stage\":\"START\",\"action\":\"CHAT\",\"reason\":\"问候\","
-                        + "\"draftInstruction\":null,\"question\":null,\"summary\":\"你好，我在线，能看到上轮结论。\"}")));
+                answer("{\"action\":\"CHAT\",\"summary\":\"你好，我在线，能看到上轮结论。\",\"expertCalls\":[]}")));
         ObjectProvider<ChatModel> modelProvider = new ObjectProvider<ChatModel>() {
             @Override public ChatModel getObject(Object... args) { return model; }
             @Override public ChatModel getIfAvailable() { return model; }

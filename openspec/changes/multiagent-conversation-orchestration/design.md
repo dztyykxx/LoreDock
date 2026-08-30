@@ -1,0 +1,12 @@
+## Design Notes
+
+- 顶层会话 Graph：`Runtime Gate → Coordinator(主 Agent) → TURN_FINISH → WAIT_INPUT`，边为条件边（`CHAT`/`TURN_DONE` 结束本轮，`FULL_CURATION` 进入完整整理子图）；`PostgresSaver` 只挂在顶层 Graph，`CompileConfig.interruptAfter` 覆盖 Coordinator、子图关键边界与 `TURN_FINISH`。
+- `MainTurnResult`（`KnowledgeCurationGraphResult` 内新增 record，camelCase）：`action`（`CHAT|FULL_CURATION|TURN_DONE`）、`summary`、`expertCalls`（记录本轮直调过的专家，可选）。主 Agent 与现有四 Agent 一样使用 `outputType`/`outputKey`；条件边只解析枚举并做硬校验（CHAT/TURN_DONE 需非空 summary；TURN_DONE 且直调过 Drafter 时提示语缺省由代码补“已修改、未经专家审查”，不依赖模型自律）。
+- 主 Agent 自身无业务 Tool，仅三个专家 `AgentTool`（`AgentTool.create(ReactAgent)`）。锁定版行为已核验：子 Agent 线程为 `{parentThreadId}_{agent.name()}` 且清空 `checkPointId`/`nextNode`，返回最后一条 AssistantMessage 文本；因此子 Agent 移除 Saver 是正确性前提（否则跨轮直调同一专家会复用其旧 Checkpoint 链），且直调路径的校验对外只保留文本。
+- 状态键：顶层与完整子图沿用现有 `KeyStrategy`（`messages` 顶层改为 REPLACE，子图内维持 APPEND + 带标签阶段上下文；其余键 REPLACE）。`TURN_FINISH` 节点把 `messages` 重建为「裁剪后的角色历史 + 本轮用户指令 + 最终 AssistantMessage(summary)」，下一轮 `updateState()` 只追加本轮用户指令并 REPLACE 本轮字段。
+- 完整子图：现有 `KnowledgeCurationGraphFactory` 的四 Agent 组装收缩为子图（节点/路由/`set_decide`/`set_draft_round` 等保持），外再加 `Validate` 节点（静态边接入，输出 `VALID|RETRYABLE_INVALID|RECOVERY_REQUIRED`）与 `Repair`（组装有界错误摘要回喂同一 Agent）、Recovery Gate；`interruptAfter` 与公开事件投影移到 Validate 成功后。
+- 直调路径：不建独立 Validate 节点；主 Agent `MainTurnResult` 由条件边解析，失败进入与子图相同的 Repair 回路（对象为主 Agent 输出），§7 硬规则（无来源不写入）只在完整子图强制（保留现有 coordinatorRoute 的 SUPPORTED 事实检查）。
+- 定义版本：复用 `agent_run.agent_spec_digest`（`KnowledgeAgentDefinitionService.load()` 已按四份 Agent 定义内容 SHA-256，run 创建时写入）；Graph 定义版本常量写入 `config_summary`（如 `knowledge-curation-sess-v1`）。恢复前比较两者与当前值，不一致 → `RECOVERY_REQUIRED`。不新增列、不新增迁移。
+- Executor：`drive()` 调整为顶层图驱动；恢复首次 stream 使用 `snapshot.config()`（同进程续跑已如此，重启路径补齐）；Runtime Gate 增加会话级串行；失败分类（可恢复 → `WAITING_FOR_USER` + `waitReason`；仅四类终态 → `FAILED`）；启动恢复器扫描非终态知识整理 run（`AgentRunRecovery` 从仅 project_qa 扩展到知识整理，按定义摘要 + Checkpoint 重建）。
+- 关键框架行为（已核验 1.1.2.3 源码，实现时直接用）：`AgentTool` 子线程/清空策略；`StateSnapshot.config()` 含 `checkPointId`/`nextNode`，续跑必须用它；`NodeExecutor.handleActionResult` 顺序为 merge → 条件边 → 写 Checkpoint（条件边抛异常时本节点 Checkpoint 未落盘）；`interruptAfter` 暂停需同 threadId 续跑；`asNode(true,false)` 会向父 messages 追加 Agent 最后一条结构化输出（顶层 REPLACE 重建的依据）。
+- 测试策略：每个业务行为一个测试，不堆数量。阶段 1 用真实 Executor + 脚本化模型驱动：续聊同 thread 且读到会话状态、恢复不重跑入口节点、并发轮次拒绝、定义不一致停 RECOVERY_REQUIRED。阶段 2+3 用脚本化模型按“主 Agent 意图 → 专家直调/子图”输出 MainTurnResult，对账场景复用现有 `KnowledgeCurationToolsTest` 风格的操作记录注入。

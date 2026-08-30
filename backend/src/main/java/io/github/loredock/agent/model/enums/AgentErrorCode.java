@@ -18,6 +18,8 @@ public enum AgentErrorCode {
     AGENT_RUN_INTERRUPTED,
     /** 管理员主动停止知识整理运行（AgentRunMapper.cancelKnowledge 写入）。 */
     AGENT_RUN_CANCELLED,
+    /** 恢复或续跑时发现 run 定义摘要或 Graph 定义版本与当前不一致，停止解析旧 Checkpoint。 */
+    AGENT_DEFINITION_MISMATCH,
     AGENT_CITATION_INVALID,
     AGENT_INTERNAL_ERROR
 }

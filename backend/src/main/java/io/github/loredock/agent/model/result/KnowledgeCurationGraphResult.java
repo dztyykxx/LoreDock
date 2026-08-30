@@ -83,6 +83,25 @@ public final class KnowledgeCurationGraphResult {
         DOCUMENT_BOUNDARY
     }
 
+    /** 主 Agent 在单个轮次内的意图动作：直接回答、组合专家后结束、交由完整整理流程。 */
+    public enum MainAction {
+        CHAT,
+        TURN_DONE,
+        FULL_CURATION
+    }
+
+    /** 主 Agent（会话级调度者）的结构化输出。 */
+    public record MainTurnResult(
+            MainAction action,
+            String summary,
+            List<String> expertCalls
+    ) {
+        public MainTurnResult {
+            action = action == null ? MainAction.CHAT : action;
+            expertCalls = expertCalls == null ? List.of() : List.copyOf(expertCalls);
+        }
+    }
+
     /** 调度 Agent 的结构化输出。 */
     public record CoordinatorResult(
             Stage stage,

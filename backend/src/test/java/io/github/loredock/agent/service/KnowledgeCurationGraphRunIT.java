@@ -48,7 +48,7 @@ import reactor.core.publisher.Flux;
 class KnowledgeCurationGraphRunIT {
 
     private static final List<String> SPEC_FILES = List.of(
-            "coordinator.md", "retriever.md", "drafter.md", "reviewer.md");
+            "main_agent.md", "coordinator.md", "retriever.md", "drafter.md", "reviewer.md");
     private static final List<String> ALL_TOOLS = List.of(
             "selected_draft_list", "selected_draft_read", "knowledge_directory_list",
             "knowledge_document_list", "knowledge_document_read", "knowledge_grep",
@@ -85,8 +85,7 @@ class KnowledgeCurationGraphRunIT {
                 .createOption(CreateOption.CREATE_NONE).build();
 
         ScriptedChatModel model = new ScriptedChatModel(List.of(
-                answer("{\"stage\":\"START\",\"action\":\"CHAT\",\"reason\":\"问候\","
-                        + "\"draftInstruction\":null,\"question\":null,\"summary\":\"你好，我在线。\"}")));
+                answer("{\"action\":\"CHAT\",\"summary\":\"你好，我在线。\",\"expertCalls\":[]}")));
         KnowledgeCurationGraphFactory factory = new KnowledgeCurationGraphFactory(new ObjectMapper());
         List<AgentSpec> specs = loadSpecs();
         factory.validate(specs, ALL_TOOLS);
@@ -111,14 +110,14 @@ class KnowledgeCurationGraphRunIT {
 
         var state = bundle.graph().getState(config);
         Map<String, Object> data = state == null || state.state() == null ? Map.of() : state.state().data();
-        Object coordination = data.get("coordinationResult");
+        Object mainTurn = data.get("mainTurnResult");
         assertThat(outputs).isNotNull();
-        // 闲聊短路只运行调度 Agent：总模型调用 1 次，且不产生检索、草稿、审查的专家结果键。
+        // 闲聊短路只运行主 Agent：总模型调用 1 次，且不产生检索、草稿、审查的专家结果键。
         assertThat(model.calls()).isEqualTo(1);
-        assertThat(data).containsKeys("messages", "goal", "stage", "draftRound", "coordinationResult");
+        assertThat(data).containsKeys("messages", "goal", "stage", "draftRound", "mainTurnResult");
         assertThat(data).doesNotContainKeys("retrievalResult", "draftResult", "reviewResult");
-        assertThat(coordination).isInstanceOf(AssistantMessage.class);
-        String text = ((AssistantMessage) coordination).getText();
+        assertThat(mainTurn).isInstanceOf(AssistantMessage.class);
+        String text = ((AssistantMessage) mainTurn).getText();
         assertThat(text).contains("\"action\":\"CHAT\"").contains("\"summary\":\"你好，我在线。\"");
         System.out.printf("测试证据：场景=普通闲聊短路，模型调用=%d，专家结果键=0，最终回复=%s%n",
                 model.calls(), "你好，我在线。");
@@ -137,8 +136,7 @@ class KnowledgeCurationGraphRunIT {
         // 目标/goal 作为用户消息注入 messages；脚本化模型捕获真实 prompt，验证调度 Agent 能看到“提交的文档/目标”。
         // 这是对“调度 Agent 看不到提交文档而把整理误判为 CHAT”bug 的直接回归保护：asNode(true,false) 之前该断言会失败。
         ScriptedChatModel model = new ScriptedChatModel(List.of(
-                answer("{\"stage\":\"START\",\"action\":\"CHAT\",\"reason\":\"问候\","
-                        + "\"draftInstruction\":null,\"question\":null,\"summary\":\"你好，我在线。\"}")));
+                answer("{\"action\":\"CHAT\",\"summary\":\"你好，我在线。\",\"expertCalls\":[]}")));
         KnowledgeCurationGraphFactory factory = new KnowledgeCurationGraphFactory(new ObjectMapper());
         List<AgentSpec> specs = loadSpecs();
         factory.validate(specs, ALL_TOOLS);
@@ -180,9 +178,11 @@ class KnowledgeCurationGraphRunIT {
         // 按 Agent 识别脚本化模型：每个 Agent 的指令正文含唯一名称，调度 Agent 进入 3 次（START/DECIDE/FINISH），
         // 其余各一次；按“角色 → 到该角色的第几次调用”返回对应结构化输出，避免跨 Agent 全局序号错位。
         AgentAwareChatModel model = new AgentAwareChatModel(Map.of(
+                // 会话级主 Agent：首次进入发起完整整理，完整流程结束后汇总 TURN_DONE（阶段 2 入口）。
+                "main_agent", List.of(
+                        "{\"action\":\"FULL_CURATION\",\"summary\":\"开始整理\",\"expertCalls\":[]}",
+                        "{\"action\":\"TURN_DONE\",\"summary\":\"已完成整理\",\"expertCalls\":[]}"),
                 "coordinator", List.of(
-                        "{\"stage\":\"START\",\"action\":\"RETRIEVE\",\"reason\":\"需整理\","
-                                + "\"draftInstruction\":null,\"question\":null,\"summary\":\"开始整理\"}",
                         "{\"stage\":\"DECIDE\",\"action\":\"DRAFT\",\"reason\":\"有支持事实\","
                                 + "\"draftInstruction\":\"写入背景\",\"question\":null,\"summary\":\"决定起草\"}",
                         "{\"stage\":\"FINISH\",\"action\":\"END\",\"reason\":\"完成\","
@@ -225,6 +225,11 @@ class KnowledgeCurationGraphRunIT {
             outputs.addAll(batch);
             var snapshot = bundle.graph().getState(config);
             String next = snapshot == null ? null : snapshot.next();
+            // 会话级轮次边界（阶段1）：轮次完成点在 turn_finish 暂停，不再执行到图 END，以此作为一轮结束条件。
+            if (snapshot != null && snapshot.state() != null
+                    && "true".equals(String.valueOf(snapshot.state().data().get("turnFinished")))) {
+                break;
+            }
             if (next == null || "__END__".equals(next)) {
                 break;
             }
@@ -235,9 +240,12 @@ class KnowledgeCurationGraphRunIT {
         // 完整路径：调度 3 次 + 检索/草稿/审查各 1 次 = 6 次模型调用；四个结构化结果键全部落库，draftRound 保持 0（未返工）。
         var data = bundle.graph().getState(config) == null || bundle.graph().getState(config).state() == null
                 ? Map.<String, Object>of() : bundle.graph().getState(config).state().data();
+        // 完整路径：主 Agent 2 次（FULL_CURATION/汇总）+ 调度 2 次（DECIDE/FINISH）+ 检索/草稿/审查各 1 次 = 7 次模型调用；
+        // 五个结构化结果键全部落库，draftRound 保持 0（未返工）。
         assertThat(outputs).isNotNull();
-        assertThat(model.totalCalls()).isEqualTo(6);
-        assertThat(data).containsKeys("retrievalResult", "coordinationResult", "draftResult", "reviewResult");
+        assertThat(model.totalCalls()).isEqualTo(7);
+        assertThat(data).containsKeys("mainTurnResult", "retrievalResult", "coordinationResult",
+                "draftResult", "reviewResult");
         assertThat(data.get("draftRound")).isEqualTo(0);
         assertThat(((AssistantMessage) data.get("reviewResult")).getText()).contains("\"verdict\":\"PASS\"");
         System.out.printf("测试证据：场景=完整整理路径，模型调用=%d，四专家结果键=%d，draftRound=%d，resume轮=%d%n",
@@ -255,9 +263,11 @@ class KnowledgeCurationGraphRunIT {
         String finding = "{\"code\":\"UNRESOLVED_CONFLICT\",\"draftId\":19,\"description\":\"仍有冲突\",\"suggestion\":\"补充来源\"}";
         // 审查者始终 REVISE，调度者 3 次进入；draftRound 在 set_draft_round 递增到 2 后应进入 REVISE_LIMIT 停止返工。
         AgentAwareChatModel model = new AgentAwareChatModel(Map.of(
+                // 会话级主 Agent：首次进入发起完整整理，完整流程结束后汇总 TURN_DONE（阶段 2 入口）。
+                "main_agent", List.of(
+                        "{\"action\":\"FULL_CURATION\",\"summary\":\"开始整理\",\"expertCalls\":[]}",
+                        "{\"action\":\"TURN_DONE\",\"summary\":\"已完成整理\",\"expertCalls\":[]}"),
                 "coordinator", List.of(
-                        "{\"stage\":\"START\",\"action\":\"RETRIEVE\",\"reason\":\"需整理\","
-                                + "\"draftInstruction\":null,\"question\":null,\"summary\":\"开始整理\"}",
                         "{\"stage\":\"DECIDE\",\"action\":\"DRAFT\",\"reason\":\"有支持事实\","
                                 + "\"draftInstruction\":\"写入背景\",\"question\":null,\"summary\":\"决定起草\"}",
                         "{\"stage\":\"FINISH\",\"action\":\"END\",\"reason\":\"达到返工上限\","
@@ -298,6 +308,8 @@ class KnowledgeCurationGraphRunIT {
             bundle.graph().stream(input, resumeConfig).collectList().block(Duration.ofSeconds(20));
             var snapshot = bundle.graph().getState(config);
             String next = snapshot == null ? null : snapshot.next();
+            if (snapshot != null && snapshot.state() != null
+                    && "true".equals(String.valueOf(snapshot.state().data().get("turnFinished")))) break;
             if (next == null || "__END__".equals(next)) break;
             input = Map.of();
             resumeConfig = snapshot.config();
@@ -322,9 +334,11 @@ class KnowledgeCurationGraphRunIT {
 
         // 完整路径（调度 3 次 + 检索/草稿/审查各 1 次），脚本化模型按角色返回固定结构化结果。
         AgentAwareChatModel model = new AgentAwareChatModel(Map.of(
+                // 会话级主 Agent：首次进入发起完整整理，完整流程结束后汇总 TURN_DONE（阶段 2 入口）。
+                "main_agent", List.of(
+                        "{\"action\":\"FULL_CURATION\",\"summary\":\"开始整理\",\"expertCalls\":[]}",
+                        "{\"action\":\"TURN_DONE\",\"summary\":\"已完成整理\",\"expertCalls\":[]}"),
                 "coordinator", List.of(
-                        "{\"stage\":\"START\",\"action\":\"RETRIEVE\",\"reason\":\"需整理\","
-                                + "\"draftInstruction\":null,\"question\":null,\"summary\":\"开始整理\"}",
                         "{\"stage\":\"DECIDE\",\"action\":\"DRAFT\",\"reason\":\"有支持事实\","
                                 + "\"draftInstruction\":\"写入背景\",\"question\":null,\"summary\":\"决定起草\"}",
                         "{\"stage\":\"FINISH\",\"action\":\"END\",\"reason\":\"完成\","
@@ -362,6 +376,8 @@ class KnowledgeCurationGraphRunIT {
             bundle.graph().stream(input, resumeConfig).collectList().block(Duration.ofSeconds(20));
             var snapshot = bundle.graph().getState(config);
             String next = snapshot == null ? null : snapshot.next();
+            if (snapshot != null && snapshot.state() != null
+                    && "true".equals(String.valueOf(snapshot.state().data().get("turnFinished")))) break;
             if (next == null || "__END__".equals(next)) break;
             input = Map.of();
             resumeConfig = snapshot.config();
@@ -371,17 +387,19 @@ class KnowledgeCurationGraphRunIT {
         // 以便调度 Agent 可靠识别所处阶段、其他 Agent 直接使用已给事实而不再重复检索：
         // 调度 DECIDE 看到【检索结果】、草稿看到【调度决策·草稿写入要求】、审查看到【草稿结果·本次修订】、调度 FINISH 看到【审查结果】。
         List<String> coordinator = model.prompts("coordinator");
-        assertThat(coordinator).hasSize(3);
-        assertThat(coordinator.get(1)).contains("【检索结果");
+        assertThat(coordinator).hasSize(2);
+        assertThat(coordinator.get(0)).contains("【检索结果");
         assertThat(model.prompts("drafter").get(0)).contains("【调度决策 · 草稿写入要求】");
         assertThat(model.prompts("reviewer").get(0)).contains("【草稿结果 · 本次修订】");
-        assertThat(coordinator.get(2)).contains("【审查结果】");
-        System.out.printf("测试证据：场景=服务端按阶段合成带标签上下文，coordinator进入=%d，DECIDE含检索标签=%s，草稿含决策标签=%s，审查含草稿标签=%s，FINISH含审查标签=%s%n",
+        assertThat(coordinator.get(1)).contains("【审查结果】");
+        // 主 Agent 第二次进入必须收到完整流程完成标记，仅作最终汇报。
+        assertThat(model.prompts("main_agent").get(1)).contains("【当前阶段：FULL CURATION 完成】");
+        System.out.printf("测试证据：场景=服务端按阶段合成带标签上下文，coordinator进入=%d，DECIDE含检索标签=%s，草稿含决策标签=%s，审查含草稿标签=%s，FINISH含审查标签=%s，主Agent二次进入=%d%n",
                 coordinator.size(),
-                coordinator.get(1).contains("【检索结果"),
+                coordinator.get(0).contains("【检索结果"),
                 model.prompts("drafter").get(0).contains("【调度决策 · 草稿写入要求】"),
                 model.prompts("reviewer").get(0).contains("【草稿结果 · 本次修订】"),
-                coordinator.get(2).contains("【审查结果】"));
+                coordinator.get(1).contains("【审查结果】"), model.prompts("main_agent").size());
     }
 
     @Test
@@ -396,9 +414,11 @@ class KnowledgeCurationGraphRunIT {
         // NO_CHANGE 路径：检索后调度判定“无需修改”→ set_finish → 调度 FINISH。因为没有草稿/审查，
         // 若只靠标签数量判断阶段，调度 Agent 会误判为 DECIDE 甚至输出闲聊。验证 set_finish 注入的【当前阶段：FINISH】标记。
         AgentAwareChatModel model = new AgentAwareChatModel(Map.of(
+                // 会话级主 Agent：首次进入发起完整整理，完整流程结束后汇总 TURN_DONE（阶段 2 入口）。
+                "main_agent", List.of(
+                        "{\"action\":\"FULL_CURATION\",\"summary\":\"开始整理\",\"expertCalls\":[]}",
+                        "{\"action\":\"TURN_DONE\",\"summary\":\"已完成整理\",\"expertCalls\":[]}"),
                 "coordinator", List.of(
-                        "{\"stage\":\"START\",\"action\":\"RETRIEVE\",\"reason\":\"需整理\","
-                                + "\"draftInstruction\":null,\"question\":null,\"summary\":\"开始整理\"}",
                         "{\"stage\":\"DECIDE\",\"action\":\"NO_CHANGE\",\"reason\":\"已覆盖\","
                                 + "\"draftInstruction\":null,\"question\":null,\"summary\":\"无需修改\"}",
                         "{\"stage\":\"FINISH\",\"action\":\"END\",\"reason\":\"完成\","
@@ -427,6 +447,8 @@ class KnowledgeCurationGraphRunIT {
             bundle.graph().stream(input, resumeConfig).collectList().block(Duration.ofSeconds(20));
             var snapshot = bundle.graph().getState(config);
             String next = snapshot == null ? null : snapshot.next();
+            if (snapshot != null && snapshot.state() != null
+                    && "true".equals(String.valueOf(snapshot.state().data().get("turnFinished")))) break;
             if (next == null || "__END__".equals(next)) break;
             input = Map.of();
             resumeConfig = snapshot.config();
@@ -434,10 +456,10 @@ class KnowledgeCurationGraphRunIT {
 
         // 关键回归：NO_CHANGE 路径的 FINISH 阶段必须收到明确的【当前阶段：FINISH】指令，否则调度 Agent 会误判阶段。
         List<String> coordinator = model.prompts("coordinator");
-        assertThat(coordinator).hasSize(3);
-        assertThat(coordinator.get(2)).contains("【当前阶段：FINISH】");
+        assertThat(coordinator).hasSize(2);
+        assertThat(coordinator.get(1)).contains("【当前阶段：FINISH】");
         System.out.printf("测试证据：场景=NO_CHANGE路径FINISH带阶段标记，coordinator进入=%d，FINISH含阶段标记=%s%n",
-                coordinator.size(), coordinator.get(2).contains("【当前阶段：FINISH】"));
+                coordinator.size(), coordinator.get(1).contains("【当前阶段：FINISH】"));
     }
 
     private DataSource dataSource() {
@@ -511,6 +533,7 @@ class KnowledgeCurationGraphRunIT {
 
         private static String detectAgent(String contents) {
             if (contents == null) return "unknown";
+            if (contents.contains("（main_agent）")) return "main_agent";
             if (contents.contains("（coordinator）")) return "coordinator";
             if (contents.contains("（retriever）")) return "retriever";
             if (contents.contains("（drafter）")) return "drafter";

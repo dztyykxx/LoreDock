@@ -35,7 +35,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -566,16 +566,21 @@ public class KnowledgeTaskServiceImpl implements KnowledgeTaskService {
                 .branchId(scope.branchId()).branchName(scope.branchName())
                 .knowledgeGenerationId(knowledgeSearch.findActiveIndexVersionId().orElse(null))
                 .agentName(definition.skillName()).modelName(definition.modelName())
-                .configSummary("knowledge-curation-v1")
+                .configSummary(KnowledgeCurationGraphFactory.GRAPH_DEF_VERSION)
                 .status(RunStatus.ACCEPTED.name()).eventSequence(0L).stepCount(0).modelCallCount(0)
                 .toolCallCount(0).retrievalCount(0).trimmedCharacterCount(0)
                 .knowledgeTaskConversationId(conversation.getId())
-                .threadId("knowledge-task-" + UUID.randomUUID())
+                .threadId(sessionThreadId(conversation.getId()))
                 .skillDigest(definition.skillDigest()).agentSpecDigest(definition.agentSpecDigest())
                 .toolNames(String.join(",", definition.toolNames()))
                 .acceptedAt(now).updatedAt(now).build();
         run.setId(runs.insertKnowledgeRun(run));
         return run;
+    }
+
+    /** 会话级稳定 Graph threadId：同一知识整理会话的所有轮次共享，父 Graph Checkpoint 因此可跨轮继承。 */
+    private static String sessionThreadId(Long conversationId) {
+        return "knowledge-task-conversation-" + conversationId;
     }
 
     private KnowledgeTask snapshot(KnowledgeTaskConversationEntity conversation) {

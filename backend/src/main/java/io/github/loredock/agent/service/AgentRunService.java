@@ -1,6 +1,7 @@
 package io.github.loredock.agent.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import io.github.loredock.agent.api.KnowledgeTaskService.RunStatus;
 import io.github.loredock.agent.exception.AgentRunNotFoundException;
 import io.github.loredock.agent.mapper.AgentRunMapper;
 import io.github.loredock.agent.model.command.AgentRunCreateData;
@@ -187,6 +188,16 @@ public class AgentRunService {
                         .in(AgentRunEntity::getStatus, AgentRunStatus.ACCEPTED.name(), AgentRunStatus.RUNNING.name())
                         .orderByAsc(AgentRunEntity::getAcceptedAt, AgentRunEntity::getId))
                 .stream().map(this::snapshot).toList();
+    }
+
+    @Transactional(readOnly = true)
+    /** @return 可基于已提交 Checkpoint 重新调度并可能恢复的知识整理非终态运行实体（不含尚未执行的 ACCEPTED 与终态） */
+    public List<AgentRunEntity> findRecoverableKnowledgeCurationRuns() {
+        return runs.selectList(new LambdaQueryWrapper<AgentRunEntity>()
+                        .eq(AgentRunEntity::getTaskType, "knowledge_curation")
+                        .in(AgentRunEntity::getStatus, RunStatus.RUNNING.name(),
+                                RunStatus.PAUSE_REQUESTED.name(), RunStatus.WAITING_FOR_USER.name())
+                        .orderByAsc(AgentRunEntity::getAcceptedAt, AgentRunEntity::getId));
     }
 
     private AgentRunSnapshot snapshot(AgentRunEntity entity) {

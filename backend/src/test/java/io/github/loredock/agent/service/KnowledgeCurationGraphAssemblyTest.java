@@ -24,7 +24,7 @@ import org.springframework.core.io.ClassPathResource;
 class KnowledgeCurationGraphAssemblyTest {
 
     private static final List<String> SPEC_FILES = List.of(
-            "coordinator.md", "retriever.md", "drafter.md", "reviewer.md");
+            "main_agent.md", "coordinator.md", "retriever.md", "drafter.md", "reviewer.md");
     private static final List<String> ALL_BUSINESS_TOOLS = List.of(
             "selected_draft_list", "selected_draft_read",
             "knowledge_directory_list", "knowledge_document_list",
@@ -35,22 +35,22 @@ class KnowledgeCurationGraphAssemblyTest {
     private final KnowledgeCurationGraphFactory factory = new KnowledgeCurationGraphFactory(new ObjectMapper());
 
     /**
-     * 业务目的：四份 Agent 定义必须随应用产物发布并可从 classpath 加载，且四个角色齐全、名称唯一；
+     * 业务目的：五份 Agent 定义必须随应用产物发布并可从 classpath 加载，且五个角色齐全、名称唯一；
      * 防止 IDE、命令行与部署环境工作目录不同导致多 Agent 流程无法启动。
      */
     @Test
-    void bundledAgentSpecsLoadAsFourUniqueRoles() throws Exception {
+    void bundledAgentSpecsLoadAsFiveUniqueRoles() throws Exception {
         List<AgentSpec> specs = loadSpecs();
 
         assertThat(specs).extracting(AgentSpec::name)
-                .containsExactly("coordinator", "retriever", "drafter", "reviewer");
-        assertThat(specs.stream().map(AgentSpec::name).distinct().count()).isEqualTo(4);
+                .containsExactly("main_agent", "coordinator", "retriever", "drafter", "reviewer");
+        assertThat(specs.stream().map(AgentSpec::name).distinct().count()).isEqualTo(5);
         for (AgentSpec spec : specs) {
             assertThat(spec.systemPrompt()).isNotBlank();
             assertThat(spec.toolNames()).containsExactlyElementsOf(
                     KnowledgeCurationGraphFactory.DESIGN_TOOLS.get(spec.name()));
         }
-        System.out.println("测试证据：场景=多Agent定义装载，角色数=4，白名单一致=true");
+        System.out.println("测试证据：场景=多Agent定义装载，角色数=5，白名单一致=true");
     }
 
     /**
@@ -61,7 +61,7 @@ class KnowledgeCurationGraphAssemblyTest {
     void validateRejectsUnknownTool() throws Exception {
         java.util.ArrayList<AgentSpec> specs = new java.util.ArrayList<>(loadSpecs());
         AgentSpec tampered = tamperTools(specs, "retriever", "not_a_real_tool");
-        specs.set(1, tampered);
+        specs.set(retrieverIndex(), tampered);
 
         assertThatThrownBy(() -> factory.validate(specs, ALL_BUSINESS_TOOLS))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -82,7 +82,7 @@ class KnowledgeCurationGraphAssemblyTest {
         List<String> adjusted = declared.stream().map(name -> "draft_read".equals(name) ? "draft_diff" : name).toList();
         AgentSpec adjustedSpec = new AgentSpec(drafter.name(), drafter.description(),
                 drafter.systemPrompt(), adjusted, drafter.model());
-        specs.set(2, adjustedSpec);
+        specs.set(drafterIndex(), adjustedSpec);
 
         assertThatThrownBy(() -> factory.validate(specs, ALL_BUSINESS_TOOLS))
                 .isInstanceOf(IllegalArgumentException.class)
@@ -117,6 +117,16 @@ class KnowledgeCurationGraphAssemblyTest {
         assertThat(bundle.agents().get("drafter").getOutputKey()).isEqualTo("draftResult");
         assertThat(bundle.agents().get("reviewer").getOutputKey()).isEqualTo("reviewResult");
         System.out.println("测试证据：场景=多Agent Graph组装，节点数=4，编译成功=true，输出键=4");
+    }
+
+    /** @return retriever 在五份定义中的位置（main, coord, retriever, drafter, reviewer）。 */
+    private static int retrieverIndex() {
+        return 2;
+    }
+
+    /** @return drafter 在五份定义中的位置。 */
+    private static int drafterIndex() {
+        return 3;
     }
 
     private List<AgentSpec> loadSpecs() throws Exception {

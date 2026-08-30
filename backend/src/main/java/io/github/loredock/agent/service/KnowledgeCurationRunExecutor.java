@@ -41,6 +41,7 @@ import io.github.loredock.knowledge.api.KnowledgeDraftException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -54,6 +55,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.metadata.EmptyUsage;
 import org.springframework.ai.chat.metadata.Usage;
@@ -144,9 +146,7 @@ public class KnowledgeCurationRunExecutor {
             fail(run.getId(), run.getAcceptedAt(), "AGENT_MODEL_UNAVAILABLE", 0, 0);
             return;
         }
-        if (!scheduler.schedule(run.getId(), () -> execute(run, goal, null, definition))) {
-            fail(run.getId(), run.getAcceptedAt(), "AGENT_EXECUTOR_SATURATED", 0, 0);
-        }
+        schedule(run, goal, null, definition, false);
     }
 
     /** 暂停在下一个 Graph {@code interruptAfter} 边界生效；由 run 状态驱动，不维护第二套状态机。 */
@@ -172,7 +172,33 @@ public class KnowledgeCurationRunExecutor {
             fail(run.getId(), run.getAcceptedAt(), "AGENT_MODEL_UNAVAILABLE", 0, 0);
             return;
         }
-        if (!scheduler.schedule(run.getId(), () -> execute(run, goal, guidance, definition))) {
+        schedule(run, goal, guidance, definition, true);
+    }
+
+    /**
+     * 进程重启后重新调度非终态知识整理 run：不注入指导、不重跑已完成的节点，
+     * 从最新 Checkpoint 的下一节点继续；定义摘要与当前不一致时停止并标记定义不匹配。
+     */
+    public void recover(
+            AgentRunEntity run,
+            String goal,
+            KnowledgeAgentDefinitionService.LoadedDefinition definition
+    ) {
+        if (!available()) {
+            fail(run.getId(), run.getAcceptedAt(), "AGENT_MODEL_UNAVAILABLE", 0, 0);
+            return;
+        }
+        schedule(run, goal, null, definition, true);
+    }
+
+    private void schedule(
+            AgentRunEntity run,
+            String goal,
+            String guidance,
+            KnowledgeAgentDefinitionService.LoadedDefinition definition,
+            boolean restartResume
+    ) {
+        if (!scheduler.schedule(run.getId(), () -> execute(run, goal, guidance, definition, restartResume))) {
             fail(run.getId(), run.getAcceptedAt(), "AGENT_EXECUTOR_SATURATED", 0, 0);
         }
     }
@@ -181,10 +207,22 @@ public class KnowledgeCurationRunExecutor {
             AgentRunEntity run,
             String goal,
             String guidance,
-            KnowledgeAgentDefinitionService.LoadedDefinition definition
+            KnowledgeAgentDefinitionService.LoadedDefinition definition,
+            boolean restartResume
     ) {
         Instant started = clock.instant();
-        boolean resuming = guidance != null;
+        if (!definitionCompatible(run, definition)) {
+            // 定义摘要或 Graph 定义版本已变化：旧 Checkpoint 结构语义可能不兼容，停止并标记，不做盲目重试。
+            events.append(run.getId(), AgentEventType.RUN_FAILED, AgentEvent.SubjectType.AGENT,
+                    failurePayload(run.getAgentName(), "AGENT_DEFINITION_MISMATCH"), started);
+            fail(run.getId(), run.getAcceptedAt(), "AGENT_DEFINITION_MISMATCH", 0, 0);
+            taskEvents.append(run.getKnowledgeTaskConversationId(), run.getId(), "RUN_UPDATED",
+                    run.getId(), started);
+            log.warn("knowledge_task 定义不匹配 conversationId={} runId={} 停止解析旧 Checkpoint",
+                    run.getKnowledgeTaskConversationId(), run.getId());
+            return;
+        }
+        boolean resuming = restartResume || guidance != null;
         if (!resuming && runs.markKnowledgeRunning(run.getId(), started) != 1) {
             return;
         }
@@ -196,25 +234,38 @@ public class KnowledgeCurationRunExecutor {
                     AgentEvent.SubjectType.AGENT,
                     payload(resuming ? "RESUMING" : "PREPARING", run.getAgentName(), "RUNNING"), started);
             taskEvents.append(run.getKnowledgeTaskConversationId(), run.getId(), "RUN_UPDATED", run.getId(), started);
-            String finalReply = drive(run, graph, metrics, goal, guidance);
+            DriveResult result = drive(run, graph, metrics, goal, guidance);
             Instant finished = clock.instant();
             log.info("知识整理 Graph 完成 conversationId={} runId={} 最终回复={} 模型调用={} 工具调用={}",
                     run.getKnowledgeTaskConversationId(), run.getId(),
-                    bounded(finalReply, MAX_FINAL_CODE_POINTS), metrics.modelCalls(), metrics.toolCalls());
+                    bounded(result.reply(), MAX_FINAL_CODE_POINTS), metrics.modelCalls(), metrics.toolCalls());
             KnowledgeTaskMessageEntity finalMessage = KnowledgeTaskMessageEntity.builder()
                     .conversationId(run.getKnowledgeTaskConversationId()).runId(run.getId())
-                    .role("COORDINATOR_AGENT").subjectName(run.getAgentName()).content(finalReply).createdAt(finished).build();
+                    .role("COORDINATOR_AGENT").subjectName(run.getAgentName()).content(result.reply()).createdAt(finished).build();
             messages.insert(finalMessage);
             taskEvents.append(run.getKnowledgeTaskConversationId(), run.getId(), "MESSAGE_CREATED",
                     finalMessage.getId(), finished);
+            if (result.recoveryRequired()) {
+                // 重试耗尽：不落入失败终态，run 转为可恢复等待（WAITING_FOR_USER + Checkpoint），
+                // 管理员追加指导后可通过既有 resume 接口继续（§11.4 重试耗尽）。
+                events.append(run.getId(), AgentEventType.AGENT_STAGE, AgentEvent.SubjectType.AGENT,
+                        payload("RECOVERY_REQUIRED", run.getAgentName(), "RECOVERY_REQUIRED"), finished);
+                runs.markKnowledgeRecovery(run.getId(), finished);
+                taskEvents.append(run.getKnowledgeTaskConversationId(), run.getId(), "RUN_UPDATED",
+                        run.getId(), finished);
+                active.remove(run.getId(), running);
+                log.warn("knowledge_task 重试耗尽 conversationId={} runId={} 已转为 WAITING_FOR_USER 等待人工指导",
+                        run.getKnowledgeTaskConversationId(), run.getId());
+                return;
+            }
             events.append(run.getId(), AgentEventType.RUN_COMPLETED, AgentEvent.SubjectType.AGENT,
                     payload("COMPLETED", run.getAgentName(), "COMPLETED"), finished);
-            runs.completeKnowledge(run.getId(), finalReply, metrics.steps(), metrics.modelCalls(), metrics.toolCalls(),
+            runs.completeKnowledge(run.getId(), result.reply(), metrics.steps(), metrics.modelCalls(), metrics.toolCalls(),
                     Duration.between(started, finished).toMillis(), metrics.inputTokens(), metrics.outputTokens(),
                     finished);
             taskEvents.append(run.getKnowledgeTaskConversationId(), run.getId(), "RUN_UPDATED", run.getId(), finished);
             active.remove(run.getId(), running);
-            System.out.println("知识整理模型最终原始响应：" + finalReply);
+            System.out.println("知识整理模型最终原始响应：" + result.reply());
         } catch (Exception exception) {
             AgentRunEntity current = runs.selectById(run.getId());
             if (current != null && "CANCELLED".equals(current.getStatus())) {
@@ -239,32 +290,85 @@ public class KnowledgeCurationRunExecutor {
     }
 
     /**
-     * 驱动父 Graph 到终态：每次运行到 {@code interruptAfter} 边界先检查 run 状态，未暂停则用同一
-     * {@code threadId} 立即续跑；返回调度 Agent 的最终可见正文（CHAT 或 FINISH 的 summary）。
+     * 驱动父 Graph 到轮次终态。按会话 Checkpoint 状态分三种进入方式：
      *
-     * @param guidance 暂停恢复时管理员追加的指导；恢复的同一次 run 必须把它作为本轮用户消息注入，
-     *                 否则协调 Agent 只会看到最开始的 goal，无法理解后续指令（continue 走 continuationPrompt，
-     *                 而 resume 走此处的显式注入）
+     * <ul>
+     *   <li>会话级续聊（run 的正常首轮，线程上存在 WAIT_INPUT Checkpoint）：用
+     *       {@code updateState(snapshot.config(), values, turn_finish)} 注入本轮字段并让 Checkpoint 的下一节点
+     *       指向 Coordinator，从 WAIT_INPUT 继续，不重跑上一轮已完成的节点；</li>
+     *   <li>同 run 恢复（暂停/重启，任何未完成边界）：直接使用 {@code snapshot.config()}（含 checkPointId），
+     *       管理员指导作为追加用户消息；</li>
+     *   <li>全新会话：无 Checkpoint，从 START 以本轮输入首次执行。</li>
+     * </ul>
+     *
+     * <p>每次运行到 {@code interruptAfter} 边界先检查轮次与 run 状态：到达 {@code turn_finish}（轮次完成）
+     * 立即返回最终回复；否则检查 run 状态（RUNNING 续跑 / PAUSE_REQUESTED 投影等待 / CANCELLED 结束）。</p>
      */
-    private String drive(AgentRunEntity run, CompiledGraph graph, RunMetrics metrics, String goal, String guidance) {
-        Map<String, Object> input = new HashMap<>();
-        input.put("goal", goal);
-        input.put("stage", "START");
-        input.put("draftRound", 0);
-        if (guidance != null && !guidance.isBlank()) {
-            input.put("messages", List.of(new UserMessage(goal),
-                    new UserMessage("管理员追加指导：" + guidance)));
+    private DriveResult drive(AgentRunEntity run, CompiledGraph graph, RunMetrics metrics, String goal, String guidance) {
+        StateSnapshot base = graph.stateOf(config(run)).orElse(null);
+        boolean waitInputBase = base != null && "WAIT_INPUT".equals(stateText(base, "turnMode"));
+        Map<String, Object> input;
+        RunnableConfig resumeConfig;
+        if (waitInputBase) {
+            // 上一轮已在 WAIT_INPUT 完成：本轮字段 REPLACE 注入，消息 APPEND 追加本轮指令；
+            // asNode=turn_finish 使下一节点确定为 Coordinator（§6.1/§9.1）。
+            Map<String, Object> values = new HashMap<>();
+            values.put("runId", run.getId());
+            values.put("stage", "START");
+            values.put("draftRound", 0);
+            values.put("turnFinished", false);
+            values.put("turnMode", "RUNNING");
+            values.put("retryAttempt", 0);
+            values.put("messages", appendSessionHistory(base, goal));
+            try {
+                resumeConfig = graph.updateState(base.config(), values, KnowledgeCurationGraphFactory.TURN_FINISH);
+            } catch (Exception exception) {
+                throw new IllegalStateException("知识整理会话级状态注入失败，conversationId="
+                        + run.getKnowledgeTaskConversationId(), exception);
+            }
+            input = Map.of();
+            log.info("知识整理会话级续聊 conversationId={} runId={} threadId={} 从 WAIT_INPUT 注入本轮字段",
+                    run.getKnowledgeTaskConversationId(), run.getId(), run.getThreadId());
+        } else if (base != null) {
+            // 同 run 暂停/进程重启恢复：从最新 Checkpoint 的下一节点继续，不再从头重跑入口节点；
+            // guidance 非空时作为追加用户消息（历史与 goal 已保存在 Checkpoint 中）。
+            resumeConfig = base.config();
+            input = guidance == null || guidance.isBlank() ? Map.of()
+                    : Map.of("messages", List.of(new UserMessage("管理员追加指导：" + guidance)));
+            log.info("知识整理断点恢复 conversationId={} runId={} threadId={} boundary={} resumeGuidance={}",
+                    run.getKnowledgeTaskConversationId(), run.getId(), run.getThreadId(),
+                    base.next(), guidance != null);
         } else {
-            input.put("messages", List.of(new UserMessage(goal)));
+            // 全新会话首次执行：以本轮输入从 START 开始。
+            input = new HashMap<>(Map.of("goal", goal, "stage", "START", "draftRound", 0));
+            if (guidance != null && !guidance.isBlank()) {
+                input.put("messages", List.of(new UserMessage(goal), new UserMessage("管理员追加指导：" + guidance)));
+            } else {
+                input.put("messages", List.of(new UserMessage(goal)));
+            }
+            resumeConfig = config(run);
+            log.info("知识整理全新会话开始 conversationId={} runId={} threadId={} goal={}",
+                    run.getKnowledgeTaskConversationId(), run.getId(), run.getThreadId(), bounded(goal, 200));
         }
-        // 首次用 threadId 配置；续跑必须用上一节点运行返回的 checkpoint 配置（含 checkPointId/nextNode），
-        // 否则框架会从头重跑入口节点而不是从下一节点恢复（§8.3）。
-        RunnableConfig resumeConfig = config(run);
-        log.info("知识整理 Graph 运行开始 conversationId={} runId={} threadId={} goal={} stage=START draftRound=0",
-                run.getKnowledgeTaskConversationId(), run.getId(), run.getThreadId(), bounded(goal, 200));
         int rounds = 0;
         while (rounds++ < 32) {
             consume(graph.stream(input, resumeConfig), run, metrics);
+            // 轮次完成边界优先：暂停/取消发生在上一轮已完成点之后没有业务意义，避免把已完成的轮次再标记为等待人工。
+            StateSnapshot snapshot = graph.getState(config(run));
+            String next = snapshot == null ? null : snapshot.next();
+            boolean nextIsEnd = next == null || StateGraph.END.equals(next);
+            if (snapshot != null && isTurnFinished(snapshot)) {
+                log.info("知识整理轮次在 WAIT_INPUT 完成 conversationId={} runId={} 迭代={} 下一节点={} 阶段={} 草稿轮数={}",
+                        run.getKnowledgeTaskConversationId(), run.getId(), rounds - 1, next,
+                        stateText(snapshot, "stage"), stateInt(snapshot, "draftRound"));
+                return new DriveResult(finalReply(snapshot), isRecoveryRequired(snapshot));
+            }
+            if (nextIsEnd) {
+                log.info("知识整理 Graph 到达终态 conversationId={} runId={} 迭代={} 下一节点={} 阶段={}",
+                        run.getKnowledgeTaskConversationId(), run.getId(), rounds - 1, next,
+                        stateText(snapshot, "stage"));
+                return new DriveResult(finalReply(snapshot), isRecoveryRequired(snapshot));
+            }
             AgentRunEntity current = runs.selectById(run.getId());
             if (current != null && "CANCELLED".equals(current.getStatus())) {
                 throw new IllegalStateException("Agent cancelled");
@@ -273,19 +377,101 @@ public class KnowledgeCurationRunExecutor {
                     && projection.markWaitingAfterInterrupt(run.getId())) {
                 throw new IllegalStateException("Agent paused");
             }
-            StateSnapshot snapshot = graph.getState(config(run));
-            String next = snapshot == null ? null : snapshot.next();
             log.info("知识整理 Graph 已到 interruptAfter 边界 conversationId={} runId={} 迭代={} 下一节点={} "
                             + "阶段={} 草稿轮数={} 已产出结果键={}",
                     run.getKnowledgeTaskConversationId(), run.getId(), rounds - 1, next,
-                    stateText(snapshot, "stage"), stateInt(snapshot, "draftRound"), presentResultKeys(snapshot));
-            if (next == null || StateGraph.END.equals(next)) {
-                return finalReply(snapshot);
-            }
+                    stateText(snapshot, "stage"), stateInt(snapshot, "draftRound"),
+                    presentResultKeys(snapshot));
             input = Map.of();
             resumeConfig = snapshot.config();
         }
         throw new IllegalStateException("Agent graph exceeded resume rounds");
+    }
+
+    /** @return 会话级角色化历史（TURN_FINISH 重建）+ 本轮用户指令，作为下一轮 messages 前缀（阶段 4）。 */
+    private static List<Message> appendSessionHistory(StateSnapshot snapshot, String goal) {
+        List<Message> messages = new ArrayList<>();
+        Object history = snapshot == null || snapshot.state() == null ? null
+                : snapshot.state().data().get("conversationHistory");
+        if (history instanceof List<?> entries) {
+            for (Object entry : entries) {
+                Message message = sessionMessage(entry);
+                if (message != null) {
+                    messages.add(message);
+                }
+            }
+        }
+        messages.add(new UserMessage(goal));
+        return messages;
+    }
+
+    /** @return 从会话历史条目（序列化 Map 或 Message 对象）重建角色化消息；角色不明时忽略以防污染。 */
+    private static Message sessionMessage(Object entry) {
+        String text;
+        String role = "";
+        if (entry instanceof Map<?, ?> map) {
+            text = mapText(map);
+            Object type = map.get("messageType");
+            if (type == null) {
+                type = map.get("type");
+            }
+            role = String.valueOf(type == null ? "" : type);
+        } else if (entry instanceof AssistantMessage assistant) {
+            text = assistant.getText();
+            role = "ASSISTANT";
+        } else if (entry instanceof UserMessage user) {
+            text = user.getText();
+            role = "USER";
+        } else if (entry instanceof Message message) {
+            text = message.getText() instanceof String value ? value : String.valueOf(message.getText());
+            role = message.getMessageType().getValue();
+        } else {
+            text = String.valueOf(entry);
+        }
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        if ("USER".equalsIgnoreCase(role)) {
+            return new UserMessage(text);
+        }
+        if ("ASSISTANT".equalsIgnoreCase(role)) {
+            return new AssistantMessage(text);
+        }
+        return null;
+    }
+
+    private static String mapText(Map<?, ?> map) {
+        for (String key : List.of("text", "textContent")) {
+            Object value = map.get(key);
+            if (value instanceof String text && !text.isBlank()) {
+                return text;
+            }
+            if (value instanceof Map<?, ?> nested && nested.get("text") instanceof String text && !text.isBlank()) {
+                return text;
+            }
+        }
+        Object content = map.get("content");
+        return content instanceof String text ? text : null;
+    }
+
+    /** @return 本轮是否以恢复说明结束（重试耗尽，恢复门写入 recoveryInfo）。 */
+    private static boolean isRecoveryRequired(StateSnapshot snapshot) {
+        return snapshot != null && snapshot.state() != null
+                && snapshot.state().data().get("recoveryInfo") != null;
+    }
+
+    /** 驱动结果：可见最终回复 + 是否以重试耗尽恢复说明结束。 */
+    private record DriveResult(String reply, boolean recoveryRequired) {
+    }
+
+    /** @return 当前 Checkpoint 是否已标记轮次完成（turn_finish 节点写入 WAIT_INPUT 状态）。 */
+    private static boolean isTurnFinished(StateSnapshot snapshot) {
+        Object value = snapshot == null || snapshot.state() == null
+                ? null : snapshot.state().data().get("turnFinished");
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        return "true".equals(String.valueOf(value));
     }
 
     private void consume(Flux<NodeOutput> stream, AgentRunEntity run, RunMetrics metrics) {
@@ -348,8 +534,11 @@ public class KnowledgeCurationRunExecutor {
                 run.getId(), now);
     }
 
-    /** 阶段事件 phase：调度 Agent 按 stage（START/DECIDE/FINISH），三个专家按 RETRIEVE/DRAFT/REVIEW。 */
+    /** 阶段事件 phase：主 Agent 标记 MAIN；调度 Agent 按 stage（START/DECIDE/FINISH）；三个专家按 RETRIEVE/DRAFT/REVIEW。 */
     private String stagePhase(String node, String text) {
+        if (KnowledgeCurationGraphFactory.MAIN_AGENT.equals(node)) {
+            return "MAIN";
+        }
         if (!KnowledgeCurationGraphFactory.COORDINATOR.equals(node)) {
             return switch (node) {
                 case KnowledgeCurationGraphFactory.RETRIEVER -> "RETRIEVE";
@@ -405,8 +594,30 @@ public class KnowledgeCurationRunExecutor {
         if (snapshot == null || snapshot.state() == null) {
             throw new IllegalStateException("Agent completed without graph state");
         }
+        // 重试耗尽恢复门：本轮以可见说明结束（保留 Checkpoint 与原因），不当作正常汇总。
+        String recovery = stateText(snapshot, "recoveryInfo");
+        if (recovery != null && !recovery.isBlank()) {
+            return bounded(recovery, MAX_FINAL_CODE_POINTS);
+        }
+        Object main = snapshot.state().data().get("mainTurnResult");
+        String text = main instanceof AssistantMessage message ? message.getText()
+                : main == null ? null : String.valueOf(main);
+        if (text != null && !text.isBlank()) {
+            try {
+                KnowledgeCurationGraphResult.MainTurnResult result =
+                        objectMapper.readValue(text, KnowledgeCurationGraphResult.MainTurnResult.class);
+                if (result.summary() == null || result.summary().isBlank()) {
+                    throw new IllegalStateException("主 Agent final reply blank");
+                }
+                return bounded(result.summary(), MAX_FINAL_CODE_POINTS);
+            } catch (IllegalStateException exception) {
+                throw exception;
+            } catch (Exception exception) {
+                throw new IllegalStateException("主 Agent final structured result invalid", exception);
+            }
+        }
         Object coordination = snapshot.state().data().get("coordinationResult");
-        String text = coordination instanceof AssistantMessage message ? message.getText()
+        text = coordination instanceof AssistantMessage message ? message.getText()
                 : coordination == null ? null : String.valueOf(coordination);
         if (text == null || text.isBlank()) {
             throw new IllegalStateException("Agent completed without a visible final AssistantMessage");
@@ -510,6 +721,9 @@ public class KnowledgeCurationRunExecutor {
 
     private String projectSummary(String node, String text) {
         try {
+            if (KnowledgeCurationGraphFactory.MAIN_AGENT.equals(node)) {
+                return objectMapper.readValue(text, KnowledgeCurationGraphResult.MainTurnResult.class).summary();
+            }
             if (KnowledgeCurationGraphFactory.COORDINATOR.equals(node)) {
                 return objectMapper.readValue(text, KnowledgeCurationGraphResult.CoordinatorResult.class).summary();
             }
@@ -833,6 +1047,21 @@ public class KnowledgeCurationRunExecutor {
             String message = cause.getMessage();
             return "TOOL_ERROR: " + (message == null || message.isBlank() ? "TOOL_EXECUTION_FAILED" : message);
         };
+    }
+
+    /** @return run 持久化的定义摘要与 Graph 定义版本是否仍与当前定义兼容；无摘要记录的历史 run 无法比对时按可继续处理。 */
+    private boolean definitionCompatible(
+            AgentRunEntity run, KnowledgeAgentDefinitionService.LoadedDefinition definition) {
+        String persistedDigest = run.getAgentSpecDigest();
+        if (persistedDigest == null) {
+            // 历史运行未记录定义摘要（旧格式）时无法比对；新 run 创建时必定写入摘要与 config_summary 版本前缀。
+            return true;
+        }
+        String currentDigest = definition == null || definition.runtime() == null
+                ? null : definition.runtime().agentSpecDigest();
+        return Objects.equals(persistedDigest, currentDigest)
+                && run.getConfigSummary() != null
+                && run.getConfigSummary().startsWith(KnowledgeCurationGraphFactory.GRAPH_DEF_VERSION);
     }
 
     static String errorCode(Exception exception) {

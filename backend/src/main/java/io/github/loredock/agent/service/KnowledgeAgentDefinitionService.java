@@ -34,10 +34,10 @@ import org.springframework.stereotype.Service;
 @Service
 public class KnowledgeAgentDefinitionService {
 
-    /** 四份随应用发布的 Agent 定义 classpath，顺序与 {@code KnowledgeCurationGraphFactory.ROLES} 一致。 */
+    /** 五份随应用发布的 Agent 定义 classpath，顺序与 {@code KnowledgeCurationGraphFactory.ROLES} 一致。 */
     private static final String GRAPH_SPEC_PREFIX = "agent-specs/knowledge-curation/";
     private static final List<String> GRAPH_SPEC_FILES = List.of(
-            "coordinator.md", "retriever.md", "drafter.md", "reviewer.md");
+            "main_agent.md", "coordinator.md", "retriever.md", "drafter.md", "reviewer.md");
 
     private final ToolCallbackProvider toolProvider;
     private final AgentProperties agentProperties;

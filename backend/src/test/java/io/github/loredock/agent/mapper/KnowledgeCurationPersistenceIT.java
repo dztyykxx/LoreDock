@@ -498,8 +498,11 @@ class KnowledgeCurationPersistenceIT {
                         first.conversationId(), "system:scheduler", "follow-up-1", "删除没有双来源支持的建议"));
         KnowledgeTaskService.KnowledgeTask snapshot = tasks.get(first.conversationId(), "system:scheduler");
 
+        // 业务目的：系统首轮必须先保存可见触发消息；一轮正常完成后的追加指导必须创建独立新 run，
+        // 防止覆盖上一轮审计、资源统计或 Checkpoint。多次迭代的旧断言假设 threadId 随 run 独立，
+        // 会话级编排（阶段1）后 threadId 由会话共享：run 保持独立，threadId 必须与上一轮一致。
         assertThat(continued.runId()).isNotEqualTo(firstRun.runId());
-        assertThat(continued.threadId()).isNotEqualTo(firstRun.threadId());
+        assertThat(continued.threadId()).isEqualTo(firstRun.threadId());
         assertThat(snapshot.runs()).hasSize(2);
         assertThat(snapshot.messages()).extracting(KnowledgeTaskService.KnowledgeTaskMessage::role)
                 .contains(KnowledgeTaskService.MessageRole.SYSTEM_TRIGGER, KnowledgeTaskService.MessageRole.USER);

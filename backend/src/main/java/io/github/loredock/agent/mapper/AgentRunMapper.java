@@ -100,6 +100,14 @@ public interface AgentRunMapper extends BaseMapper<AgentRunEntity> {
             @Param("updatedAt") Instant updatedAt
     );
 
+    /** @return RUNNING 的知识整理 run 因重试耗尽成功转为可恢复等待的行数（保留 Checkpoint，awaiting 人工指导后 resume） */
+    @Update("""
+            update agent_run set status = 'WAITING_FOR_USER', checkpoint_saved_at = #{savedAt},
+                   updated_at = #{savedAt}
+            where id = #{runId} and task_type = 'knowledge_curation' and status = 'RUNNING'
+            """)
+    int markKnowledgeRecovery(@Param("runId") Long runId, @Param("savedAt") Instant savedAt);
+
     /** @return 已请求暂停的 run 在 Checkpoint 提交后成功投影为等待人工的行数 */
     @Update("""
             update agent_run set status = 'WAITING_FOR_USER', checkpoint_saved_at = #{savedAt},
