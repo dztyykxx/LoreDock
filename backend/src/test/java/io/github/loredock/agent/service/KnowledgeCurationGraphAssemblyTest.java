@@ -32,7 +32,7 @@ class KnowledgeCurationGraphAssemblyTest {
             "workspace_document_list",
             "draft_create", "draft_read", "draft_update", "draft_rename", "draft_diff");
 
-    private final KnowledgeCurationGraphFactory factory = new KnowledgeCurationGraphFactory(new ObjectMapper());
+    private final KnowledgeCurationGraphFactory factory = new KnowledgeCurationGraphFactory(new ObjectMapper(), ContextAssemblyFixtures.assembly(new ObjectMapper()));
 
     /**
      * 业务目的：五份 Agent 定义必须随应用产物发布并可从 classpath 加载，且五个角色齐全、名称唯一；

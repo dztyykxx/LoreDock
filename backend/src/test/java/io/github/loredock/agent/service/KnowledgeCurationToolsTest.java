@@ -208,9 +208,147 @@ class KnowledgeCurationToolsTest {
 
         assertThatThrownBy(() -> update.call(input, context))
                 .isInstanceOf(ToolExecutionException.class)
-                .hasRootCauseMessage("草稿修订引用了当前 run 或会话之外的来源");
+                .hasRootCauseStartingWith("草稿修订引用了当前 run 或会话之外的来源");
         verifyNoInteractions(drafts);
         System.out.println("测试证据：场景=草稿来源归属，run=61，越界evidence=999，草稿写入=0");
+    }
+
+    /**
+     * 业务目的：模型以知识文档 id 表达 EVIDENCE 引用（文档读取结果只暴露 documentId）时也必须校验通过，
+     * 并在传入草稿服务前规范化到对应证据行 id；防止首次引用必然失败、模型被迫删除证据来源。
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void evidenceDocumentIdReferenceIsNormalizedToEvidenceRowId() {
+        AgentRunMapper runs = mock(AgentRunMapper.class);
+        AgentEvidenceService evidence = mock(AgentEvidenceService.class);
+        KnowledgeTaskMessageMapper messages = mock(KnowledgeTaskMessageMapper.class);
+        KnowledgeTaskSelectedDraftMapper selected = mock(KnowledgeTaskSelectedDraftMapper.class);
+        ObjectProvider<KnowledgeDraftService> provider = mock(ObjectProvider.class);
+        KnowledgeDraftService drafts = mock(KnowledgeDraftService.class);
+        when(provider.getIfAvailable(org.mockito.ArgumentMatchers.any())).thenReturn(drafts);
+        when(runs.selectById(61L)).thenReturn(AgentRunEntity.builder()
+                .id(61L).operatorId("admin").projectIdentifier("atlas")
+                .knowledgeTaskConversationId(41L).taskType("knowledge_curation").status("RUNNING").build());
+        when(evidence.findByRunId(61L)).thenReturn(List.of(
+                new AgentEvidence(246L, 61L, EvidenceSourceType.KNOWLEDGE, true, 0.9,
+                        6L, null, "atlas", "main", null, null, "场景包权限与审核流程",
+                        Instant.parse("2026-08-30T07:00:00Z")),
+                new AgentEvidence(256L, 61L, EvidenceSourceType.KNOWLEDGE, true, 0.9,
+                        20L, null, "atlas", "main", null, null, "场景包文件结构与通用校验",
+                        Instant.parse("2026-08-30T07:00:00Z"))));
+        when(messages.selectList(org.mockito.ArgumentMatchers.any())).thenReturn(List.of());
+        when(selected.selectList(org.mockito.ArgumentMatchers.any())).thenReturn(List.of());
+        when(drafts.update(org.mockito.ArgumentMatchers.any())).thenReturn(new KnowledgeDraftService.DraftRevision(
+                51L, 3, KnowledgeDraftService.WorkspaceOperation.MODIFY, 91L, 2L,
+                "退款规则", "交易/售后", "已插入正文", List.of(), List.of(), "补充事实", 61L, Instant.now()));
+        KnowledgeCurationTools tools = new KnowledgeCurationTools(
+                mock(ProjectQaToolService.class), evidence, provider, runs, messages, selected,
+                mock(KnowledgeDocumentAccessService.class));
+        ToolContext context = new ToolContext(Map.of(
+                "operatorId", "admin", "projectIdentifier", "atlas", "conversationId", 41L, "runId", 61L));
+
+        tools.draftUpdate(51L, 2, "call-3",
+                List.of(new KnowledgeDraftService.UpdateOperation(
+                        KnowledgeDraftService.OperationType.INSERT_AFTER, null, "新事实",
+                        List.of(new KnowledgeDraftService.SourceRef(
+                                KnowledgeDraftService.SourceType.EVIDENCE, 20L)))),
+                "补充事实", context);
+
+        verify(drafts).update(org.mockito.ArgumentMatchers.argThat(request ->
+                request.operations().size() == 1
+                        && request.operations().get(0).sourceRefs().size() == 1
+                        && request.operations().get(0).sourceRefs().get(0).equals(
+                                new KnowledgeDraftService.SourceRef(
+                                        KnowledgeDraftService.SourceType.EVIDENCE, 256L))));
+        System.out.println("测试证据：场景=证据文档id引用规范化，文档=20，证据行=256，草稿服务收到行id=256");
+    }
+
+    /**
+     * 业务目的：模型引用检索块中展示的证据行 id（evidenceId=）时保持原样透传；
+     * 防止规范化逻辑把真实行 id 误判或改写。
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void evidenceRowIdReferenceIsAcceptedAsIs() {
+        AgentRunMapper runs = mock(AgentRunMapper.class);
+        AgentEvidenceService evidence = mock(AgentEvidenceService.class);
+        KnowledgeTaskMessageMapper messages = mock(KnowledgeTaskMessageMapper.class);
+        KnowledgeTaskSelectedDraftMapper selected = mock(KnowledgeTaskSelectedDraftMapper.class);
+        ObjectProvider<KnowledgeDraftService> provider = mock(ObjectProvider.class);
+        KnowledgeDraftService drafts = mock(KnowledgeDraftService.class);
+        when(provider.getIfAvailable(org.mockito.ArgumentMatchers.any())).thenReturn(drafts);
+        when(runs.selectById(61L)).thenReturn(AgentRunEntity.builder()
+                .id(61L).operatorId("admin").projectIdentifier("atlas")
+                .knowledgeTaskConversationId(41L).taskType("knowledge_curation").status("RUNNING").build());
+        when(evidence.findByRunId(61L)).thenReturn(List.of(
+                new AgentEvidence(246L, 61L, EvidenceSourceType.KNOWLEDGE, true, 0.9,
+                        6L, null, "atlas", "main", null, null, "场景包权限与审核流程",
+                        Instant.parse("2026-08-30T07:00:00Z"))));
+        when(messages.selectList(org.mockito.ArgumentMatchers.any())).thenReturn(List.of());
+        when(selected.selectList(org.mockito.ArgumentMatchers.any())).thenReturn(List.of());
+        when(drafts.update(org.mockito.ArgumentMatchers.any())).thenReturn(new KnowledgeDraftService.DraftRevision(
+                51L, 3, KnowledgeDraftService.WorkspaceOperation.MODIFY, 91L, 2L,
+                "退款规则", "交易/售后", "已插入正文", List.of(), List.of(), "补充事实", 61L, Instant.now()));
+        KnowledgeCurationTools tools = new KnowledgeCurationTools(
+                mock(ProjectQaToolService.class), evidence, provider, runs, messages, selected,
+                mock(KnowledgeDocumentAccessService.class));
+        ToolContext context = new ToolContext(Map.of(
+                "operatorId", "admin", "projectIdentifier", "atlas", "conversationId", 41L, "runId", 61L));
+
+        tools.draftUpdate(51L, 2, "call-3",
+                List.of(new KnowledgeDraftService.UpdateOperation(
+                        KnowledgeDraftService.OperationType.INSERT_AFTER, null, "新事实",
+                        List.of(new KnowledgeDraftService.SourceRef(
+                                KnowledgeDraftService.SourceType.EVIDENCE, 246L)))),
+                "补充事实", context);
+
+        verify(drafts).update(org.mockito.ArgumentMatchers.argThat(request ->
+                request.operations().get(0).sourceRefs().get(0).equals(
+                        new KnowledgeDraftService.SourceRef(
+                                KnowledgeDraftService.SourceType.EVIDENCE, 246L))));
+        System.out.println("测试证据：场景=证据行id引用透传，行id=246，草稿服务收到行id=246");
+    }
+
+    /**
+     * 业务目的：引用的文档 id 在本轮证据中没有任何证据行覆盖时仍然拒绝；
+     * 防止双 ID 空间兼容被放宽为"任意知识文档"而绕过来源归属校验。
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void rejectsDocumentIdWithoutEvidenceInCurrentRun() {
+        AgentRunMapper runs = mock(AgentRunMapper.class);
+        AgentEvidenceService evidence = mock(AgentEvidenceService.class);
+        KnowledgeTaskMessageMapper messages = mock(KnowledgeTaskMessageMapper.class);
+        KnowledgeTaskSelectedDraftMapper selected = mock(KnowledgeTaskSelectedDraftMapper.class);
+        ObjectProvider<KnowledgeDraftService> provider = mock(ObjectProvider.class);
+        KnowledgeDraftService drafts = mock(KnowledgeDraftService.class);
+        when(provider.getIfAvailable(org.mockito.ArgumentMatchers.any())).thenReturn(drafts);
+        when(runs.selectById(61L)).thenReturn(AgentRunEntity.builder()
+                .id(61L).operatorId("admin").projectIdentifier("atlas")
+                .knowledgeTaskConversationId(41L).taskType("knowledge_curation").status("RUNNING").build());
+        when(evidence.findByRunId(61L)).thenReturn(List.of(
+                new AgentEvidence(246L, 61L, EvidenceSourceType.KNOWLEDGE, true, 0.9,
+                        6L, null, "atlas", "main", null, null, "场景包权限与审核流程",
+                        Instant.parse("2026-08-30T07:00:00Z"))));
+        when(messages.selectList(org.mockito.ArgumentMatchers.any())).thenReturn(List.of());
+        when(selected.selectList(org.mockito.ArgumentMatchers.any())).thenReturn(List.of());
+        KnowledgeCurationTools tools = new KnowledgeCurationTools(
+                mock(ProjectQaToolService.class), evidence, provider, runs, messages, selected,
+                mock(KnowledgeDocumentAccessService.class));
+        ToolContext context = new ToolContext(Map.of(
+                "operatorId", "admin", "projectIdentifier", "atlas", "conversationId", 41L, "runId", 61L));
+
+        assertThatThrownBy(() -> tools.draftUpdate(51L, 2, "call-3",
+                List.of(new KnowledgeDraftService.UpdateOperation(
+                        KnowledgeDraftService.OperationType.INSERT_AFTER, null, "新事实",
+                        List.of(new KnowledgeDraftService.SourceRef(
+                                KnowledgeDraftService.SourceType.EVIDENCE, 999L)))),
+                "补充事实", context))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageStartingWith("草稿修订引用了当前 run 或会话之外的来源：EVIDENCE:999");
+        verifyNoInteractions(drafts);
+        System.out.println("测试证据：场景=无证据覆盖文档id拒绝，文档=999，证据行=246(文档6)，草稿写入=0");
     }
 
     /**

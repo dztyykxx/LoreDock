@@ -423,7 +423,7 @@ class KnowledgeCurationConversationStateIT {
         return new KnowledgeCurationRunExecutor(
                 modelProvider, properties(), resolver, saver, definitions, new ObjectMapper(),
                 runs, mock(KnowledgeTaskConversationMapper.class), messages, events, taskEvents,
-                mock(KnowledgeToolInvocationService.class), projection, scheduler, Clock.systemUTC());
+                mock(KnowledgeToolInvocationService.class), projection, scheduler, ContextAssemblyFixtures.budget(), Clock.systemUTC());
     }
 
     private KnowledgeAgentDefinitionService.LoadedDefinition definition() {

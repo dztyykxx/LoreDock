@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 /** 验证知识整理 Graph 条件边的安全路由：校验失败进入修复回路（fix_{agent}）而非逃逸异常，以及返工上限（设计 §7/§9/§11.2）。 */
 class KnowledgeCurationGraphRoutingTest {
 
-    private final KnowledgeCurationGraphFactory factory = new KnowledgeCurationGraphFactory(new ObjectMapper());
+    private final KnowledgeCurationGraphFactory factory = new KnowledgeCurationGraphFactory(new ObjectMapper(), ContextAssemblyFixtures.assembly(new ObjectMapper()));
 
     private OverAllState state(Map<String, Object> data) {
         return OverAllStateBuilder.builder().withData(data).build();

@@ -29,11 +29,15 @@ import io.github.loredock.agent.api.AgentEvent;
 import io.github.loredock.agent.api.AgentRun;
 import io.github.loredock.agent.config.AgentProperties;
 import io.github.loredock.agent.mapper.AgentRunMapper;
+import io.github.loredock.agent.exception.ContextLimitExceededException;
+import io.github.loredock.agent.exception.ContextRunBudgetExceededException;
+
 import io.github.loredock.agent.mapper.KnowledgeTaskConversationMapper;
 import io.github.loredock.agent.mapper.KnowledgeTaskMessageMapper;
 import io.github.loredock.agent.model.entity.AgentRunEntity;
 import io.github.loredock.agent.model.entity.KnowledgeTaskConversationEntity;
 import io.github.loredock.agent.model.entity.KnowledgeTaskMessageEntity;
+import io.github.loredock.agent.model.context.ContextBudget;
 import io.github.loredock.agent.model.enums.AgentEventType;
 import io.github.loredock.agent.model.result.KnowledgeCurationGraphResult;
 import io.github.loredock.agent.scheduler.BoundedAgentRunScheduler;
@@ -98,6 +102,9 @@ public class KnowledgeCurationRunExecutor {
     private final KnowledgeTaskRunProjectionService projection;
     private final BoundedAgentRunScheduler scheduler;
     private final Clock clock;
+    private final ContextBudget contextBudget;
+    private final ContextAssemblyService contextAssembly;
+    private final ContextTokenEstimator contextEstimator;
     private final Map<Long, RunningRun> active = new ConcurrentHashMap<>();
 
     /** 注入框架组件、多 Agent 定义、既有运行持久化和共享有界调度器。 */
@@ -116,6 +123,7 @@ public class KnowledgeCurationRunExecutor {
             KnowledgeToolInvocationService toolInvocations,
             KnowledgeTaskRunProjectionService projection,
             BoundedAgentRunScheduler scheduler,
+            ContextBudget contextBudget,
             Clock clock
     ) {
         this.models = models;
@@ -132,6 +140,10 @@ public class KnowledgeCurationRunExecutor {
         this.toolInvocations = toolInvocations;
         this.projection = projection;
         this.scheduler = scheduler;
+        this.contextBudget = Objects.requireNonNull(contextBudget, "context budget");
+        this.contextEstimator = new ContextTokenEstimator();
+        this.contextAssembly = new ContextAssemblyService(conversations, messages, contextBudget,
+                contextEstimator, new ContextCompressionService(objectMapper, messages, contextEstimator));
         this.clock = clock;
     }
 
@@ -276,6 +288,30 @@ public class KnowledgeCurationRunExecutor {
                     && projection.markWaitingAfterInterrupt(run.getId())) {
                 return;
             }
+            if (contextUnwrapped(exception) != null) {
+                // 上下文超限（组装 BLOCKED 或单次/run 累计预算）：不进入失败终态，
+                // run 转为 WAITING_FOR_USER（保留 Checkpoint），可见说明写入会话消息（设计文档 §8）。
+                Instant finished = clock.instant();
+                String reason = contextUnwrapped(exception) instanceof ContextRunBudgetExceededException
+                        ? "本轮累计输入预算耗尽，请拆分任务或缩小范围后继续。" : "本轮上下文超过预算上限，请拆分任务或缩小范围（如指定目录、精简草稿）后继续。";
+                String message = "本轮已停止并保留断点：" + reason;
+                KnowledgeTaskMessageEntity waitingMessage = KnowledgeTaskMessageEntity.builder()
+                        .conversationId(run.getKnowledgeTaskConversationId()).runId(run.getId())
+                        .role("COORDINATOR_AGENT").subjectName(run.getAgentName())
+                        .content(message).createdAt(finished).build();
+                messages.insert(waitingMessage);
+                taskEvents.append(run.getKnowledgeTaskConversationId(), run.getId(), "MESSAGE_CREATED",
+                        waitingMessage.getId(), finished);
+                events.append(run.getId(), AgentEventType.AGENT_STAGE, AgentEvent.SubjectType.AGENT,
+                        payload("CONTEXT_BUDGET_EXCEEDED", run.getAgentName(), "WAITING_FOR_USER"), finished);
+                runs.markKnowledgeRecovery(run.getId(), finished);
+                taskEvents.append(run.getKnowledgeTaskConversationId(), run.getId(), "RUN_UPDATED",
+                        run.getId(), finished);
+                active.remove(run.getId(), running);
+                log.warn("knowledge_task 上下文预算超限 conversationId={} runId={} 已转为 WAITING_FOR_USER 等待人工指导",
+                        run.getKnowledgeTaskConversationId(), run.getId());
+                return;
+            }
             active.remove(run.getId(), running);
             String code = errorCode(exception);
             events.append(run.getId(), AgentEventType.RUN_FAILED, AgentEvent.SubjectType.AGENT,
@@ -287,6 +323,21 @@ public class KnowledgeCurationRunExecutor {
                     run.getKnowledgeTaskConversationId(), run.getId(), code,
                     metrics.modelCalls(), metrics.toolCalls(), exception);
         }
+    }
+
+    /** @return 解包后的上下文预算异常；非上下文预算异常返回 null。 */
+    private static RuntimeException contextUnwrapped(Exception exception) {
+        Throwable failure = reactor.core.Exceptions.unwrap(exception);
+        while (failure != null) {
+            if (failure instanceof ContextLimitExceededException contextLimit) {
+                return contextLimit;
+            }
+            if (failure instanceof ContextRunBudgetExceededException runBudget) {
+                return runBudget;
+            }
+            failure = failure.getCause();
+        }
+        return null;
     }
 
     /**
@@ -310,8 +361,9 @@ public class KnowledgeCurationRunExecutor {
         Map<String, Object> input;
         RunnableConfig resumeConfig;
         if (waitInputBase) {
-            // 上一轮已在 WAIT_INPUT 完成：本轮字段 REPLACE 注入，消息 APPEND 追加本轮指令；
-            // asNode=turn_finish 使下一节点确定为 Coordinator（§6.1/§9.1）。
+            // 上一轮已在 WAIT_INPUT 完成：本轮字段 REPLACE 注入，用户指令写入 currentInstruction（
+            // 不再写入 messages——那是准备节点的一次性缓冲区）；
+            // asNode=turn_finish 使下一节点确定为 prep_main（§6.1/§9.1）。
             Map<String, Object> values = new HashMap<>();
             values.put("runId", run.getId());
             values.put("stage", "START");
@@ -319,7 +371,16 @@ public class KnowledgeCurationRunExecutor {
             values.put("turnFinished", false);
             values.put("turnMode", "RUNNING");
             values.put("retryAttempt", 0);
-            values.put("messages", appendSessionHistory(base, goal));
+            values.put("mainMode", "ROUND");
+            values.put("currentInstruction", goal);
+            values.put("pendingGuidance", guidanceInput(guidance, null));
+            // 上一轮结果键不进入本轮：按轮次清空（本轮临时字段已重置，防止旧检索/草稿结果冒充本次事实）。
+            values.put("retrievalResult", null);
+            values.put("coordinationResult", null);
+            values.put("draftResult", null);
+            values.put("reviewResult", null);
+            values.put("mainTurnResult", null);
+            values.put("contextCompressionCalls", 0);
             try {
                 resumeConfig = graph.updateState(base.config(), values, KnowledgeCurationGraphFactory.TURN_FINISH);
             } catch (Exception exception) {
@@ -331,20 +392,20 @@ public class KnowledgeCurationRunExecutor {
                     run.getKnowledgeTaskConversationId(), run.getId(), run.getThreadId());
         } else if (base != null) {
             // 同 run 暂停/进程重启恢复：从最新 Checkpoint 的下一节点继续，不再从头重跑入口节点；
-            // guidance 非空时作为追加用户消息（历史与 goal 已保存在 Checkpoint 中）。
+            // guidance 非空时作为待应用指导写入 pendingGuidance（只对其目标节点注入，见组装服务）。
             resumeConfig = base.config();
             input = guidance == null || guidance.isBlank() ? Map.of()
-                    : Map.of("messages", List.of(new UserMessage("管理员追加指导：" + guidance)));
+                    : Map.of("pendingGuidance", guidanceInput(guidance, base.next()));
             log.info("知识整理断点恢复 conversationId={} runId={} threadId={} boundary={} resumeGuidance={}",
                     run.getKnowledgeTaskConversationId(), run.getId(), run.getThreadId(),
                     base.next(), guidance != null);
         } else {
-            // 全新会话首次执行：以本轮输入从 START 开始。
-            input = new HashMap<>(Map.of("goal", goal, "stage", "START", "draftRound", 0));
+            // 全新会话首次执行：以本轮输入从 START 开始；用户指令写入 currentInstruction。
+            input = new HashMap<>(Map.of("goal", goal, "stage", "START", "draftRound", 0,
+                    "currentInstruction", goal, "mainMode", "ROUND"));
             if (guidance != null && !guidance.isBlank()) {
-                input.put("messages", List.of(new UserMessage(goal), new UserMessage("管理员追加指导：" + guidance)));
-            } else {
-                input.put("messages", List.of(new UserMessage(goal)));
+                input.put("pendingGuidance", Map.of(
+                        "targetAgent", KnowledgeCurationGraphFactory.MAIN_AGENT, "text", guidance));
             }
             resumeConfig = config(run);
             log.info("知识整理全新会话开始 conversationId={} runId={} threadId={} goal={}",
@@ -388,70 +449,19 @@ public class KnowledgeCurationRunExecutor {
         throw new IllegalStateException("Agent graph exceeded resume rounds");
     }
 
-    /** @return 会话级角色化历史（TURN_FINISH 重建）+ 本轮用户指令，作为下一轮 messages 前缀（阶段 4）。 */
-    private static List<Message> appendSessionHistory(StateSnapshot snapshot, String goal) {
-        List<Message> messages = new ArrayList<>();
-        Object history = snapshot == null || snapshot.state() == null ? null
-                : snapshot.state().data().get("conversationHistory");
-        if (history instanceof List<?> entries) {
-            for (Object entry : entries) {
-                Message message = sessionMessage(entry);
-                if (message != null) {
-                    messages.add(message);
-                }
-            }
+    /** @return 待应用管理指导的 state 值（targetAgent 取最近路径上的 Agent 角色；无指导时返回空 Map）。 */
+    private static Map<String, Object> guidanceInput(String guidance, String nextNode) {
+        if (guidance == null || guidance.isBlank()) {
+            return Map.of();
         }
-        messages.add(new UserMessage(goal));
-        return messages;
-    }
-
-    /** @return 从会话历史条目（序列化 Map 或 Message 对象）重建角色化消息；角色不明时忽略以防污染。 */
-    private static Message sessionMessage(Object entry) {
-        String text;
-        String role = "";
-        if (entry instanceof Map<?, ?> map) {
-            text = mapText(map);
-            Object type = map.get("messageType");
-            if (type == null) {
-                type = map.get("type");
-            }
-            role = String.valueOf(type == null ? "" : type);
-        } else if (entry instanceof AssistantMessage assistant) {
-            text = assistant.getText();
-            role = "ASSISTANT";
-        } else if (entry instanceof UserMessage user) {
-            text = user.getText();
-            role = "USER";
-        } else if (entry instanceof Message message) {
-            text = message.getText() instanceof String value ? value : String.valueOf(message.getText());
-            role = message.getMessageType().getValue();
-        } else {
-            text = String.valueOf(entry);
-        }
-        if (text == null || text.isBlank()) {
-            return null;
-        }
-        if ("USER".equalsIgnoreCase(role)) {
-            return new UserMessage(text);
-        }
-        if ("ASSISTANT".equalsIgnoreCase(role)) {
-            return new AssistantMessage(text);
-        }
-        return null;
-    }
-
-    private static String mapText(Map<?, ?> map) {
-        for (String key : List.of("text", "textContent")) {
-            Object value = map.get(key);
-            if (value instanceof String text && !text.isBlank()) {
-                return text;
-            }
-            if (value instanceof Map<?, ?> nested && nested.get("text") instanceof String text && !text.isBlank()) {
-                return text;
-            }
-        }
-        Object content = map.get("content");
-        return content instanceof String text ? text : null;
+        String target = switch (nextNode == null ? "" : nextNode) {
+            case "set_decide", "set_finish" -> KnowledgeCurationGraphFactory.COORDINATOR;
+            case "set_draft_round" -> KnowledgeCurationGraphFactory.DRAFTER;
+            case "set_main_resume", "turn_finish" -> KnowledgeCurationGraphFactory.MAIN_AGENT;
+            default -> nextNode.startsWith(KnowledgeCurationGraphFactory.PREP_PREFIX)
+                    ? nextNode.substring(KnowledgeCurationGraphFactory.PREP_PREFIX.length()) : nextNode;
+        };
+        return Map.of("targetAgent", target, "text", "管理员追加指导：" + guidance);
     }
 
     /** @return 本轮是否以恢复说明结束（重试耗尽，恢复门写入 recoveryInfo）。 */
@@ -635,7 +645,12 @@ public class KnowledgeCurationRunExecutor {
     }
 
     private RunningRun build(AgentRunEntity run) {
-        RunMetrics metrics = new RunMetrics(run.getId(), run.getKnowledgeTaskConversationId());
+        // 预算守卫：每个 Agent 子图循环内每次模型调用前执行（beforeModel Hook），
+        // 一个 run 内全部 Agent 共享同一输入累计器（AtomicLong）；RunMetrics 复用其估算与序号记录完成日志。
+        AtomicLong contextInputSpent = new AtomicLong();
+        ContextBudgetGuardHook contextGuard = new ContextBudgetGuardHook(
+                contextBudget, contextEstimator, contextInputSpent, run.getId(), run.getKnowledgeTaskConversationId());
+        RunMetrics metrics = new RunMetrics(run.getId(), run.getKnowledgeTaskConversationId(), contextGuard);
         ModelCallLimitHook modelLimit = ModelCallLimitHook.builder()
                 .runLimit(properties.limits().curationMaxModelCalls())
                 .exitBehavior(ModelCallLimitHook.ExitBehavior.ERROR)
@@ -645,7 +660,7 @@ public class KnowledgeCurationRunExecutor {
                 .exitBehavior(ToolCallLimitHook.ExitBehavior.ERROR)
                 .build();
         try {
-            KnowledgeCurationGraphFactory.GraphBundle bundle = new KnowledgeCurationGraphFactory(objectMapper).build(
+            KnowledgeCurationGraphFactory.GraphBundle bundle = new KnowledgeCurationGraphFactory(objectMapper, contextAssembly).build(
                     definitions.graphSpecs(),
                     Objects.requireNonNull(models.getIfAvailable(), "知识整理模型不可用"),
                     toolResolver,
@@ -655,10 +670,10 @@ public class KnowledgeCurationRunExecutor {
                             "conversationId", run.getKnowledgeTaskConversationId(),
                             "runId", run.getId()),
                     checkpoints,
-                    List.of(InterruptionHook.builder().build(), modelLimit, toolLimit),
+                    List.of(InterruptionHook.builder().build(), modelLimit, toolLimit, contextGuard),
                     List.of(metrics, metrics.toolInterceptor()),
                     toolExceptionProcessor());
-            return new RunningRun(bundle.graph(), metrics, ConcurrentHashMap.newKeySet());
+            return new RunningRun(bundle.graph(), metrics, ConcurrentHashMap.newKeySet(), contextInputSpent);
         } catch (GraphStateException exception) {
             throw new IllegalStateException("知识整理 Graph 组装失败", exception);
         }
@@ -747,6 +762,7 @@ public class KnowledgeCurationRunExecutor {
         private static final int MAX_TOOL_PREVIEW_CODE_POINTS = 500;
         private final Long runId;
         private final Long conversationId;
+        private final ContextBudgetGuardHook contextGuard;
         private final AtomicInteger modelCalls = new AtomicInteger();
         private final AtomicInteger toolCalls = new AtomicInteger();
         private final AtomicLong inputTokens = new AtomicLong();
@@ -757,9 +773,10 @@ public class KnowledgeCurationRunExecutor {
         private final Map<String, AgentToken> committedTokensByAgent = new ConcurrentHashMap<>();
         private final AtomicReference<Usage> streamUsage = new AtomicReference<>();
 
-        private RunMetrics(Long runId, Long conversationId) {
+        private RunMetrics(Long runId, Long conversationId, ContextBudgetGuardHook contextGuard) {
             this.runId = runId;
             this.conversationId = conversationId;
+            this.contextGuard = contextGuard;
         }
 
         @Override
@@ -790,18 +807,25 @@ public class KnowledgeCurationRunExecutor {
 
         /** 按当前 Agent 归属累计该次模型调用的输入/输出 token；缺失 usage 时视为用量未知，整 run 报 null。 */
         private void record(Usage usage, ModelRequest request) {
+            String agent = String.valueOf(agentNode(request) == null ? "unknown" : agentNode(request));
             if (usage == null || usage instanceof EmptyUsage
                     || usage.getPromptTokens() == null || usage.getCompletionTokens() == null) {
                 usageComplete.set(false);
+                log.info("agent_model_completed runId={} agent={} callSeq={} estimatedInputTokens={} "
+                                + "actualInputTokens=null actualOutputTokens=null（模型未返回 usage）",
+                        runId, agent, contextGuard.lastCallSeq(agent), contextGuard.lastEstimatedTokens(agent));
                 return;
             }
             int prompt = usage.getPromptTokens();
             int completion = usage.getCompletionTokens();
             inputTokens.addAndGet(prompt);
             outputTokens.addAndGet(completion);
+            log.info("agent_model_completed runId={} agent={} callSeq={} estimatedInputTokens={} "
+                            + "actualInputTokens={} actualOutputTokens={}",
+                    runId, agent, contextGuard.lastCallSeq(agent), contextGuard.lastEstimatedTokens(agent),
+                    prompt, completion);
             // _AGENT_ 元数据缺失时只累计 run 级总量，避免并发 Map 空键 NPE 且不产生无归属展示项。
-            String agent = agentNode(request);
-            if (agent != null) {
+            if (agentNode(request) != null) {
                 tokensByAgent.computeIfAbsent(agent, ignored -> new AgentToken()).add(prompt, completion);
             }
         }
@@ -977,7 +1001,12 @@ public class KnowledgeCurationRunExecutor {
         }
     }
 
-    private record RunningRun(CompiledGraph graph, RunMetrics metrics, Set<String> publicProgress) {
+    private record RunningRun(
+            CompiledGraph graph,
+            RunMetrics metrics,
+            Set<String> publicProgress,
+            AtomicLong contextInputSpent
+    ) {
     }
 
     private RunnableConfig config(AgentRunEntity run) {

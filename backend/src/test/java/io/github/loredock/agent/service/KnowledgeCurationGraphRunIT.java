@@ -86,7 +86,7 @@ class KnowledgeCurationGraphRunIT {
 
         ScriptedChatModel model = new ScriptedChatModel(List.of(
                 answer("{\"action\":\"CHAT\",\"summary\":\"你好，我在线。\",\"expertCalls\":[]}")));
-        KnowledgeCurationGraphFactory factory = new KnowledgeCurationGraphFactory(new ObjectMapper());
+        KnowledgeCurationGraphFactory factory = new KnowledgeCurationGraphFactory(new ObjectMapper(), ContextAssemblyFixtures.assembly(new ObjectMapper()));
         List<AgentSpec> specs = loadSpecs();
         factory.validate(specs, ALL_TOOLS);
         Map<String, ToolCallback> callbacks = ALL_TOOLS.stream().collect(Collectors.toMap(
@@ -137,7 +137,7 @@ class KnowledgeCurationGraphRunIT {
         // 这是对“调度 Agent 看不到提交文档而把整理误判为 CHAT”bug 的直接回归保护：asNode(true,false) 之前该断言会失败。
         ScriptedChatModel model = new ScriptedChatModel(List.of(
                 answer("{\"action\":\"CHAT\",\"summary\":\"你好，我在线。\",\"expertCalls\":[]}")));
-        KnowledgeCurationGraphFactory factory = new KnowledgeCurationGraphFactory(new ObjectMapper());
+        KnowledgeCurationGraphFactory factory = new KnowledgeCurationGraphFactory(new ObjectMapper(), ContextAssemblyFixtures.assembly(new ObjectMapper()));
         List<AgentSpec> specs = loadSpecs();
         factory.validate(specs, ALL_TOOLS);
         Map<String, ToolCallback> callbacks = ALL_TOOLS.stream().collect(Collectors.toMap(
@@ -198,7 +198,7 @@ class KnowledgeCurationGraphRunIT {
                 "reviewer", List.of(
                         "{\"verdict\":\"PASS\",\"reviewedDrafts\":[{\"draftId\":19,\"revision\":3}],"
                                 + "\"findings\":[],\"question\":null,\"summary\":\"审查通过\"}")));
-        KnowledgeCurationGraphFactory factory = new KnowledgeCurationGraphFactory(new ObjectMapper());
+        KnowledgeCurationGraphFactory factory = new KnowledgeCurationGraphFactory(new ObjectMapper(), ContextAssemblyFixtures.assembly(new ObjectMapper()));
         List<AgentSpec> specs = loadSpecs();
         factory.validate(specs, ALL_TOOLS);
         Map<String, ToolCallback> callbacks = ALL_TOOLS.stream().collect(Collectors.toMap(
@@ -290,7 +290,7 @@ class KnowledgeCurationGraphRunIT {
                                 + "\"findings\":[" + finding + "],\"question\":null,\"summary\":\"再返工\"}",
                         "{\"verdict\":\"REVISE\",\"reviewedDrafts\":[{\"draftId\":19,\"revision\":5}],"
                                 + "\"findings\":[" + finding + "],\"question\":null,\"summary\":\"达到上限\"}")));
-        KnowledgeCurationGraphFactory factory = new KnowledgeCurationGraphFactory(new ObjectMapper());
+        KnowledgeCurationGraphFactory factory = new KnowledgeCurationGraphFactory(new ObjectMapper(), ContextAssemblyFixtures.assembly(new ObjectMapper()));
         List<AgentSpec> specs = loadSpecs();
         Map<String, ToolCallback> callbacks = ALL_TOOLS.stream().collect(Collectors.toMap(
                 n -> n, KnowledgeCurationGraphRunIT::tool, (a, b) -> a, LinkedHashMap::new));
@@ -354,7 +354,7 @@ class KnowledgeCurationGraphRunIT {
                 "reviewer", List.of(
                         "{\"verdict\":\"PASS\",\"reviewedDrafts\":[{\"draftId\":19,\"revision\":3}],"
                                 + "\"findings\":[],\"question\":null,\"summary\":\"审查通过\"}")));
-        KnowledgeCurationGraphFactory factory = new KnowledgeCurationGraphFactory(new ObjectMapper());
+        KnowledgeCurationGraphFactory factory = new KnowledgeCurationGraphFactory(new ObjectMapper(), ContextAssemblyFixtures.assembly(new ObjectMapper()));
         List<AgentSpec> specs = loadSpecs();
         factory.validate(specs, ALL_TOOLS);
         Map<String, ToolCallback> callbacks = ALL_TOOLS.stream().collect(Collectors.toMap(
@@ -383,23 +383,25 @@ class KnowledgeCurationGraphRunIT {
             resumeConfig = snapshot.config();
         }
 
-        // 每一环 Agent 的模型 prompt 必须带有服务端合成的、带标签的前序结果（而非只有原始 JSON 或只有 goal），
-        // 以便调度 Agent 可靠识别所处阶段、其他 Agent 直接使用已给事实而不再重复检索：
-        // 调度 DECIDE 看到【检索结果】、草稿看到【调度决策·草稿写入要求】、审查看到【草稿结果·本次修订】、调度 FINISH 看到【审查结果】。
+        // 每一环 Agent 的模型 prompt 必须来自准备节点按目的组装的最小语义消息（而非父图消息透传）：
+        // 调度 DECIDE 看到【当前阶段：DECIDE】与已支持事实、草稿看到【写入要求】与事实引用、
+        // 审查看到【审查目标】与事实、调度 FINISH 看到【当前阶段：FINISH】标记。
         List<String> coordinator = model.prompts("coordinator");
         assertThat(coordinator).hasSize(2);
-        assertThat(coordinator.get(0)).contains("【检索结果");
-        assertThat(model.prompts("drafter").get(0)).contains("【调度决策 · 草稿写入要求】");
-        assertThat(model.prompts("reviewer").get(0)).contains("【草稿结果 · 本次修订】");
-        assertThat(coordinator.get(1)).contains("【审查结果】");
+        assertThat(coordinator.get(0)).contains("【当前阶段：DECIDE】");
+        assertThat(coordinator.get(0)).contains("【允许处理的事实与引用】");
+        assertThat(model.prompts("drafter").get(0)).contains("【写入要求】");
+        assertThat(model.prompts("drafter").get(0)).contains("sourceRefs=[EVIDENCE:88]");
+        assertThat(model.prompts("reviewer").get(0)).contains("【审查目标】");
+        assertThat(coordinator.get(1)).contains("【当前阶段：FINISH】");
         // 主 Agent 第二次进入必须收到完整流程完成标记，仅作最终汇报。
         assertThat(model.prompts("main_agent").get(1)).contains("【当前阶段：FULL CURATION 完成】");
-        System.out.printf("测试证据：场景=服务端按阶段合成带标签上下文，coordinator进入=%d，DECIDE含检索标签=%s，草稿含决策标签=%s，审查含草稿标签=%s，FINISH含审查标签=%s，主Agent二次进入=%d%n",
+        System.out.printf("测试证据：场景=准备节点按目的组装上下文，coordinator进入=%d，DECIDE含阶段标记=%s，草稿含写入要求=%s，审查含审查目标=%s，FINISH含阶段标记=%s，主Agent二次进入=%d%n",
                 coordinator.size(),
-                coordinator.get(0).contains("【检索结果"),
-                model.prompts("drafter").get(0).contains("【调度决策 · 草稿写入要求】"),
-                model.prompts("reviewer").get(0).contains("【草稿结果 · 本次修订】"),
-                coordinator.get(1).contains("【审查结果】"), model.prompts("main_agent").size());
+                coordinator.get(0).contains("【当前阶段：DECIDE】"),
+                model.prompts("drafter").get(0).contains("【写入要求】"),
+                model.prompts("reviewer").get(0).contains("【审查目标】"),
+                coordinator.get(1).contains("【当前阶段：FINISH】"), model.prompts("main_agent").size());
     }
 
     @Test
@@ -426,7 +428,7 @@ class KnowledgeCurationGraphRunIT {
                 "retriever", List.of(
                         "{\"issueType\":\"NONE\",\"candidateTargetDocumentId\":710004,"
                                 + "\"facts\":[],\"unresolvedQuestions\":[],\"summary\":\"无缺口\"}")));
-        KnowledgeCurationGraphFactory factory = new KnowledgeCurationGraphFactory(new ObjectMapper());
+        KnowledgeCurationGraphFactory factory = new KnowledgeCurationGraphFactory(new ObjectMapper(), ContextAssemblyFixtures.assembly(new ObjectMapper()));
         List<AgentSpec> specs = loadSpecs();
         factory.validate(specs, ALL_TOOLS);
         Map<String, ToolCallback> callbacks = ALL_TOOLS.stream().collect(Collectors.toMap(

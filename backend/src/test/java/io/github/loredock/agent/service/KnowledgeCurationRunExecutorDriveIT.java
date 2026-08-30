@@ -125,7 +125,7 @@ class KnowledgeCurationRunExecutorDriveIT {
                 modelProvider, properties(), resolver, saver, definitions, new ObjectMapper(),
                 runs, mock(KnowledgeTaskConversationMapper.class), messages, events, taskEvents,
                 mock(KnowledgeToolInvocationService.class), mock(KnowledgeTaskRunProjectionService.class),
-                scheduler, Clock.systemUTC());
+                scheduler, ContextAssemblyFixtures.budget(), Clock.systemUTC());
 
         executor.start(run, "你好", new KnowledgeAgentDefinitionService.LoadedDefinition(
                 new io.github.loredock.agent.api.KnowledgeTaskService.RuntimeDefinition(
@@ -221,7 +221,7 @@ class KnowledgeCurationRunExecutorDriveIT {
                 modelProvider, properties(), resolver, saver, definitions, new ObjectMapper(),
                 runs, mock(KnowledgeTaskConversationMapper.class), messages, events, taskEvents,
                 mock(KnowledgeToolInvocationService.class), mock(KnowledgeTaskRunProjectionService.class),
-                scheduler, Clock.systemUTC());
+                scheduler, ContextAssemblyFixtures.budget(), Clock.systemUTC());
 
         executor.start(run, "请整理背景", new KnowledgeAgentDefinitionService.LoadedDefinition(
                 new io.github.loredock.agent.api.KnowledgeTaskService.RuntimeDefinition(
@@ -319,7 +319,7 @@ class KnowledgeCurationRunExecutorDriveIT {
                 runs, mock(KnowledgeTaskConversationMapper.class), mock(KnowledgeTaskMessageMapper.class),
                 mock(AgentEventService.class), mock(KnowledgeTaskEventService.class),
                 mock(KnowledgeToolInvocationService.class), mock(KnowledgeTaskRunProjectionService.class),
-                scheduler, Clock.systemUTC());
+                scheduler, ContextAssemblyFixtures.budget(), Clock.systemUTC());
 
         executor.resume(run, "将勾选草稿合并为一份稳定的业务知识", "你能看到上轮对话的哪些信息",
                 new KnowledgeAgentDefinitionService.LoadedDefinition(

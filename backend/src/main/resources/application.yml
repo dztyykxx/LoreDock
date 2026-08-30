@@ -128,6 +128,16 @@ loredock:
       max-pool-size: ${LOREDOCK_AGENT_EXECUTOR_MAX_POOL_SIZE:4}
       queue-capacity: ${LOREDOCK_AGENT_EXECUTOR_QUEUE_CAPACITY:16}
       shutdown-await: ${LOREDOCK_AGENT_EXECUTOR_SHUTDOWN_AWAIT:30s}
+    context:
+      max-window-tokens: ${LOREDOCK_AGENT_CONTEXT_MAX_WINDOW_TOKENS:128000}
+      max-input-tokens: ${LOREDOCK_AGENT_CONTEXT_MAX_INPUT_TOKENS:96000}
+      output-reserve-tokens: ${LOREDOCK_AGENT_CONTEXT_OUTPUT_RESERVE_TOKENS:24000}
+      safety-reserve-tokens: ${LOREDOCK_AGENT_CONTEXT_SAFETY_RESERVE_TOKENS:8000}
+      compression-trigger-tokens: ${LOREDOCK_AGENT_CONTEXT_COMPRESSION_TRIGGER_TOKENS:72000}
+      compression-target-tokens: ${LOREDOCK_AGENT_CONTEXT_COMPRESSION_TARGET_TOKENS:64000}
+      max-run-input-tokens: ${LOREDOCK_AGENT_CONTEXT_MAX_RUN_INPUT_TOKENS:512000}
+      max-llm-compression-calls: ${LOREDOCK_AGENT_CONTEXT_MAX_LLM_COMPRESSION_CALLS:1}
+      max-rolling-summary-generations: ${LOREDOCK_AGENT_CONTEXT_MAX_ROLLING_SUMMARY_GENERATIONS:3}
   qa:
     sse:
       heartbeat-interval: ${LOREDOCK_QA_SSE_HEARTBEAT_INTERVAL:15s}

@@ -41,7 +41,6 @@ public class KnowledgeAgentDefinitionService {
 
     private final ToolCallbackProvider toolProvider;
     private final AgentProperties agentProperties;
-    private final KnowledgeCurationGraphFactory graphFactory;
     private AgentSpecSet graphSpecs;
 
     /** @param toolProvider 标准 ToolCallbackProvider 候选集
@@ -54,7 +53,6 @@ public class KnowledgeAgentDefinitionService {
     ) {
         this.toolProvider = toolProvider;
         this.agentProperties = agentProperties;
-        this.graphFactory = new KnowledgeCurationGraphFactory(objectMapper);
     }
 
     /** 启动时加载并校验四份多 Agent 定义；定义缺失、名称不唯一或白名单与设计不一致时启动失败。 */
@@ -68,7 +66,7 @@ public class KnowledgeAgentDefinitionService {
                     .map(value -> value.getToolDefinition().name())
                     .sorted()
                     .toList();
-            graphFactory.validate(specs, available);
+            KnowledgeCurationGraphFactory.validate(specs, available);
             this.graphSpecs = new AgentSpecSet(specs);
         } catch (IllegalArgumentException exception) {
             throw new IllegalStateException("知识整理多 Agent 定义校验失败：" + exception.getMessage(), exception);

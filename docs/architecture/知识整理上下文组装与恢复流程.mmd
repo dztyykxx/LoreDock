@@ -1,0 +1,50 @@
+flowchart LR
+    User["管理员\n新指令 / 追加指导"]:::user
+
+    subgraph Data["业务数据库：全量事实，长期保留"]
+        Messages[("对话\nknowledge_task_message")]
+        Records[("草稿、revision、证据\n运行事件、Tool 对账")]
+    end
+
+    subgraph Resume["每会话仅一份最新稳定 Checkpoint"]
+        Snapshot[("threadId 最新 state\nnextNode / stage / 结构化结果\nsummary + 覆盖 messageId\n恢复与重试信息")]
+    end
+
+    subgraph Assembly["节点入口：Context Assembly"]
+        Select["根据 nextNode + agentNode × purpose\n选择允许的结构化语义块"]:::process
+        Budget["预算与压缩\n确定性裁剪 → 受限 LLM 摘要 → BLOCKED"]:::decision
+        Prepared["PreparedModelContext\n稳定前缀：固定规则 / 范围 / summary / 排序引用\n动态后缀：当前任务 / 指导 / 当前结果"]:::context
+    end
+
+    subgraph Execute["完整整理图：既有业务路由"]
+        Agent["当前 ReactAgent\nMain / Retriever / Coordinator / Drafter / Reviewer"]:::agent
+        Model["每次调用前：预算守卫与日志\nChatModel"]:::model
+        Tools["可选 Tool 循环\n检索 / 草稿读写 / 审查"]:::tool
+        Validated["校验后的结构化结果\n写入对应 state"]:::process
+    end
+
+    subgraph Direct["专家直调（不继承父 state）"]
+        Actual["Main 生成\nAgentTool actualInput"]:::agent
+        Expert["专家子 Agent\n固定 instruction + actualInput"]:::agent
+    end
+
+    User --> Messages
+    User --> Select
+    Snapshot --> Select
+    Messages --> Select
+    Records --> Select
+    Select --> Budget --> Prepared --> Agent --> Model
+    Model -->|需要 Tool| Tools --> Model
+    Model -->|最终输出| Validated
+    Validated --> Snapshot
+    Validated --> Records
+    Validated --> Messages
+    Agent -. "CHAT / DIRECT_*" .-> Actual --> Expert --> Validated
+
+    classDef user fill:#dae8fc,stroke:#6c8ebf,color:#1d3557;
+    classDef process fill:#f5f5f5,stroke:#666666,color:#222222;
+    classDef decision fill:#fff2cc,stroke:#d6b656,color:#7f6000;
+    classDef context fill:#d5e8d4,stroke:#82b366,color:#274e13;
+    classDef agent fill:#e1d5e7,stroke:#9673a6,color:#3b2c4a;
+    classDef tool fill:#ffe6cc,stroke:#d79b00,color:#7f6000;
+    classDef model fill:#f8cecc,stroke:#b85450,color:#7f1d1d;
