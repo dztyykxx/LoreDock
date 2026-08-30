@@ -193,6 +193,18 @@ public class ProjectApplicationService implements ProjectService {
     }
 
     /**
+     * 项目级范围解析：与 {@code resolveScope(identifier, null)} 同语义，只校验项目存在并
+     * 返回启用标记，分支字段为 null。供仅持有项目主键、范围与分支无关的跨模块流程使用
+     * （如项目级长期记忆写入），避免把 null 分支传入
+     * {@link #resolveScope(Long, Long)} 触发分支主键非空校验而误拒。
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public ProjectScope resolveScope(Long projectId) {
+        return scope(requireProject(projectId), null);
+    }
+
+    /**
      * 按外键解析时必须同时验证分支归属，防止代码快照把其他项目的分支主键带入当前范围。
      */
     @Override

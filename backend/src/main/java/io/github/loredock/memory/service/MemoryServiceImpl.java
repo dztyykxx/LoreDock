@@ -335,7 +335,7 @@ public class MemoryServiceImpl implements MemoryService {
     private ProjectScope requireEnabledProject(Long projectId) {
         ProjectScope scope;
         try {
-            scope = projectService.resolveScope(projectId, null);
+            scope = projectService.resolveScope(projectId);
         } catch (RuntimeException exception) {
             throw new MemoryRequestException(
                     MemoryRequestException.Code.MEMORY_PROJECT_INVALID, "项目不存在");

@@ -41,6 +41,15 @@ public final class MemoryTestFixtures {
             }
 
             @Override
+            public ProjectScope resolveScope(Long projectId) {
+                ProjectScope scope = scopes.get(projectId);
+                if (scope == null) {
+                    throw new IllegalArgumentException("项目不存在：" + projectId);
+                }
+                return scope;
+            }
+
+            @Override
             public ProjectScope resolveScope(Long projectId, Long branchId) {
                 ProjectScope scope = scopes.get(projectId);
                 if (scope == null) {
@@ -67,6 +76,15 @@ public final class MemoryTestFixtures {
             @Override
             public ProjectScope resolveScope(String projectIdentifier, String branchName) {
                 throw new UnsupportedOperationException("本测试未使用字符串入口");
+            }
+
+            @Override
+            public ProjectScope resolveScope(Long projectId) {
+                ProjectScope scope = scopes.get(projectId);
+                if (scope == null) {
+                    throw new IllegalArgumentException("项目不存在：" + projectId);
+                }
+                return scope;
             }
 
             @Override

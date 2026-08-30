@@ -23,6 +23,10 @@ import io.github.loredock.memory.mapper.UserMemoryMapper;
 import io.github.loredock.memory.model.entity.UserMemoryEntity;
 import io.github.loredock.memory.testsupport.MemoryTestFixtures;
 import io.github.loredock.persistence.MybatisMapperFactory;
+import io.github.loredock.platform.persistence.AuditMetadataFactory;
+import io.github.loredock.project.mapper.ProjectBranchMapper;
+import io.github.loredock.project.mapper.ProjectSpaceMapper;
+import io.github.loredock.project.service.ProjectApplicationService;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -86,7 +90,8 @@ class MemoryServiceIT {
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .load()
                 .migrate();
-        DriverManagerDataSource dataSource = new DriverManagerDataSource(
+        // 实例字段赋值：后续用真实项目应用服务的用例需要同一数据源（注意不要写局部遮蔽字段）
+        dataSource = new DriverManagerDataSource(
                 POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
         // 项目外键：PROJECT 范围记忆必须指向真实存在的项目空间
         for (long projectId : new long[]{PROJECT_A, PROJECT_B}) {
@@ -431,6 +436,39 @@ class MemoryServiceIT {
         assertThat(mapper.selectCount(Wrappers.<UserMemoryEntity>lambdaQuery()
                 .in(UserMemoryEntity::getTitle, "孤立项目记忆", "停用项目记忆"))).isZero();
         System.out.println("测试证据：场景=人工创建，不存在/已停用项目均拒写且零记录");
+    }
+
+    /**
+     * 业务目的：⑭ 项目级记忆写入必须经真实项目应用服务解析——存在且启用即成功、解析不
+     * 要求携带分支，防止把 null 分支误传进 (项目主键, 分支主键) 重载触发分支非空校验，
+     * 被外层伪装成「项目不存在」使全部项目级写入在生产上失效。
+     * <p>用例刻意使用真实 ProjectApplicationService 而非测试桩：桩实现绕过了分支校验逻辑，
+     * 正是该缺陷昔日漏网的原因。</p>
+     */
+    @Test
+    @Order(13)
+    void projectMemoryWriteSucceedsWithRealProjectApplicationService() {
+        // 测试库已种入项目 101（ENABLED）与真实分支数据：写入经唯一分支无关的范围解析入口
+        ProjectApplicationService realProjects = new ProjectApplicationService(
+                MybatisMapperFactory.create(dataSource, ProjectSpaceMapper.class),
+                MybatisMapperFactory.create(dataSource, ProjectBranchMapper.class),
+                new AuditMetadataFactory(CLOCK, () -> "test"));
+        MemoryWriteJudger scripted = new MemoryWriteJudger(MemoryTestFixtures.single(new ScriptedChatModel("""
+                [{"candidateIndex":0,"verdict":"CREATED","conflictsWith":[],"summary":"项目A规范用语"}]
+                """)), new ObjectMapper());
+        MemoryService writeService = new MemoryServiceImpl(
+                mapper, realProjects, scripted, MemoryTestFixtures.properties(), CLOCK);
+
+        List<MemoryWriteVerdict> verdicts = writeService.acceptWrite(request(
+                PROJECT_A, List.of(new MemoryCandidate("项目A规范用语", "项目A文档一律简称 atlas", MemoryCategory.FORMAT, null))));
+
+        assertThat(verdicts.get(0).outcome()).isEqualTo(MemoryWriteOutcome.CREATED);
+        UserMemoryEntity written = mapper.selectById(verdicts.get(0).memoryId());
+        assertThat(written.getScopeType()).isEqualTo("PROJECT");
+        assertThat(written.getProjectId()).isEqualTo(PROJECT_A);
+        assertThat(written.getProjectIdentifier()).isEqualTo("project-" + PROJECT_A);
+        System.out.println("测试证据：场景=项目级写入经真实项目应用服务，id=" + written.getId()
+                + "，scope=PROJECT，projectId=" + PROJECT_A + "，projectIdentifier=project-" + PROJECT_A);
     }
 
     // ------------------------------------------------------------------ 数据

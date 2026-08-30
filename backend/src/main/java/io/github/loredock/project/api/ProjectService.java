@@ -27,6 +27,18 @@ public interface ProjectService {
     ProjectScope resolveScope(String projectIdentifier, String branchName);
 
     /**
+     * 按数据库主键解析项目范围但不校验分支（分支字段为 null）；与
+     * {@link #resolveScope(String, String)} 分支为空时同语义，用于只需要项目存在与
+     * 启用状态、范围与分支无关的跨模块流程（如项目级长期记忆），
+     * 避免调用方对 {@link #resolveScope(Long, Long)} 传 null 分支触发分支非空校验。
+     *
+     * @param projectId 项目主键
+     * @return 稳定项目范围，branchId/branchName 为 null
+     * @throws RuntimeException 项目不存在或已删除时抛出项目模块稳定业务异常
+     */
+    ProjectScope resolveScope(Long projectId);
+
+    /**
      * 按数据库主键解析管理范围，用于已持有项目与分支外键的跨模块流程。
      *
      * @param projectId 项目主键
