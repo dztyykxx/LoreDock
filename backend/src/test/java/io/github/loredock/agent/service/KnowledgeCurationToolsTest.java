@@ -12,6 +12,8 @@ import io.github.loredock.agent.mapper.KnowledgeTaskMessageMapper;
 import io.github.loredock.agent.mapper.KnowledgeTaskSelectedDraftMapper;
 import io.github.loredock.agent.model.entity.AgentRunEntity;
 import io.github.loredock.agent.model.entity.KnowledgeTaskSelectedDraftEntity;
+import io.github.loredock.agent.model.enums.EvidenceSourceType;
+import io.github.loredock.agent.model.result.AgentEvidence;
 import io.github.loredock.knowledge.api.KnowledgeDraftService;
 import io.github.loredock.knowledge.api.KnowledgeDocumentAccessService;
 import java.time.Instant;
@@ -208,7 +210,7 @@ class KnowledgeCurationToolsTest {
 
         assertThatThrownBy(() -> update.call(input, context))
                 .isInstanceOf(ToolExecutionException.class)
-                .hasRootCauseStartingWith("草稿修订引用了当前 run 或会话之外的来源");
+                .rootCause().hasMessageStartingWith("草稿修订引用了当前 run 或会话之外的来源");
         verifyNoInteractions(drafts);
         System.out.println("测试证据：场景=草稿来源归属，run=61，越界evidence=999，草稿写入=0");
     }

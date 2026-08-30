@@ -12,6 +12,8 @@ import io.github.loredock.agent.model.entity.KnowledgeTaskSelectedDraftEntity;
 import io.github.loredock.knowledge.api.KnowledgeDocumentAccessService;
 import io.github.loredock.knowledge.api.KnowledgeDraftService;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import org.springframework.ai.chat.model.ToolContext;
@@ -237,7 +239,7 @@ public class KnowledgeCurationTools {
      * @param context 服务端运行范围
      * @return 不包含正文的更新回执，保留新分配的稳定区块 ID
      */
-    @Tool(name = "draft_update", description = "基于已读取修订原子应用可直接发布的知识区块；禁止把待确认问题、警告或执行过程写入文档；空草稿首次写入必须用 INSERT_AFTER 且 targetBlockId=null（不要传空字符串）；其他操作逐字复制 draft_read 返回的区块 ID；不支持全文覆盖；回执不含正文，需要正文时调用 draft_read")
+    @Tool(name = "draft_update", description = "基于已读取修订原子应用可直接发布的知识区块；禁止把待确认问题、警告或执行过程写入文档；空草稿首次写入必须用 INSERT_AFTER 且 targetBlockId=null（不要传空字符串）；其他操作逐字复制 draft_read 返回的区块 ID；不支持全文覆盖；回执不含正文，需要正文时调用 draft_read；sourceRefs 中 EVIDENCE 的 sourceId 可为检索结果证据块中的证据行 id（evidenceId=）或该证据对应的知识文档 id（documentId）")
     public DraftWriteResult draftUpdate(
             @ToolParam(description = "草稿 ID") Long draftId,
             @ToolParam(description = "更新所基于的修订号") long baseRevision,
@@ -249,9 +251,9 @@ public class KnowledgeCurationTools {
         ToolScope scope = scope(context);
         List<KnowledgeDraftService.UpdateOperation> safeOperations = operations == null
                 ? List.of() : List.copyOf(operations);
-        validateDraftSources(safeOperations, scope);
+        List<KnowledgeDraftService.UpdateOperation> normalized = validateDraftSources(safeOperations, scope);
         return new DraftWriteResult(draftService().update(new KnowledgeDraftService.UpdateRequest(
-                scope.access(), draftId, baseRevision, idempotencyKey, safeOperations, changeSummary)));
+                scope.access(), draftId, baseRevision, idempotencyKey, normalized, changeSummary)));
     }
 
     /** @return 正文不变且标题已更正、不包含正文的改名回执 */
@@ -269,9 +271,25 @@ public class KnowledgeCurationTools {
                 scope.access(), draftId, baseRevision, idempotencyKey, title, changeSummary)));
     }
 
-    private void validateDraftSources(List<KnowledgeDraftService.UpdateOperation> operations, ToolScope scope) {
-        List<Long> evidenceIds = evidence.findByRunId(scope.runId()).stream()
-                .map(AgentEvidence::id).toList();
+    /**
+     * 校验并规范化修订来源：SELECTED_DRAFT 引用会话勾选草稿的文档 ID，USER_MESSAGE 引用当前会话用户消息 ID；
+     * EVIDENCE 合法值有两种 ID 空间——检索结果证据块展示的证据行 id（evidenceId=）与本轮证据覆盖到的知识文档 id
+     * （documentId，模型从文档读取/草稿读取结果看到的就是它）。文档 id 命中时规范化到对应证据行 id
+     * （同文档多条证据取最小行 id，保证确定性），下游引用抽屉/引用计数仍是证据行 id 语义；
+     * 两个空间都不命中即视为引用当前 run 之外的来源并拒绝（含具体 type:id 便于模型自纠）。
+     *
+     * @return 规范化后的操作列表（EVIDENCE 文档 id 引用替换为证据行 id）
+     */
+    private List<KnowledgeDraftService.UpdateOperation> validateDraftSources(
+            List<KnowledgeDraftService.UpdateOperation> operations, ToolScope scope) {
+        List<AgentEvidence> evidences = evidence.findByRunId(scope.runId());
+        List<Long> evidenceIds = evidences.stream().map(AgentEvidence::id).toList();
+        Map<Long, Long> evidenceRowByDocumentId = new HashMap<>();
+        for (AgentEvidence value : evidences) {
+            if (value.documentId() != null) {
+                evidenceRowByDocumentId.merge(value.documentId(), value.id(), Math::min);
+            }
+        }
         List<Long> userMessageIds = messages.selectList(
                         com.baomidou.mybatisplus.core.toolkit.Wrappers.<KnowledgeTaskMessageEntity>lambdaQuery()
                                 .eq(KnowledgeTaskMessageEntity::getConversationId, scope.conversationId())
@@ -279,16 +297,31 @@ public class KnowledgeCurationTools {
                 .stream().map(KnowledgeTaskMessageEntity::getId).toList();
         List<Long> selectedDocumentIds = selectedDrafts(scope.conversationId()).stream()
                 .map(KnowledgeTaskSelectedDraftEntity::getDocumentId).toList();
-        boolean invalid = operations.stream()
-                .flatMap(operation -> operation.sourceRefs().stream())
-                .anyMatch(source -> switch (source.type()) {
-                    case EVIDENCE -> !evidenceIds.contains(source.sourceId());
-                    case USER_MESSAGE -> !userMessageIds.contains(source.sourceId());
-                    case SELECTED_DRAFT -> !selectedDocumentIds.contains(source.sourceId());
-                });
-        if (invalid) {
-            throw new IllegalArgumentException("草稿修订引用了当前 run 或会话之外的来源");
+        List<KnowledgeDraftService.UpdateOperation> normalized = new ArrayList<>(operations.size());
+        for (KnowledgeDraftService.UpdateOperation operation : operations) {
+            List<KnowledgeDraftService.SourceRef> sourceRefs = new ArrayList<>(operation.sourceRefs().size());
+            for (KnowledgeDraftService.SourceRef source : operation.sourceRefs()) {
+                Long normalizedId = switch (source.type()) {
+                    case EVIDENCE -> {
+                        if (evidenceIds.contains(source.sourceId())) {
+                            yield source.sourceId();
+                        }
+                        // 文档 id 命中时规范化到该文档的证据行 id；未命中则为 null（拒绝）。
+                        yield evidenceRowByDocumentId.get(source.sourceId());
+                    }
+                    case USER_MESSAGE -> userMessageIds.contains(source.sourceId()) ? source.sourceId() : null;
+                    case SELECTED_DRAFT -> selectedDocumentIds.contains(source.sourceId()) ? source.sourceId() : null;
+                };
+                if (normalizedId == null) {
+                    throw new IllegalArgumentException("草稿修订引用了当前 run 或会话之外的来源："
+                            + source.type() + ":" + source.sourceId());
+                }
+                sourceRefs.add(new KnowledgeDraftService.SourceRef(source.type(), normalizedId));
+            }
+            normalized.add(new KnowledgeDraftService.UpdateOperation(
+                    operation.type(), operation.targetBlockId(), operation.markdown(), sourceRefs));
         }
+        return normalized;
     }
 
     /**
