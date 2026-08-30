@@ -353,7 +353,9 @@ public class KnowledgeCurationRunExecutor {
      * </ul>
      *
      * <p>每次运行到 {@code interruptAfter} 边界先检查轮次与 run 状态：到达 {@code turn_finish}（轮次完成）
-     * 立即返回最终回复；否则检查 run 状态（RUNNING 续跑 / PAUSE_REQUESTED 投影等待 / CANCELLED 结束）。</p>
+     * 先确认 run 未被取消再返回最终回复（取消的在途轮次不产出结果）；否则检查 run 状态
+     * （RUNNING 续跑 / PAUSE_REQUESTED 投影等待 / CANCELLED 结束）。取消在单个 Agent 节点内部发生时，
+     * 由 {@code RunMetrics.interceptModel} 在下一次模型调用前兜底中止。</p>
      */
     private DriveResult drive(AgentRunEntity run, CompiledGraph graph, RunMetrics metrics, String goal, String guidance) {
         StateSnapshot base = graph.stateOf(config(run)).orElse(null);
@@ -419,12 +421,16 @@ public class KnowledgeCurationRunExecutor {
             String next = snapshot == null ? null : snapshot.next();
             boolean nextIsEnd = next == null || StateGraph.END.equals(next);
             if (snapshot != null && isTurnFinished(snapshot)) {
+                // 取消在途轮次不得"假装完成"：run 已被取消时即使轮次对象已完成也不产出最终回复，
+                // 让 execute() 的取消分支静默退出且不在会话中留下半截总结。
+                interruptIfCancelled(run);
                 log.info("知识整理轮次在 WAIT_INPUT 完成 conversationId={} runId={} 迭代={} 下一节点={} 阶段={} 草稿轮数={}",
                         run.getKnowledgeTaskConversationId(), run.getId(), rounds - 1, next,
                         stateText(snapshot, "stage"), stateInt(snapshot, "draftRound"));
                 return new DriveResult(finalReply(snapshot), isRecoveryRequired(snapshot));
             }
             if (nextIsEnd) {
+                interruptIfCancelled(run);
                 log.info("知识整理 Graph 到达终态 conversationId={} runId={} 迭代={} 下一节点={} 阶段={}",
                         run.getKnowledgeTaskConversationId(), run.getId(), rounds - 1, next,
                         stateText(snapshot, "stage"));
@@ -468,6 +474,17 @@ public class KnowledgeCurationRunExecutor {
     private static boolean isRecoveryRequired(StateSnapshot snapshot) {
         return snapshot != null && snapshot.state() != null
                 && snapshot.state().data().get("recoveryInfo") != null;
+    }
+
+    /**
+     * @throws IllegalStateException 该 run 已被取消（发生在模型循环/节点内的取消只有在此处与拦截器
+     *         两处能及时兜住；取消后的旧图不得产出最终回复）。
+     */
+    private void interruptIfCancelled(AgentRunEntity run) {
+        AgentRunEntity current = runs.selectById(run.getId());
+        if (current != null && "CANCELLED".equals(current.getStatus())) {
+            throw new IllegalStateException("Agent cancelled");
+        }
     }
 
     /** 驱动结果：可见最终回复 + 是否以重试耗尽恢复说明结束。 */
@@ -781,6 +798,14 @@ public class KnowledgeCurationRunExecutor {
 
         @Override
         public ModelResponse interceptModel(ModelRequest request, ModelCallHandler handler) {
+            // 取消/暂停的图级边界只在节点完成后才会检查，而单个 Agent 节点的失败循环可能长达数十秒；
+            // 每次模型调用前先看 run 状态（主键读取，成本忽略），该 run 已停止时立即中止，
+            // 否则"幽灵执行"会继续请求模型并让工具调用因 status≠RUNNING 全部失败。
+            AgentRunEntity current = runs.selectById(runId);
+            if (current != null && ("CANCELLED".equals(current.getStatus())
+                    || "PAUSE_REQUESTED".equals(current.getStatus()))) {
+                throw new IllegalStateException("Agent cancelled");
+            }
             modelCalls.incrementAndGet();
             return handler.call(request);
         }

@@ -2,10 +2,13 @@ package io.github.loredock.agent.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -149,6 +152,263 @@ class KnowledgeCurationRunExecutorDriveIT {
         assertThat(model.calls()).isEqualTo(1);
         System.out.printf("测试证据：场景=Executor闲聊短路，模型调用=%d，最终回复=%s，阶段事件=AGENT_STAGE%n",
                 model.calls(), "你好，我在线，能看到上轮结论。");
+    }
+
+    /**
+     * 业务目的：run 在模型循环中途被取消后，必须在下一次模型调用前立即停止（不再跑完整轮），
+     * 且不得产出最终回复消息或完成状态；防止取消后的"幽灵执行"继续烧 token 并让该 run 的
+     * 全部工具调用因 status≠RUNNING 而报"知识 Tool 上下文与运行固定范围不一致"。
+     * 取消点：首个模型调用返回后切 CANCELLED，第二次调用不得发生。
+     */
+    @Test
+    void cancelDuringRunStopsBeforeNextModelCallAndNeverPublishesReply() throws Exception {
+        Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .schemas(schema).defaultSchema(schema).locations("classpath:db/migration")
+                .load().migrate();
+        PostgresSaver saver = PostgresSaver.builder().datasource(dataSource())
+                .createOption(CreateOption.CREATE_NONE).build();
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""),
+                KnowledgeTaskConversationEntity.class);
+
+        ScriptedChatModel inner = new ScriptedChatModel(List.of(
+                answer("{\"action\":\"FULL_CURATION\",\"summary\":\"开始整理\",\"expertCalls\":[]}"),
+                answer("{\"issueType\":\"MISSING\",\"candidateTargetDocumentId\":710004,\"facts\":[],"
+                        + "\"unresolvedQuestions\":[],\"summary\":\"检索到事实\"}")));
+        java.util.concurrent.atomic.AtomicReference<String> status =
+                new java.util.concurrent.atomic.AtomicReference<>("RUNNING");
+        ChatModel flippingModel = new ChatModel() {
+            @Override public ChatResponse call(Prompt prompt) {
+                ChatResponse response = inner.call(prompt);
+                status.set("CANCELLED");
+                return response;
+            }
+            @Override public Flux<ChatResponse> stream(Prompt prompt) {
+                ChatResponse response = inner.call(prompt);
+                status.set("CANCELLED");
+                return Flux.just(response);
+            }
+        };
+        ObjectProvider<ChatModel> modelProvider = new ObjectProvider<ChatModel>() {
+            @Override public ChatModel getObject(Object... args) { return flippingModel; }
+            @Override public ChatModel getIfAvailable() { return flippingModel; }
+            @Override public ChatModel getIfUnique() { return flippingModel; }
+            @Override public ChatModel getObject() { return flippingModel; }
+        };
+
+        KnowledgeAgentDefinitionService definitions = mock(KnowledgeAgentDefinitionService.class);
+        when(definitions.graphSpecs()).thenReturn(new KnowledgeCurationGraphFactory.AgentSpecSet(loadSpecs()));
+
+        AgentRunMapper runs = mock(AgentRunMapper.class);
+        AgentRunEntity run = runEntity();
+        when(runs.selectById(run.getId())).thenAnswer(inv -> AgentRunEntity.builder()
+                .id(run.getId()).operatorId("admin").projectIdentifier("atlas")
+                .knowledgeTaskConversationId(100L).taskType("knowledge_curation")
+                .agentName("knowledge-curator").status(status.get())
+                .threadId(run.getThreadId()).acceptedAt(run.getAcceptedAt()).updatedAt(run.getUpdatedAt()).build());
+        when(runs.markKnowledgeRunning(eq(run.getId()), any())).thenReturn(1);
+
+        KnowledgeTaskMessageMapper messages = mock(KnowledgeTaskMessageMapper.class);
+        AgentEventService events = mock(AgentEventService.class);
+        KnowledgeTaskEventService taskEvents = mock(KnowledgeTaskEventService.class);
+
+        Map<String, ToolCallback> callbacks = ALL_TOOLS.stream().collect(Collectors.toMap(
+                n -> n, KnowledgeCurationRunExecutorDriveIT::tool, (a, b) -> a, LinkedHashMap::new));
+        StaticToolCallbackResolver resolver = new StaticToolCallbackResolver(List.copyOf(callbacks.values()));
+
+        BoundedAgentRunScheduler scheduler = mock(BoundedAgentRunScheduler.class);
+        when(scheduler.schedule(eq(run.getId()), any())).thenAnswer(inv -> {
+            ((Runnable) inv.getArgument(1)).run();
+            return true;
+        });
+
+        KnowledgeCurationRunExecutor executor = new KnowledgeCurationRunExecutor(
+                modelProvider, properties(), resolver, saver, definitions, new ObjectMapper(),
+                runs, mock(KnowledgeTaskConversationMapper.class), messages, events, taskEvents,
+                mock(KnowledgeToolInvocationService.class), mock(KnowledgeTaskRunProjectionService.class),
+                scheduler, ContextAssemblyFixtures.budget(), Clock.systemUTC());
+
+        executor.start(run, "开始整理", new KnowledgeAgentDefinitionService.LoadedDefinition(
+                new io.github.loredock.agent.api.KnowledgeTaskService.RuntimeDefinition(
+                        "knowledge-curator", "s", "d", "m", ALL_TOOLS)));
+
+        // 取消发生在第一次模型调用之后：第二次调用不得发生，也不得写入最终回复与完成状态。
+        assertThat(inner.calls()).isEqualTo(1);
+        verify(messages, never()).insert(org.mockito.ArgumentMatchers.any(KnowledgeTaskMessageEntity.class));
+        verify(runs, never()).completeKnowledge(any(), any(), anyInt(), anyInt(), anyInt(), anyLong(), any(), any(), any());
+        System.out.println("测试证据：场景=中途取消中止执行，模型调用=1，最终回复=0，完成状态=0");
+    }
+
+    /**
+     * 业务目的：取消发生在单个 Agent 节点的模型循环中途（检索 Agent 本轮内有工具调用、存在第二次模型调用）时，
+     * 必须在下一次模型调用前立即中止（中断边界只在节点完成后才检查，节点内的后续循环是"幽灵执行"窗口）；
+     * 防止取消后的旧 run 继续向模型发送请求并让该 run 的工具调用因 status≠RUNNING 全部报
+     * "知识 Tool 上下文与运行固定范围不一致"。
+     */
+    @Test
+    void cancelInsideAgentNodeStopsAtNextModelCall() throws Exception {
+        Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .schemas(schema).defaultSchema(schema).locations("classpath:db/migration")
+                .load().migrate();
+        PostgresSaver saver = PostgresSaver.builder().datasource(dataSource())
+                .createOption(CreateOption.CREATE_NONE).build();
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""),
+                KnowledgeTaskConversationEntity.class);
+
+        // 检索 Agent 节点的第一轮模型调用返回工具调用（节点内会接着执行工具并第二次调用模型）；
+        // 取消发生在该工具调用之后，第二次模型调用不得发生。
+        ScriptedChatModel inner = new ScriptedChatModel(List.of(
+                answer("{\"action\":\"FULL_CURATION\",\"summary\":\"开始整理\",\"expertCalls\":[]}"),
+                answerToolCall("knowledge_grep", "{\"value\":\"检索\"}"),
+                answer("{\"issueType\":\"MISSING\",\"candidateTargetDocumentId\":710004,\"facts\":[],"
+                        + "\"unresolvedQuestions\":[],\"summary\":\"检索到事实\"}")));
+        java.util.concurrent.atomic.AtomicReference<String> status =
+                new java.util.concurrent.atomic.AtomicReference<>("RUNNING");
+        ChatModel flippingModel = new ChatModel() {
+            @Override public ChatResponse call(Prompt prompt) {
+                ChatResponse response = inner.call(prompt);
+                if (inner.calls() >= 2) {
+                    status.set("CANCELLED");
+                }
+                return response;
+            }
+            @Override public Flux<ChatResponse> stream(Prompt prompt) {
+                ChatResponse response = inner.call(prompt);
+                if (inner.calls() >= 2) {
+                    status.set("CANCELLED");
+                }
+                return Flux.just(response);
+            }
+        };
+        ObjectProvider<ChatModel> modelProvider = new ObjectProvider<ChatModel>() {
+            @Override public ChatModel getObject(Object... args) { return flippingModel; }
+            @Override public ChatModel getIfAvailable() { return flippingModel; }
+            @Override public ChatModel getIfUnique() { return flippingModel; }
+            @Override public ChatModel getObject() { return flippingModel; }
+        };
+
+        KnowledgeAgentDefinitionService definitions = mock(KnowledgeAgentDefinitionService.class);
+        when(definitions.graphSpecs()).thenReturn(new KnowledgeCurationGraphFactory.AgentSpecSet(loadSpecs()));
+
+        AgentRunMapper runs = mock(AgentRunMapper.class);
+        AgentRunEntity run = runEntity();
+        when(runs.selectById(run.getId())).thenAnswer(inv -> AgentRunEntity.builder()
+                .id(run.getId()).operatorId("admin").projectIdentifier("atlas")
+                .knowledgeTaskConversationId(100L).taskType("knowledge_curation")
+                .agentName("knowledge-curator").status(status.get())
+                .threadId(run.getThreadId()).acceptedAt(run.getAcceptedAt()).updatedAt(run.getUpdatedAt()).build());
+        when(runs.markKnowledgeRunning(eq(run.getId()), any())).thenReturn(1);
+
+        KnowledgeTaskMessageMapper messages = mock(KnowledgeTaskMessageMapper.class);
+        AgentEventService events = mock(AgentEventService.class);
+        KnowledgeTaskEventService taskEvents = mock(KnowledgeTaskEventService.class);
+
+        Map<String, ToolCallback> callbacks = ALL_TOOLS.stream().collect(Collectors.toMap(
+                n -> n, KnowledgeCurationRunExecutorDriveIT::tool, (a, b) -> a, LinkedHashMap::new));
+        StaticToolCallbackResolver resolver = new StaticToolCallbackResolver(List.copyOf(callbacks.values()));
+
+        BoundedAgentRunScheduler scheduler = mock(BoundedAgentRunScheduler.class);
+        when(scheduler.schedule(eq(run.getId()), any())).thenAnswer(inv -> {
+            ((Runnable) inv.getArgument(1)).run();
+            return true;
+        });
+
+        KnowledgeCurationRunExecutor executor = new KnowledgeCurationRunExecutor(
+                modelProvider, properties(), resolver, saver, definitions, new ObjectMapper(),
+                runs, mock(KnowledgeTaskConversationMapper.class), messages, events, taskEvents,
+                mock(KnowledgeToolInvocationService.class), mock(KnowledgeTaskRunProjectionService.class),
+                scheduler, ContextAssemblyFixtures.budget(), Clock.systemUTC());
+
+        executor.start(run, "开始整理", new KnowledgeAgentDefinitionService.LoadedDefinition(
+                new io.github.loredock.agent.api.KnowledgeTaskService.RuntimeDefinition(
+                        "knowledge-curator", "s", "d", "m", ALL_TOOLS)));
+
+        // 取消发生在检索节点第一轮模型调用（工具调用）之后：节点内第二次模型调用不得发生，
+        // 也不得写入最终回复与完成状态。
+        assertThat(inner.calls()).isEqualTo(2);
+        verify(messages, never()).insert(org.mockito.ArgumentMatchers.any(KnowledgeTaskMessageEntity.class));
+        verify(runs, never()).completeKnowledge(any(), any(), anyInt(), anyInt(), anyInt(), anyLong(), any(), any(), any());
+        System.out.println("测试证据：场景=节点内取消立即中止，模型调用=2（第二次被中止），最终回复=0，完成状态=0");
+    }
+
+    /**
+     * 业务目的：run 被取消后，即使图执行仍在推进，也绝不允许把最终回复消息与 COMPLETED 状态落库
+     * （取消只在图边界可见，本轮不再产出任何结果）。防止取消后的旧 run 把半截轮次的总结写进会话。
+     */
+    @Test
+    void cancelDuringRunSuppressesFinalReplyAtBoundary() throws Exception {
+        Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .schemas(schema).defaultSchema(schema).locations("classpath:db/migration")
+                .load().migrate();
+        PostgresSaver saver = PostgresSaver.builder().datasource(dataSource())
+                .createOption(CreateOption.CREATE_NONE).build();
+
+        ScriptedChatModel inner = new ScriptedChatModel(List.of(
+                answer("{\"action\":\"CHAT\",\"summary\":\"你好，我在线，能看到上轮结论。\",\"expertCalls\":[]}")));
+        java.util.concurrent.atomic.AtomicReference<String> status =
+                new java.util.concurrent.atomic.AtomicReference<>("RUNNING");
+        ChatModel flippingModel = new ChatModel() {
+            @Override public ChatResponse call(Prompt prompt) {
+                ChatResponse response = inner.call(prompt);
+                status.set("CANCELLED");
+                return response;
+            }
+            @Override public Flux<ChatResponse> stream(Prompt prompt) {
+                ChatResponse response = inner.call(prompt);
+                status.set("CANCELLED");
+                return Flux.just(response);
+            }
+        };
+        ObjectProvider<ChatModel> modelProvider = new ObjectProvider<ChatModel>() {
+            @Override public ChatModel getObject(Object... args) { return flippingModel; }
+            @Override public ChatModel getIfAvailable() { return flippingModel; }
+            @Override public ChatModel getIfUnique() { return flippingModel; }
+            @Override public ChatModel getObject() { return flippingModel; }
+        };
+
+        KnowledgeAgentDefinitionService definitions = mock(KnowledgeAgentDefinitionService.class);
+        when(definitions.graphSpecs()).thenReturn(new KnowledgeCurationGraphFactory.AgentSpecSet(loadSpecs()));
+
+        AgentRunMapper runs = mock(AgentRunMapper.class);
+        AgentRunEntity run = runEntity();
+        when(runs.selectById(run.getId())).thenAnswer(inv -> AgentRunEntity.builder()
+                .id(run.getId()).operatorId("admin").projectIdentifier("atlas")
+                .knowledgeTaskConversationId(100L).taskType("knowledge_curation")
+                .agentName("knowledge-curator").status(status.get())
+                .threadId(run.getThreadId()).acceptedAt(run.getAcceptedAt()).updatedAt(run.getUpdatedAt()).build());
+        when(runs.markKnowledgeRunning(eq(run.getId()), any())).thenReturn(1);
+
+        KnowledgeTaskMessageMapper messages = mock(KnowledgeTaskMessageMapper.class);
+        AgentEventService events = mock(AgentEventService.class);
+        KnowledgeTaskEventService taskEvents = mock(KnowledgeTaskEventService.class);
+
+        Map<String, ToolCallback> callbacks = ALL_TOOLS.stream().collect(Collectors.toMap(
+                n -> n, KnowledgeCurationRunExecutorDriveIT::tool, (a, b) -> a, LinkedHashMap::new));
+        StaticToolCallbackResolver resolver = new StaticToolCallbackResolver(List.copyOf(callbacks.values()));
+
+        BoundedAgentRunScheduler scheduler = mock(BoundedAgentRunScheduler.class);
+        when(scheduler.schedule(eq(run.getId()), any())).thenAnswer(inv -> {
+            ((Runnable) inv.getArgument(1)).run();
+            return true;
+        });
+
+        KnowledgeCurationRunExecutor executor = new KnowledgeCurationRunExecutor(
+                modelProvider, properties(), resolver, saver, definitions, new ObjectMapper(),
+                runs, mock(KnowledgeTaskConversationMapper.class), messages, events, taskEvents,
+                mock(KnowledgeToolInvocationService.class), mock(KnowledgeTaskRunProjectionService.class),
+                scheduler, ContextAssemblyFixtures.budget(), Clock.systemUTC());
+
+        executor.start(run, "你好", new KnowledgeAgentDefinitionService.LoadedDefinition(
+                new io.github.loredock.agent.api.KnowledgeTaskService.RuntimeDefinition(
+                        "knowledge-curator", "s", "d", "m", ALL_TOOLS)));
+
+        // 轮次已达成但 run 已取消：最终回复与完成状态均不得落库。
+        assertThat(inner.calls()).isEqualTo(1);
+        verify(messages, never()).insert(org.mockito.ArgumentMatchers.any(KnowledgeTaskMessageEntity.class));
+        verify(runs, never()).completeKnowledge(any(), any(), anyInt(), anyInt(), anyInt(), anyLong(), any(), any(), any());
+        System.out.println("测试证据：场景=最终轮次取消抑制回复，模型调用=1，最终回复=0，完成状态=0");
     }
 
     /**
@@ -384,6 +644,14 @@ class KnowledgeCurationRunExecutorDriveIT {
     private static ChatResponse answer(String json) {
         return new ChatResponse(List.of(new Generation(new AssistantMessage(json))),
                 ChatResponseMetadata.builder().build());
+    }
+
+    /** 构造带单个工具调用的模型响应：模拟 Agent 循环内"先调用工具再二次调用模型"的中间轮次。 */
+    private static ChatResponse answerToolCall(String toolName, String argumentsJson) {
+        return new ChatResponse(List.of(new Generation(AssistantMessage.builder()
+                .content("")
+                .toolCalls(List.of(new AssistantMessage.ToolCall("call_a1", "function", toolName, argumentsJson)))
+                .build())), ChatResponseMetadata.builder().build());
     }
 
     /** 构造带 token 用量的流式响应：注入固定 prompt/completion token，用于验证执行器 token 采集与归属。 */
