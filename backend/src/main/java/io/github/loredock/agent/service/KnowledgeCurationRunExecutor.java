@@ -632,13 +632,20 @@ public class KnowledgeCurationRunExecutor {
         if (recovery != null && !recovery.isBlank()) {
             return bounded(recovery, MAX_FINAL_CODE_POINTS);
         }
-        // 与路由条件边共用同一份宽容解析（Map/消息提取 + 重复键 last-wins + 首尾括号截取，见
-        // KnowledgeCurationGraphFactory.tolerantStructured）：主 Agent 最终输出即使带重复键/前后散文
-        // 也必须能取出 summary；单点坏输出不再把 run 打成 AGENT_MODEL_RESPONSE_INVALID，回退协调结果。
+        Object mainRaw = snapshot.state().data().get("mainTurnResult");
+        // 双通道契约（见 main_agent.md）：最终回复优先取消息**正文**（面向管理员的完整回复），
+        // 正文缺失时回退 memo（极短降级摘要）；两者皆缺才继续回退协调结果摘要。
+        // 与路由条件边共用同一份宽容解析（tail 提取 + 重复键 last-wins，见 tolerantStructured），
+        // 坏输出不再把 run 打成 AGENT_MODEL_RESPONSE_INVALID（runId=60 教训）。
+        KnowledgeCurationGraphFactory.SplitMessage split =
+                KnowledgeCurationGraphFactory.splitTailJson(objectMapper, mainRaw);
+        if (split != null && split.hasBody()) {
+            return bounded(split.body(), MAX_FINAL_CODE_POINTS);
+        }
         KnowledgeCurationGraphResult.MainTurnResult main = tryStructured(
-                snapshot.state().data().get("mainTurnResult"), KnowledgeCurationGraphResult.MainTurnResult.class);
-        if (main != null && main.summary() != null && !main.summary().isBlank()) {
-            return bounded(main.summary(), MAX_FINAL_CODE_POINTS);
+                mainRaw, KnowledgeCurationGraphResult.MainTurnResult.class);
+        if (main != null && main.memo() != null && !main.memo().isBlank()) {
+            return bounded(main.memo(), MAX_FINAL_CODE_POINTS);
         }
         KnowledgeCurationGraphResult.CoordinatorResult coordinator = tryStructured(
                 snapshot.state().data().get("coordinationResult"), KnowledgeCurationGraphResult.CoordinatorResult.class);
@@ -755,9 +762,23 @@ public class KnowledgeCurationRunExecutor {
 
     private String projectSummary(String node, String text) {
         try {
+            if (KnowledgeCurationGraphFactory.MAIN_AGENT.equals(node)) {
+                // 双通道契约：主 Agent 公开摘要优先取消息正文（面向管理员的回复，剔除尾部 JSON）；
+                // 正文缺失时回退 memo（极短说明）。两者皆无与解析失败同路径回退全文截断——
+                // 公开投影必须是"降级段"而非失败段（runId=63 教训：投影阶段不允许把 run 打废）。
+                KnowledgeCurationGraphFactory.SplitMessage split =
+                        KnowledgeCurationGraphFactory.splitTailJson(objectMapper, text);
+                if (split != null && split.hasBody()) {
+                    return split.body();
+                }
+                KnowledgeCurationGraphResult.MainTurnResult main = KnowledgeCurationGraphFactory
+                        .tolerantStructured(objectMapper, text, KnowledgeCurationGraphResult.MainTurnResult.class);
+                if (main != null && main.memo() != null && !main.memo().isBlank()) {
+                    return main.memo();
+                }
+                return null;
+            }
             String summary = switch (node) {
-                case KnowledgeCurationGraphFactory.MAIN_AGENT ->
-                        objectMapper.readValue(text, KnowledgeCurationGraphResult.MainTurnResult.class).summary();
                 case KnowledgeCurationGraphFactory.COORDINATOR ->
                         objectMapper.readValue(text, KnowledgeCurationGraphResult.CoordinatorResult.class).summary();
                 case KnowledgeCurationGraphFactory.RETRIEVER ->

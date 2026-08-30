@@ -85,7 +85,7 @@ class KnowledgeCurationContextAssemblyIT {
     void fullRoundUsesMinimalContextsAndReviseBaseline() throws Exception {
         migrate();
         RecordingModel model = new RecordingModel(List.of(
-                answer("{\"action\":\"FULL_CURATION\",\"summary\":\"开始整理\",\"expertCalls\":[]}"),
+                answer("开始整理\n{\"action\":\"FULL_CURATION\",\"expertCalls\":[]}"),
                 answer(retrievalJson()),
                 answer("{\"stage\":\"DECIDE\",\"action\":\"DRAFT\",\"reason\":\"有支持事实\","
                         + "\"draftInstruction\":\"写入背景\",\"question\":null,\"summary\":\"决定起草\"}"),
@@ -101,7 +101,7 @@ class KnowledgeCurationContextAssemblyIT {
                         + "\"findings\":[],\"question\":null,\"summary\":\"审查通过\"}"),
                 answer("{\"stage\":\"FINISH\",\"action\":\"END\",\"reason\":\"完成\","
                         + "\"draftInstruction\":null,\"question\":null,\"summary\":\"已完成整理\"}"),
-                answer("{\"action\":\"TURN_DONE\",\"summary\":\"整理完成。\",\"expertCalls\":[]}")));
+                answer("整理完成。\n{\"action\":\"TURN_DONE\",\"expertCalls\":[]}")));
 
         executor(model, saverWithoutSchema()).start(run(11L, "knowledge-task-conversation-11"),
                 "将勾选草稿合并为知识", definition());
@@ -130,7 +130,7 @@ class KnowledgeCurationContextAssemblyIT {
                 toolCallAnswer("drafter", "{\"input\":\"任务：仅调整错误处理章节；draftId=14；baseRevision=3；decisionIds=[decision-8]\"}"),
                 answer("{\"status\":\"WRITTEN\",\"drafts\":[{\"draftId\":14,\"revision\":4,\"operation\":\"MODIFY\"}],"
                         + "\"question\":null,\"summary\":\"已改标题\"}"),
-                answer("{\"action\":\"TURN_DONE\",\"summary\":\"已修改、未经专家审查。\",\"expertCalls\":[\"drafter\"]}")));
+                answer("已修改、未经专家审查。\n{\"action\":\"TURN_DONE\",\"expertCalls\":[\"drafter\"]}")));
 
         executor(model, saverWithoutSchema()).start(run(12L, "knowledge-task-conversation-12"),
                 "只调整草稿 14 的错误处理章节", definition());
@@ -150,7 +150,7 @@ class KnowledgeCurationContextAssemblyIT {
     void blockedAssemblyMarksRunWaitingWithoutAnyModelCall() throws Exception {
         migrate();
         RecordingModel model = new RecordingModel(List.of(
-                answer("{\"action\":\"CHAT\",\"summary\":\"不应出现\",\"expertCalls\":[]}")));
+                answer("不应出现\n{\"action\":\"CHAT\",\"expertCalls\":[]}")));
         ContextBudget tiny = new ContextBudget(20, 10, 5, 5, 5, 3, 1000, 0, 3);
         AgentRunMapper runs = mock(AgentRunMapper.class);
         KnowledgeTaskMessageMapper messages = mock(KnowledgeTaskMessageMapper.class);
@@ -175,7 +175,7 @@ class KnowledgeCurationContextAssemblyIT {
         migrate();
         ContextBudget budget = new ContextBudget(10000, 2000, 100, 50, 300, 250, 5000, 1, 3);
         RecordingModel model = new RecordingModel(List.of(
-                answer("{\"action\":\"CHAT\",\"summary\":\"已在。\",\"expertCalls\":[]}")));
+                answer("已在。\n{\"action\":\"CHAT\",\"expertCalls\":[]}")));
         CompiledGraph graph = graphWith(new ObjectMapper(), mock(KnowledgeTaskMessageMapper.class),
                 mock(KnowledgeTaskConversationMapper.class), model, budget);
 
@@ -213,7 +213,7 @@ class KnowledgeCurationContextAssemblyIT {
                 answer("{\"summary\":\"前两轮已完成：目标无变化。\","
                         + "\"retainedReferenceIds\":[],\"retainedDecisionIds\":[],"
                         + "\"retainedQuestionIds\":[]}"),
-                answer("{\"action\":\"CHAT\",\"summary\":\"根据会话状态直接回答。\",\"expertCalls\":[]}")));
+                answer("根据会话状态直接回答。\n{\"action\":\"CHAT\",\"expertCalls\":[]}")));
         CompiledGraph graph = graphWith(new ObjectMapper(), messages, conversations, model, budget);
 
         Map<String, Object> initial = new LinkedHashMap<>();

@@ -86,7 +86,7 @@ class KnowledgeCurationGraphRunIT {
                 .createOption(CreateOption.CREATE_NONE).build();
 
         ScriptedChatModel model = new ScriptedChatModel(List.of(
-                answer("{\"action\":\"CHAT\",\"summary\":\"你好，我在线。\",\"expertCalls\":[]}")));
+                answer("你好，我在线。\n{\"action\":\"CHAT\",\"expertCalls\":[]}")));
         KnowledgeCurationGraphFactory factory = new KnowledgeCurationGraphFactory(new ObjectMapper(), ContextAssemblyFixtures.assembly(new ObjectMapper()));
         List<AgentSpec> specs = loadSpecs();
         factory.validate(specs, ALL_TOOLS);
@@ -119,7 +119,7 @@ class KnowledgeCurationGraphRunIT {
         assertThat(data).doesNotContainKeys("retrievalResult", "draftResult", "reviewResult");
         assertThat(mainTurn).isInstanceOf(AssistantMessage.class);
         String text = ((AssistantMessage) mainTurn).getText();
-        assertThat(text).contains("\"action\":\"CHAT\"").contains("\"summary\":\"你好，我在线。\"");
+        assertThat(text).contains("你好，我在线。").contains("\"action\":\"CHAT\"");
         System.out.printf("测试证据：场景=普通闲聊短路，模型调用=%d，专家结果键=0，最终回复=%s%n",
                 model.calls(), "你好，我在线。");
     }
@@ -137,7 +137,7 @@ class KnowledgeCurationGraphRunIT {
         // 目标/goal 作为用户消息注入 messages；脚本化模型捕获真实 prompt，验证调度 Agent 能看到“提交的文档/目标”。
         // 这是对“调度 Agent 看不到提交文档而把整理误判为 CHAT”bug 的直接回归保护：asNode(true,false) 之前该断言会失败。
         ScriptedChatModel model = new ScriptedChatModel(List.of(
-                answer("{\"action\":\"CHAT\",\"summary\":\"你好，我在线。\",\"expertCalls\":[]}")));
+                answer("你好，我在线。\n{\"action\":\"CHAT\",\"expertCalls\":[]}")));
         KnowledgeCurationGraphFactory factory = new KnowledgeCurationGraphFactory(new ObjectMapper(), ContextAssemblyFixtures.assembly(new ObjectMapper()));
         List<AgentSpec> specs = loadSpecs();
         factory.validate(specs, ALL_TOOLS);
@@ -181,8 +181,8 @@ class KnowledgeCurationGraphRunIT {
         AgentAwareChatModel model = new AgentAwareChatModel(Map.of(
                 // 会话级主 Agent：首次进入发起完整整理，完整流程结束后汇总 TURN_DONE（阶段 2 入口）。
                 "main_agent", List.of(
-                        "{\"action\":\"FULL_CURATION\",\"summary\":\"开始整理\",\"expertCalls\":[]}",
-                        "{\"action\":\"TURN_DONE\",\"summary\":\"已完成整理\",\"expertCalls\":[]}"),
+                        "开始整理。\n{\"action\":\"FULL_CURATION\",\"expertCalls\":[]}",
+                        "已完成整理。\n{\"action\":\"TURN_DONE\",\"expertCalls\":[]}"),
                 "coordinator", List.of(
                         "{\"stage\":\"DECIDE\",\"action\":\"DRAFT\",\"reason\":\"有支持事实\","
                                 + "\"draftInstruction\":\"写入背景\",\"question\":null,\"summary\":\"决定起草\"}",
@@ -266,8 +266,8 @@ class KnowledgeCurationGraphRunIT {
         AgentAwareChatModel model = new AgentAwareChatModel(Map.of(
                 // 会话级主 Agent：首次进入发起完整整理，完整流程结束后汇总 TURN_DONE（阶段 2 入口）。
                 "main_agent", List.of(
-                        "{\"action\":\"FULL_CURATION\",\"summary\":\"开始整理\",\"expertCalls\":[]}",
-                        "{\"action\":\"TURN_DONE\",\"summary\":\"已完成整理\",\"expertCalls\":[]}"),
+                        "开始整理。\n{\"action\":\"FULL_CURATION\",\"expertCalls\":[]}",
+                        "已完成整理。\n{\"action\":\"TURN_DONE\",\"expertCalls\":[]}"),
                 "coordinator", List.of(
                         "{\"stage\":\"DECIDE\",\"action\":\"DRAFT\",\"reason\":\"有支持事实\","
                                 + "\"draftInstruction\":\"写入背景\",\"question\":null,\"summary\":\"决定起草\"}",
@@ -337,8 +337,8 @@ class KnowledgeCurationGraphRunIT {
         AgentAwareChatModel model = new AgentAwareChatModel(Map.of(
                 // 会话级主 Agent：首次进入发起完整整理，完整流程结束后汇总 TURN_DONE（阶段 2 入口）。
                 "main_agent", List.of(
-                        "{\"action\":\"FULL_CURATION\",\"summary\":\"开始整理\",\"expertCalls\":[]}",
-                        "{\"action\":\"TURN_DONE\",\"summary\":\"已完成整理\",\"expertCalls\":[]}"),
+                        "开始整理。\n{\"action\":\"FULL_CURATION\",\"expertCalls\":[]}",
+                        "已完成整理。\n{\"action\":\"TURN_DONE\",\"expertCalls\":[]}"),
                 "coordinator", List.of(
                         "{\"stage\":\"DECIDE\",\"action\":\"DRAFT\",\"reason\":\"有支持事实\","
                                 + "\"draftInstruction\":\"写入背景\",\"question\":null,\"summary\":\"决定起草\"}",
@@ -419,8 +419,8 @@ class KnowledgeCurationGraphRunIT {
         AgentAwareChatModel model = new AgentAwareChatModel(Map.of(
                 // 会话级主 Agent：首次进入发起完整整理，完整流程结束后汇总 TURN_DONE（阶段 2 入口）。
                 "main_agent", List.of(
-                        "{\"action\":\"FULL_CURATION\",\"summary\":\"开始整理\",\"expertCalls\":[]}",
-                        "{\"action\":\"TURN_DONE\",\"summary\":\"已完成整理\",\"expertCalls\":[]}"),
+                        "开始整理。\n{\"action\":\"FULL_CURATION\",\"expertCalls\":[]}",
+                        "已完成整理。\n{\"action\":\"TURN_DONE\",\"expertCalls\":[]}"),
                 "coordinator", List.of(
                         "{\"stage\":\"DECIDE\",\"action\":\"NO_CHANGE\",\"reason\":\"已覆盖\","
                                 + "\"draftInstruction\":null,\"question\":null,\"summary\":\"无需修改\"}",

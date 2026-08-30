@@ -90,15 +90,40 @@ public final class KnowledgeCurationGraphResult {
         FULL_CURATION
     }
 
-    /** 主 Agent（会话级调度者）的结构化输出。 */
+    /**
+     * 主 Agent（会话级调度者）的结构化输出：只承载路由与调用元数据（双通道设计）。
+     *
+     * <p>面向管理员的完整回复走消息可见正文（正文 + 尾部 JSON 尾缀，见 main_agent.md 输出契约）；
+     * 本 record 不得承载长文本——{@code memo} 是可空极短说明（超过 100 码点防御式截断），
+     * 仅供系统在正文缺失时作为公开投影的降级摘要，不是可展示回复。
+     *
+     * <p>截断是信息丢失（runId=68 实测：模型把完整回复塞进 memo，页面只看到 100 码点半句），
+     * 因此 {@link #memoHitLimit(String)} 暴露触顶信号，让路由校验识别「模型未遵守双通道」的违规形态并回炉重写。
+     */
     public record MainTurnResult(
             MainAction action,
-            String summary,
+            String memo,
             List<String> expertCalls
     ) {
+        /** memo 的防御式上限：契约要求不超过 100 字；超长截断而非拒绝（投影字段的格式防御不阻塞 run）。 */
+        public static final int MEMO_MAX_CODE_POINTS = 100;
+
         public MainTurnResult {
             action = action == null ? MainAction.CHAT : action;
             expertCalls = expertCalls == null ? List.of() : List.copyOf(expertCalls);
+            if (memo != null && memo.codePointCount(0, memo.length()) > MEMO_MAX_CODE_POINTS) {
+                memo = memo.substring(0, memo.offsetByCodePoints(0, MEMO_MAX_CODE_POINTS));
+            }
+        }
+
+        /**
+         * memo 是否触顶（被截断到上限）。
+         *
+         * <p>合法的 memo 是「极短摘要」——生产输出几乎不会逼近 100 码点；达到上限说明模型把完整回复
+         * 误放进了结构化字段（正文缺失 + 长 memo 的违规形态），由路由校验决定进入修复回路。</p>
+         */
+        public static boolean memoHitLimit(String memo) {
+            return memo != null && memo.codePointCount(0, memo.length()) >= MEMO_MAX_CODE_POINTS;
         }
     }
 

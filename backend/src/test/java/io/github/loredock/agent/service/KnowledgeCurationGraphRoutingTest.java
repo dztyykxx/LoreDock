@@ -11,6 +11,11 @@ import org.junit.jupiter.api.Test;
 /** 验证知识整理 Graph 条件边的安全路由：校验失败进入修复回路（fix_{agent}）而非逃逸异常，以及返工上限（设计 §7/§9/§11.2）。 */
 class KnowledgeCurationGraphRoutingTest {
 
+    /** runId=68 生产实测的违规 memo：模型把完整回复写进 memo，长度超过 100 码点（防御截断后恰好触顶）。 */
+    private static final String runId68LongMemo =
+            "你好！当前知识整理会话仍处于待你确认阶段：合并基线 draftRef 19 revision 1 已写入工作区但未正式发布，"
+                    + "A–H 待人工判断项均在等待你逐项表态。你可以直接告诉我你的决定（或只对拿不定主意的项表态）。";
+
     private final KnowledgeCurationGraphFactory factory = new KnowledgeCurationGraphFactory(new ObjectMapper(), ContextAssemblyFixtures.assembly(new ObjectMapper()));
 
     private OverAllState state(Map<String, Object> data) {
@@ -123,5 +128,44 @@ class KnowledgeCurationGraphRoutingTest {
                 "retrievalResult", retrieval)));
         assertThat(route).isEqualTo("DRAFT");
         System.out.println("测试证据：场景=模型输出重复键，重复候选文档字段仍可解析并正常路由");
+    }
+
+    /**
+     * 业务目的：双通道契约下主 Agent 的 CHAT/TURN_DONE 必须携带可见回复（正文非空）或 memo 回退；
+     * 两者皆缺、或输出不含尾部 JSON（提取器判定内容不完整）时必须进入修复回路（fix_main_agent），
+     * 防止结束本轮却没有给管理员任何可回应的实质内容（D3 校验改造 + spec 双通道场景）。
+     */
+    @Test
+    void mainChatAndTurnDoneRequireVisibleReplyPerDualChannel() {
+        // 合法：正文 + 尾部 JSON 尾缀（双通道标准形态）。
+        assertThat(factory.mainRoute(state(Map.of(
+                "mainTurnResult", "你好，我在线。\n{\"action\":\"CHAT\",\"expertCalls\":[]}"))))
+                .isEqualTo("CHAT");
+        // 合法：正文缺失但尾缀含 memo → 允许以极短降级摘要结束本轮。
+        assertThat(factory.mainRoute(state(Map.of(
+                "mainTurnResult", "{\"action\":\"TURN_DONE\",\"expertCalls\":[],\"memo\":\"已整理的极短摘要\"}"))))
+                .isEqualTo("TURN_DONE");
+        // 非法：正文与 memo 双双缺失 → 进入修复回路（无可见回复）。
+        assertThat(factory.mainRoute(state(Map.of(
+                "mainTurnResult", "{\"action\":\"CHAT\",\"expertCalls\":[]}"))))
+                .isEqualTo("fix_main_agent");
+        // 非法：memo 为空白等同于缺失。
+        assertThat(factory.mainRoute(state(Map.of(
+                "mainTurnResult", "{\"action\":\"CHAT\",\"expertCalls\":[],\"memo\":\"   \"}"))))
+                .isEqualTo("fix_main_agent");
+        // 非法：只有正文没有尾部 JSON（无法解析出 action）→ 结构化输出校验不过，进入修复回路。
+        assertThat(factory.mainRoute(state(Map.of(
+                "mainTurnResult", "你好，我在线。"))))
+                .isEqualTo("fix_main_agent");
+        // 非法：正文缺失且 memo 达到上限（runId=68 实测：模型把完整回复塞进 memo，被 100 码点防御截断成半句）。
+        // memo 触顶是「模型未遵守双通道、把回复写进结构化字段」的强信号，必须回炉重写正文而非展示半句。
+        assertThat(factory.mainRoute(state(Map.of(
+                "mainTurnResult", "{\"action\":\"CHAT\",\"expertCalls\":[],\"memo\":\"" + runId68LongMemo + "\"}"))))
+                .isEqualTo("fix_main_agent");
+        // 合法边界：正文缺失但 memo 未触顶（真正的极短摘要）→ 仍按降级语义放行。
+        assertThat(factory.mainRoute(state(Map.of(
+                "mainTurnResult", "{\"action\":\"CHAT\",\"expertCalls\":[],\"memo\":\"请查看上轮结论。\"}"))))
+                .isEqualTo("CHAT");
+        System.out.println("测试证据：场景=主Agent双通道可见回复校验，正文/memo 有其一可结束，两者皆缺或JSON缺失=修复回路");
     }
 }

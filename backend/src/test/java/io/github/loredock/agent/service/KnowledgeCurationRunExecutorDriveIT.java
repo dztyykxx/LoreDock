@@ -104,7 +104,7 @@ class KnowledgeCurationRunExecutorDriveIT {
                 .createOption(CreateOption.CREATE_NONE).build();
 
         ScriptedChatModel model = new ScriptedChatModel(List.of(
-                answer("{\"action\":\"CHAT\",\"summary\":\"你好，我在线，能看到上轮结论。\",\"expertCalls\":[]}")));
+                answer("你好，我在线，能看到上轮结论。\n{\"action\":\"CHAT\",\"expertCalls\":[]}")));
         ObjectProvider<ChatModel> modelProvider = new ObjectProvider<ChatModel>() {
             @Override public ChatModel getObject(Object... args) { return model; }
             @Override public ChatModel getIfAvailable() { return model; }
@@ -183,7 +183,7 @@ class KnowledgeCurationRunExecutorDriveIT {
                 KnowledgeTaskConversationEntity.class);
 
         ScriptedChatModel inner = new ScriptedChatModel(List.of(
-                answer("{\"action\":\"FULL_CURATION\",\"summary\":\"开始整理\",\"expertCalls\":[]}"),
+                answer("开始整理。\n{\"action\":\"FULL_CURATION\",\"expertCalls\":[]}"),
                 answer("{\"issueType\":\"MISSING\",\"candidateTargetDocumentId\":710004,\"facts\":[],"
                         + "\"unresolvedQuestions\":[],\"summary\":\"检索到事实\"}")));
         java.util.concurrent.atomic.AtomicReference<String> status =
@@ -271,7 +271,7 @@ class KnowledgeCurationRunExecutorDriveIT {
         // 检索 Agent 节点的第一轮模型调用返回工具调用（节点内会接着执行工具并第二次调用模型）；
         // 取消发生在该工具调用之后，第二次模型调用不得发生。
         ScriptedChatModel inner = new ScriptedChatModel(List.of(
-                answer("{\"action\":\"FULL_CURATION\",\"summary\":\"开始整理\",\"expertCalls\":[]}"),
+                answer("开始整理。\n{\"action\":\"FULL_CURATION\",\"expertCalls\":[]}"),
                 answerToolCall("knowledge_grep", "{\"value\":\"检索\"}"),
                 answer("{\"issueType\":\"MISSING\",\"candidateTargetDocumentId\":710004,\"facts\":[],"
                         + "\"unresolvedQuestions\":[],\"summary\":\"检索到事实\"}")));
@@ -346,12 +346,13 @@ class KnowledgeCurationRunExecutorDriveIT {
     }
 
     /**
-     * 业务目的：主 Agent 最终输出包含重复 JSON 键与 JSON 后的附加散文（真实模型缺陷）时，
-     * 最终回复解析必须与路由条件边共用同一容错（JsonNode 层 last-wins + 首尾括号截取），
-     * 不能出现"路由能过、最终回复解析失败"把整个 run 打成 AGENT_MODEL_RESPONSE_INVALID 的分叉。
+     * 业务目的：主 Agent 输出「JSON 后还跟散文」（真实模型缺陷，run 60 的形态）时，双通道契约下
+     * JSON 必须是消息最后的内容，系统必须把该输出判为无结构尾缀并进入修复回路（不能再像旧规则
+     * "首尾括号截取"那样容忍）；修复指导后的第二次输出（正文 + 尾部 JSON、仍带重复键）必须被
+     * 重复键 last-wins 容错吸收并完成 run——两者共同防止"路由能过、最终回复解析失败"分叉重现。
      */
     @Test
-    void duplicateKeyAndTrailingProseInFinalReplyStillCompletes() throws Exception {
+    void malformedTailProseGoesThroughRepairAndDuplicateKeyLastWinsCompletes() throws Exception {
         Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .schemas(schema).defaultSchema(schema).locations("classpath:db/migration")
@@ -360,8 +361,10 @@ class KnowledgeCurationRunExecutorDriveIT {
                 .createOption(CreateOption.CREATE_NONE).build();
 
         ScriptedChatModel model = new ScriptedChatModel(List.of(
-                answer("{\"action\":\"CHAT\",\"summary\":\"你好，我在线。\",\"expertCalls\":[],"
-                        + "\"action\":\"CHAT\"} Let me correct that - duplicate key")));
+                // 第一次：JSON 后接散文（模型违约形态），不得被当作有效结构，走修复回路。
+                answer("{\"action\":\"CHAT\",\"expertCalls\":[],\"action\":\"CHAT\"} Let me correct that"),
+                // 第二次：修复指导后输出正文 + 尾部 JSON（JSON 内仍保留重复键，验证 last-wins 容错）。
+                answer("你好，我在线。\n{\"action\":\"CHAT\",\"expertCalls\":[],\"action\":\"CHAT\"}")));
         ObjectProvider<ChatModel> modelProvider = new ObjectProvider<ChatModel>() {
             @Override public ChatModel getObject(Object... args) { return model; }
             @Override public ChatModel getIfAvailable() { return model; }
@@ -402,13 +405,87 @@ class KnowledgeCurationRunExecutorDriveIT {
                 new io.github.loredock.agent.api.KnowledgeTaskService.RuntimeDefinition(
                         "knowledge-curator", "s", "d", "m", ALL_TOOLS)));
 
-        // 重复键 + 尾随散文的最终输出仍应完成 run 并以 summary 作为最终回复。
+        // 修复回路 → 第二次输出（正文 + 带重复键的尾部 JSON）完成 run：最终回复来自消息正文。
         verify(runs).completeKnowledge(eq(run.getId()), eq("你好，我在线。"), any(int.class), any(int.class),
                 any(int.class), any(long.class), isNull(), isNull(), any(Instant.class));
         verify(messages).insert(org.mockito.ArgumentMatchers.<KnowledgeTaskMessageEntity>argThat(message ->
                 message.getRole().equals("COORDINATOR_AGENT")
                         && message.getContent().equals("你好，我在线。")));
-        System.out.println("测试证据：场景=最终回复重复键+尾随散文容错，解析=last-wins+括号截取，最终回复=你好，我在线。");
+        System.out.println("测试证据：场景=JSON后散文入修复回路+重复键last-wins，模型调用=2，最终回复=你好，我在线。");
+    }
+
+    /**
+     * 业务目的：主 Agent 正文缺失、把完整回复写进 memo 并触发 100 码点防御截断（runId=68 实测半句形态）时，
+     * mainRoute 应把这种「模型未遵守双通道」的违规输出送入修复回路；修复指导后模型把完整回复写到正文，
+     * 最终回复必须是完整正文而不是截断的半句——防止"话没说完"被当作正常降级展示给管理员。
+     */
+    @Test
+    void mainReplyLongMemoRequiresRepairThenRewritesBody() throws Exception {
+        Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .schemas(schema).defaultSchema(schema).locations("classpath:db/migration")
+                .load().migrate();
+        PostgresSaver saver = PostgresSaver.builder().datasource(dataSource())
+                .createOption(CreateOption.CREATE_NONE).build();
+
+        String longMemo = "你好！当前知识整理会话仍处于待你确认阶段：合并基线 draftRef 19 revision 1 已写入工作区但未正式发布，"
+                + "A–H 待人工判断项均在等待你逐项表态。你可以直接告诉我你的决定（或只对拿不定主意的项表态）。";
+        String fullBody = "你好！当前知识整理会话仍处于待你确认阶段：合并基线 draftRef 19 revision 1 已写入工作区但未正式发布，"
+                + "A–H 待人工判断项均在等待你逐项表态。你可以直接告诉我你的决定（或只对拿不定主意的项表态）；"
+                + "也可以一次只回复一项，我逐条核对。";
+        ScriptedChatModel model = new ScriptedChatModel(List.of(
+                // 第一次：正文缺失、长回复全写进 memo（runId=68 形态）→ 触顶判违规，走修复回路。
+                answer("{\"action\":\"CHAT\",\"expertCalls\":[],\"memo\":\"" + longMemo + "\"}"),
+                // 第二次：修复指导后完整回复写进正文（memo 留空），正常完成。
+                answer(fullBody + "\n{\"action\":\"CHAT\",\"expertCalls\":[]}")));
+        ObjectProvider<ChatModel> modelProvider = new ObjectProvider<ChatModel>() {
+            @Override public ChatModel getObject(Object... args) { return model; }
+            @Override public ChatModel getIfAvailable() { return model; }
+            @Override public ChatModel getIfUnique() { return model; }
+            @Override public ChatModel getObject() { return model; }
+        };
+
+        KnowledgeAgentDefinitionService definitions = mock(KnowledgeAgentDefinitionService.class);
+        when(definitions.graphSpecs()).thenReturn(new KnowledgeCurationGraphFactory.AgentSpecSet(loadSpecs()));
+
+        AgentRunMapper runs = mock(AgentRunMapper.class);
+        AgentRunEntity run = runEntity();
+        when(runs.selectById(run.getId())).thenReturn(run);
+        when(runs.markKnowledgeRunning(eq(run.getId()), any())).thenReturn(1);
+
+        KnowledgeTaskMessageMapper messages = mock(KnowledgeTaskMessageMapper.class);
+        AgentEventService events = mock(AgentEventService.class);
+        KnowledgeTaskEventService taskEvents = mock(KnowledgeTaskEventService.class);
+
+        Map<String, ToolCallback> callbacks = ALL_TOOLS.stream().collect(Collectors.toMap(
+                n -> n, KnowledgeCurationRunExecutorDriveIT::tool, (a, b) -> a, LinkedHashMap::new));
+        StaticToolCallbackResolver resolver = new StaticToolCallbackResolver(List.copyOf(callbacks.values()));
+
+        BoundedAgentRunScheduler scheduler = mock(BoundedAgentRunScheduler.class);
+        when(scheduler.schedule(eq(run.getId()), any())).thenAnswer(inv -> {
+            ((Runnable) inv.getArgument(1)).run();
+            return true;
+        });
+
+        KnowledgeCurationRunExecutor executor = new KnowledgeCurationRunExecutor(
+                modelProvider, properties(), resolver, saver, definitions, new ObjectMapper(),
+                runs, mock(KnowledgeTaskConversationMapper.class), messages, events, taskEvents,
+                mock(KnowledgeToolInvocationService.class), mock(KnowledgeTaskRunProjectionService.class),
+                scheduler, ContextAssemblyFixtures.budget(), Clock.systemUTC(),
+                noMemorySupply());
+
+        executor.start(run, "你好", new KnowledgeAgentDefinitionService.LoadedDefinition(
+                new io.github.loredock.agent.api.KnowledgeTaskService.RuntimeDefinition(
+                        "knowledge-curator", "s", "d", "m", ALL_TOOLS)));
+
+        // 修复回路 → 第二次输出（完整正文 + 尾部 JSON）完成 run：最终回复来自完整正文，而不是 100 码点半句。
+        assertThat(model.calls()).isEqualTo(2);
+        verify(runs).completeKnowledge(eq(run.getId()), eq(fullBody), any(int.class), any(int.class),
+                any(int.class), any(long.class), isNull(), isNull(), any(Instant.class));
+        verify(messages).insert(org.mockito.ArgumentMatchers.<KnowledgeTaskMessageEntity>argThat(message ->
+                message.getRole().equals("COORDINATOR_AGENT")
+                        && message.getContent().equals(fullBody)));
+        System.out.println("测试证据：场景=长memo入修复回路+正文重写，模型调用=2，最终回复=完整正文（非100码点半句）");
     }
 
     /**
@@ -425,7 +502,7 @@ class KnowledgeCurationRunExecutorDriveIT {
                 .createOption(CreateOption.CREATE_NONE).build();
 
         ScriptedChatModel inner = new ScriptedChatModel(List.of(
-                answer("{\"action\":\"CHAT\",\"summary\":\"你好，我在线，能看到上轮结论。\",\"expertCalls\":[]}")));
+                answer("你好，我在线，能看到上轮结论。\n{\"action\":\"CHAT\",\"expertCalls\":[]}")));
         java.util.concurrent.atomic.AtomicReference<String> status =
                 new java.util.concurrent.atomic.AtomicReference<>("RUNNING");
         ChatModel flippingModel = new ChatModel() {
@@ -514,7 +591,7 @@ class KnowledgeCurationRunExecutorDriveIT {
         // coordinator FINISH→END, 主 Agent TURN_DONE 汇总。
         // 每次调用灌注独立的 prompt/completion token，便于核对逐 Agent 归属与 run 级加和。
         ScriptedChatModel model = new ScriptedChatModel(List.of(
-                answer("{\"action\":\"FULL_CURATION\",\"summary\":\"开始整理\",\"expertCalls\":[]}", 100, 10),
+                answer("开始整理。\n{\"action\":\"FULL_CURATION\",\"expertCalls\":[]}", 100, 10),
                 answer("{\"issueType\":\"MISSING\",\"candidateTargetDocumentId\":710004,"
                         + "\"facts\":[{\"statement\":\"新增背景\",\"support\":\"SUPPORTED\","
                         + "\"sourceRefs\":[{\"type\":\"EVIDENCE\",\"id\":88}]}],"
@@ -527,7 +604,7 @@ class KnowledgeCurationRunExecutorDriveIT {
                         + "\"findings\":[],\"question\":null,\"summary\":\"审查通过\"}", 500, 50),
                 answer("{\"stage\":\"FINISH\",\"action\":\"END\",\"reason\":\"完成\","
                         + "\"draftInstruction\":null,\"question\":null,\"summary\":\"已完成整理\"}", 600, 60),
-                answer("{\"action\":\"TURN_DONE\",\"summary\":\"已完成整理\",\"expertCalls\":[]}", 700, 70)));
+                answer("已完成整理\n{\"action\":\"TURN_DONE\",\"expertCalls\":[]}", 700, 70)));
         ObjectProvider<ChatModel> modelProvider = new ObjectProvider<ChatModel>() {
             @Override public ChatModel getObject(Object... args) { return model; }
             @Override public ChatModel getIfAvailable() { return model; }
@@ -636,7 +713,7 @@ class KnowledgeCurationRunExecutorDriveIT {
 
         // 完整路径脚本（与 token 统计用例同序），唯一差异：retriever 结果省略 summary 字段。
         ScriptedChatModel model = new ScriptedChatModel(List.of(
-                answer("{\"action\":\"FULL_CURATION\",\"summary\":\"开始整理\",\"expertCalls\":[]}"),
+                answer("开始整理。\n{\"action\":\"FULL_CURATION\",\"expertCalls\":[]}"),
                 answer("{\"issueType\":\"MISSING\",\"candidateTargetDocumentId\":710004,"
                         + "\"facts\":[{\"statement\":\"新增背景\",\"support\":\"SUPPORTED\","
                         + "\"sourceRefs\":[{\"type\":\"EVIDENCE\",\"id\":88}]}],"
@@ -649,7 +726,7 @@ class KnowledgeCurationRunExecutorDriveIT {
                         + "\"findings\":[],\"question\":null,\"summary\":\"审查通过\"}"),
                 answer("{\"stage\":\"FINISH\",\"action\":\"END\",\"reason\":\"完成\","
                         + "\"draftInstruction\":null,\"question\":null,\"summary\":\"已完成整理\"}"),
-                answer("{\"action\":\"TURN_DONE\",\"summary\":\"已完成整理\",\"expertCalls\":[]}")));
+                answer("已完成整理\n{\"action\":\"TURN_DONE\",\"expertCalls\":[]}")));
         ObjectProvider<ChatModel> modelProvider = new ObjectProvider<ChatModel>() {
             @Override public ChatModel getObject(Object... args) { return model; }
             @Override public ChatModel getIfAvailable() { return model; }
@@ -706,6 +783,145 @@ class KnowledgeCurationRunExecutorDriveIT {
     }
 
     /**
+     * 业务目的：双通道契约下主 Agent 的回复正文可以随意包含花括号与 JSON 示例文本，系统必须只提取
+     * 消息**尾部**的 JSON 尾缀作为路由依据，正文里的示例不得被误判为结构化输出（旧的"首尾括号截取"
+     * 会把正文示例当成结构化 JSON）。进一步验证最终回复与 AGENT_STAGE 公开投影都来自正文（不含尾缀）。
+     * 防止：正文含 { } 或 JSON 示例时路由进修复回路、回复被截断成 JSON 片段。
+     */
+    @Test
+    void mainReplyBodyWithBracesAndJsonExampleStillUsesTailSuffix() throws Exception {
+        Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .schemas(schema).defaultSchema(schema).locations("classpath:db/migration")
+                .load().migrate();
+        PostgresSaver saver = PostgresSaver.builder().datasource(dataSource())
+                .createOption(CreateOption.CREATE_NONE).build();
+
+        String body = "参考示例 {\"issueType\":\"MISSING\"}；另一个 JSON：{\"a\":1}。好的，我来处理。\n"
+                + "结论：目录已有 2 份背景草稿。";
+        ScriptedChatModel model = new ScriptedChatModel(List.of(
+                answer(body + "\n{\"action\":\"CHAT\",\"expertCalls\":[]}")));
+        ObjectProvider<ChatModel> modelProvider = new ObjectProvider<ChatModel>() {
+            @Override public ChatModel getObject(Object... args) { return model; }
+            @Override public ChatModel getIfAvailable() { return model; }
+            @Override public ChatModel getIfUnique() { return model; }
+            @Override public ChatModel getObject() { return model; }
+        };
+
+        KnowledgeAgentDefinitionService definitions = mock(KnowledgeAgentDefinitionService.class);
+        when(definitions.graphSpecs()).thenReturn(new KnowledgeCurationGraphFactory.AgentSpecSet(loadSpecs()));
+
+        AgentRunMapper runs = mock(AgentRunMapper.class);
+        AgentRunEntity run = runEntity();
+        when(runs.selectById(run.getId())).thenReturn(run);
+        when(runs.markKnowledgeRunning(eq(run.getId()), any())).thenReturn(1);
+
+        KnowledgeTaskMessageMapper messages = mock(KnowledgeTaskMessageMapper.class);
+        AgentEventService events = mock(AgentEventService.class);
+        KnowledgeTaskEventService taskEvents = mock(KnowledgeTaskEventService.class);
+
+        Map<String, ToolCallback> callbacks = ALL_TOOLS.stream().collect(Collectors.toMap(
+                n -> n, KnowledgeCurationRunExecutorDriveIT::tool, (a, b) -> a, LinkedHashMap::new));
+        StaticToolCallbackResolver resolver = new StaticToolCallbackResolver(List.copyOf(callbacks.values()));
+
+        BoundedAgentRunScheduler scheduler = mock(BoundedAgentRunScheduler.class);
+        when(scheduler.schedule(eq(run.getId()), any())).thenAnswer(inv -> {
+            ((Runnable) inv.getArgument(1)).run();
+            return true;
+        });
+
+        KnowledgeCurationRunExecutor executor = new KnowledgeCurationRunExecutor(
+                modelProvider, properties(), resolver, saver, definitions, new ObjectMapper(),
+                runs, mock(KnowledgeTaskConversationMapper.class), messages, events, taskEvents,
+                mock(KnowledgeToolInvocationService.class), mock(KnowledgeTaskRunProjectionService.class),
+                scheduler, ContextAssemblyFixtures.budget(), Clock.systemUTC(),
+                noMemorySupply());
+
+        executor.start(run, "你好", new KnowledgeAgentDefinitionService.LoadedDefinition(
+                new io.github.loredock.agent.api.KnowledgeTaskService.RuntimeDefinition(
+                        "knowledge-curator", "s", "d", "m", ALL_TOOLS)));
+
+        // 只调用一次即完成：正文含花括号/JSON 示例不触发修复回路；最终回复为完整正文（无尾缀 JSON）。
+        assertThat(model.calls()).isEqualTo(1);
+        verify(runs, never()).failKnowledge(any(Long.class), any(String.class), anyInt(), anyInt(),
+                anyInt(), anyLong(), any(Instant.class));
+        verify(runs).completeKnowledge(eq(run.getId()), eq(body), any(int.class), any(int.class),
+                any(int.class), any(long.class), isNull(), isNull(), any(Instant.class));
+        verify(messages).insert(org.mockito.ArgumentMatchers.<KnowledgeTaskMessageEntity>argThat(message ->
+                message.getContent().equals(body)));
+        System.out.printf("测试证据：场景=正文含花括号与JSON示例，模型调用=%d，最终回复=完整正文，无谓修复=0%n",
+                model.calls());
+    }
+
+    /**
+     * 业务目的：主 Agent 输出只有结构化尾缀（无可见正文）但提供极短 memo 时，轮次必须正常结束——
+     * 最终回复回退 memo 保持"每轮有可展示回复"的语义（双通道的降级分支），不得因正文缺失而失败；
+     * 正文与 memo 皆缺才是"没有可见回复"进修复回路。防止：双通道改造把"正文缺失"误判为模型违约即失败。
+     */
+    @Test
+    void mainReplyWithoutBodyFallsBackToMemo() throws Exception {
+        Flyway.configure()
+                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .schemas(schema).defaultSchema(schema).locations("classpath:db/migration")
+                .load().migrate();
+        PostgresSaver saver = PostgresSaver.builder().datasource(dataSource())
+                .createOption(CreateOption.CREATE_NONE).build();
+
+        ScriptedChatModel model = new ScriptedChatModel(List.of(
+                answer("{\"action\":\"CHAT\",\"expertCalls\":[],\"memo\":\"拒绝编造事实，请先提供待整理的文档\"}")));
+        ObjectProvider<ChatModel> modelProvider = new ObjectProvider<ChatModel>() {
+            @Override public ChatModel getObject(Object... args) { return model; }
+            @Override public ChatModel getIfAvailable() { return model; }
+            @Override public ChatModel getIfUnique() { return model; }
+            @Override public ChatModel getObject() { return model; }
+        };
+
+        KnowledgeAgentDefinitionService definitions = mock(KnowledgeAgentDefinitionService.class);
+        when(definitions.graphSpecs()).thenReturn(new KnowledgeCurationGraphFactory.AgentSpecSet(loadSpecs()));
+
+        AgentRunMapper runs = mock(AgentRunMapper.class);
+        AgentRunEntity run = runEntity();
+        when(runs.selectById(run.getId())).thenReturn(run);
+        when(runs.markKnowledgeRunning(eq(run.getId()), any())).thenReturn(1);
+
+        KnowledgeTaskMessageMapper messages = mock(KnowledgeTaskMessageMapper.class);
+        AgentEventService events = mock(AgentEventService.class);
+        KnowledgeTaskEventService taskEvents = mock(KnowledgeTaskEventService.class);
+
+        Map<String, ToolCallback> callbacks = ALL_TOOLS.stream().collect(Collectors.toMap(
+                n -> n, KnowledgeCurationRunExecutorDriveIT::tool, (a, b) -> a, LinkedHashMap::new));
+        StaticToolCallbackResolver resolver = new StaticToolCallbackResolver(List.copyOf(callbacks.values()));
+
+        BoundedAgentRunScheduler scheduler = mock(BoundedAgentRunScheduler.class);
+        when(scheduler.schedule(eq(run.getId()), any())).thenAnswer(inv -> {
+            ((Runnable) inv.getArgument(1)).run();
+            return true;
+        });
+
+        KnowledgeCurationRunExecutor executor = new KnowledgeCurationRunExecutor(
+                modelProvider, properties(), resolver, saver, definitions, new ObjectMapper(),
+                runs, mock(KnowledgeTaskConversationMapper.class), messages, events, taskEvents,
+                mock(KnowledgeToolInvocationService.class), mock(KnowledgeTaskRunProjectionService.class),
+                scheduler, ContextAssemblyFixtures.budget(), Clock.systemUTC(),
+                noMemorySupply());
+
+        executor.start(run, "你好", new KnowledgeAgentDefinitionService.LoadedDefinition(
+                new io.github.loredock.agent.api.KnowledgeTaskService.RuntimeDefinition(
+                        "knowledge-curator", "s", "d", "m", ALL_TOOLS)));
+
+        // 正文缺失但有 memo：run 正常 COMPLETED，最终回复回退 memo，不得走失败终态。
+        assertThat(model.calls()).isEqualTo(1);
+        verify(runs, never()).failKnowledge(any(Long.class), any(String.class), anyInt(), anyInt(),
+                anyInt(), anyLong(), any(Instant.class));
+        verify(runs).completeKnowledge(eq(run.getId()), eq("拒绝编造事实，请先提供待整理的文档"), any(int.class),
+                any(int.class), any(int.class), any(long.class), isNull(), isNull(), any(Instant.class));
+        verify(messages).insert(org.mockito.ArgumentMatchers.<KnowledgeTaskMessageEntity>argThat(message ->
+                message.getContent().equals("拒绝编造事实，请先提供待整理的文档")));
+        System.out.printf("测试证据：场景=正文缺失回退memo，模型调用=%d，最终回复=memo，run=COMPLETED，无失败终态%n",
+                model.calls());
+    }
+
+    /**
      * 业务目的：暂停后恢复（resume，同一 run）时，管理员追加指导必须作为本轮用户消息进入协调 Agent 输入；
      * 否则协调 Agent 只看到最初 goal、看不到后续指令，会把"继续聊聊"当整理任务盲跑完整流程（联调缺陷）。
      */
@@ -719,7 +935,7 @@ class KnowledgeCurationRunExecutorDriveIT {
                 .createOption(CreateOption.CREATE_NONE).build();
 
         ScriptedChatModel model = new ScriptedChatModel(List.of(
-                answer("{\"action\":\"CHAT\",\"summary\":\"你好，我在线，能看到上轮结论。\",\"expertCalls\":[]}")));
+                answer("你好，我在线，能看到上轮结论。\n{\"action\":\"CHAT\",\"expertCalls\":[]}")));
         ObjectProvider<ChatModel> modelProvider = new ObjectProvider<ChatModel>() {
             @Override public ChatModel getObject(Object... args) { return model; }
             @Override public ChatModel getIfAvailable() { return model; }
@@ -828,11 +1044,11 @@ class KnowledgeCurationRunExecutorDriveIT {
         ScriptedChatModel modelA = new ScriptedChatModel(List.of(
                 answerToolCall("memory_write", "{\"candidates\":[{\"title\":\"正文格式偏好\","
                         + "\"content\":\"正文使用三级标题\",\"category\":\"FORMAT\",\"summary\":null}]}"),
-                answer("{\"action\":\"TURN_DONE\",\"summary\":\"已记住你的偏好：文档正文使用三级标题\",\"expertCalls\":[]}")));
+                answer("已记住你的偏好：文档正文使用三级标题\n{\"action\":\"TURN_DONE\",\"expertCalls\":[]}")));
         // run B 完整整理脚本顺序：主 Agent FULL_CURATION → retriever → coordinator DECIDE（起草指令携带偏好）
         // → drafter → reviewer PASS → coordinator FINISH/END → 主 Agent TURN_DONE。
         ScriptedChatModel modelB = new ScriptedChatModel(List.of(
-                answer("{\"action\":\"FULL_CURATION\",\"summary\":\"开始整理\",\"expertCalls\":[]}"),
+                answer("开始整理。\n{\"action\":\"FULL_CURATION\",\"expertCalls\":[]}"),
                 answer("{\"issueType\":\"MISSING\",\"candidateTargetDocumentId\":710004,"
                         + "\"facts\":[{\"statement\":\"新增背景\",\"support\":\"SUPPORTED\","
                         + "\"sourceRefs\":[{\"type\":\"EVIDENCE\",\"id\":88}]}],"
@@ -845,7 +1061,7 @@ class KnowledgeCurationRunExecutorDriveIT {
                         + "\"findings\":[],\"question\":null,\"summary\":\"审查通过\"}"),
                 answer("{\"stage\":\"FINISH\",\"action\":\"END\",\"reason\":\"完成\","
                         + "\"draftInstruction\":null,\"question\":null,\"summary\":\"已完成整理\"}"),
-                answer("{\"action\":\"TURN_DONE\",\"summary\":\"已完成整理\",\"expertCalls\":[]}")));
+                answer("已完成整理\n{\"action\":\"TURN_DONE\",\"expertCalls\":[]}")));
         java.util.concurrent.atomic.AtomicReference<ChatModel> activeModel =
                 new java.util.concurrent.atomic.AtomicReference<>();
         ObjectProvider<ChatModel> modelProvider = new ObjectProvider<ChatModel>() {

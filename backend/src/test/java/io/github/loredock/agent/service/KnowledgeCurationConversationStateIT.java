@@ -97,8 +97,8 @@ class KnowledgeCurationConversationStateIT {
         String sessionThread = "knowledge-task-conversation-100";
         // 第一轮 CHAT，第二轮 CHAT：如果第二轮从入口重跑或重放第一轮，模型调用次数会超过 2。
         ScriptedChatModel model = new ScriptedChatModel(List.of(
-                answer("{\"action\":\"CHAT\",\"summary\":\"第一轮已完成结论。\",\"expertCalls\":[]}"),
-                answer("{\"action\":\"CHAT\",\"summary\":\"第二轮回复。\",\"expertCalls\":[]}")));
+                answer("第一轮已完成结论。\n{\"action\":\"CHAT\",\"expertCalls\":[]}"),
+                answer("第二轮回复。\n{\"action\":\"CHAT\",\"expertCalls\":[]}")));
         ObjectProvider<ChatModel> modelProvider = provider(model);
 
         KnowledgeAgentDefinitionService definitions = mock(KnowledgeAgentDefinitionService.class);
@@ -156,7 +156,7 @@ class KnowledgeCurationConversationStateIT {
         // 恢复后完整跑完一轮：main FULL_CURATION → retriever → coordinator DECIDE/DRAFT → drafter → reviewer
         // → coordinator FINISH → main TURN_DONE 汇总（阶段 2 五 Agent 入口）。
         ScriptedChatModel model = new ScriptedChatModel(List.of(
-                answer("{\"action\":\"FULL_CURATION\",\"summary\":\"开始整理\",\"expertCalls\":[]}"),
+                answer("开始整理\n{\"action\":\"FULL_CURATION\",\"expertCalls\":[]}"),
                 answer("{\"issueType\":\"MISSING\",\"candidateTargetDocumentId\":710004,"
                         + "\"facts\":[{\"statement\":\"新增背景\",\"support\":\"SUPPORTED\","
                         + "\"sourceRefs\":[{\"type\":\"EVIDENCE\",\"id\":88}]}],"
@@ -169,7 +169,7 @@ class KnowledgeCurationConversationStateIT {
                         + "\"findings\":[],\"question\":null,\"summary\":\"审查通过\"}"),
                 answer("{\"stage\":\"FINISH\",\"action\":\"END\",\"reason\":\"完成\","
                         + "\"draftInstruction\":null,\"question\":null,\"summary\":\"已完成整理\"}"),
-                answer("{\"action\":\"TURN_DONE\",\"summary\":\"已完成整理\",\"expertCalls\":[]}")));
+                answer("已完成整理\n{\"action\":\"TURN_DONE\",\"expertCalls\":[]}")));
         ObjectProvider<ChatModel> modelProvider = provider(model);
 
         KnowledgeAgentDefinitionService definitions = mock(KnowledgeAgentDefinitionService.class);
@@ -287,7 +287,7 @@ class KnowledgeCurationConversationStateIT {
         // 第一次输出无法解析（坏 JSON），第二次携带错误摘要重新输出有效的 MainTurnResult。
         ScriptedChatModel model = new ScriptedChatModel(List.of(
                 answer("这不是结构化结果"),
-                answer("{\"action\":\"CHAT\",\"summary\":\"修复后回复。\",\"expertCalls\":[]}")));
+                answer("修复后回复。\n{\"action\":\"CHAT\",\"expertCalls\":[]}")));
         ObjectProvider<ChatModel> modelProvider = provider(model);
 
         KnowledgeAgentDefinitionService definitions = mock(KnowledgeAgentDefinitionService.class);
@@ -380,7 +380,7 @@ class KnowledgeCurationConversationStateIT {
                 answer("{\"issueType\":\"MISSING\",\"candidateTargetDocumentId\":710004,"
                         + "\"facts\":[{\"statement\":\"背景\",\"support\":\"SUPPORTED\",\"sourceRefs\":[]}],"
                         + "\"unresolvedQuestions\":[],\"summary\":\"检索到背景\"}"),
-                answer("{\"action\":\"TURN_DONE\",\"summary\":\"当前草稿事实已确认。\",\"expertCalls\":[\"retriever\"]}")));
+                answer("当前草稿事实已确认。\n{\"action\":\"TURN_DONE\",\"expertCalls\":[\"retriever\"]}")));
         ObjectProvider<ChatModel> modelProvider = provider(model);
 
         KnowledgeAgentDefinitionService definitions = mock(KnowledgeAgentDefinitionService.class);

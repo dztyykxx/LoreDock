@@ -17,6 +17,7 @@ import com.alibaba.cloud.ai.graph.agent.tools.task.AgentSpec;
 import com.alibaba.cloud.ai.graph.checkpoint.config.SaverConfig;
 import com.alibaba.cloud.ai.graph.checkpoint.savers.postgresql.PostgresSaver;
 import com.alibaba.cloud.ai.graph.exception.GraphStateException;
+import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.loredock.agent.model.enums.AgentNode;
 import io.github.loredock.agent.model.request.ContextAssemblyRequest;
@@ -83,7 +84,7 @@ public class KnowledgeCurationGraphFactory {
     public static final String RECOVERY_MODE = "RECOVERY_REQUIRED";
 
     /** Graph 定义版本标识，写入 run 的 config_summary 前缀，用于恢复时与当前定义比对（不匹配停 RECOVERY_REQUIRED）。 */
-    public static final String GRAPH_DEF_VERSION = "knowledge-curation-sess-v3";
+    public static final String GRAPH_DEF_VERSION = "knowledge-curation-sess-v4";
 
     /** 启动时要求存在的角色，顺序与设计一致：主 Agent + 完整流程四个专家。 */
     public static final List<String> ROLES = List.of(MAIN_AGENT, COORDINATOR, RETRIEVER, DRAFTER, REVIEWER);
@@ -773,17 +774,20 @@ public class KnowledgeCurationGraphFactory {
         }
         return null;
     }
-    /** @return 主 Agent 本轮回退的可见回复文本；解析失败时返回原始文本（供历史消息展示）。 */
+    /**
+     * @return 主 Agent 本轮回退的可见回复文本：双通道契约下取消息正文（剔除尾部 JSON），
+     *         正文缺失回退 memo；无结构尾缀或解析失败时返回 null（历史重建按无助手轮处理）。
+     */
     private String mainSummaryText(com.alibaba.cloud.ai.graph.OverAllState state) {
         Object value = state.data().get("mainTurnResult");
         try {
-            String text = value instanceof AssistantMessage message ? message.getText()
-                    : value instanceof Map<?, ?> map ? messageTextFromMap(map)
-                    : value == null ? null : String.valueOf(value);
-            if (text == null || text.isBlank()) {
-                return null;
+            SplitMessage split = splitTailJson(objectMapper, value);
+            if (split != null && split.hasBody()) {
+                return split.body();
             }
-            return objectMapper.readValue(text, KnowledgeCurationGraphResult.MainTurnResult.class).summary();
+            KnowledgeCurationGraphResult.MainTurnResult main = tolerantStructured(
+                    objectMapper, value, KnowledgeCurationGraphResult.MainTurnResult.class);
+            return main == null ? null : main.memo();
         } catch (Exception exception) {
             return null;
         }
@@ -831,10 +835,25 @@ public class KnowledgeCurationGraphFactory {
             text = String.valueOf(value);
         }
         try {
+            if (MAIN_AGENT.equals(role) && isMainLongMemo(text)) {
+                return "主 Agent 把完整回复误写进了 memo（达到 100 码点上限）："
+                        + "memo 只能作 ≤20 字的动作摘要；完整回复必须写在消息可见正文（正文 + 尾部 JSON），请重写输出";
+            }
             objectMapper.readValue(text, OUTPUT_TYPES.get(role));
             return role + " 结构化结果不满足业务校验（缺少必要字段或可见回复）";
         } catch (Exception exception) {
             return "解析失败：" + bounded(String.valueOf(exception.getMessage()), 240);
+        }
+    }
+
+    /** 主 Agent 输出的 memo 是否触顶（模型把完整回复塞进结构化字段的违规形态，runId=68 教训）。 */
+    private boolean isMainLongMemo(String text) {
+        try {
+            KnowledgeCurationGraphResult.MainTurnResult parsed =
+                    objectMapper.readValue(text, KnowledgeCurationGraphResult.MainTurnResult.class);
+            return KnowledgeCurationGraphResult.MainTurnResult.memoHitLimit(parsed.memo());
+        } catch (Exception ignore) {
+            return false;
         }
     }
 
@@ -1015,8 +1034,11 @@ public class KnowledgeCurationGraphFactory {
 
     /**
      * 主 Agent 条件边：只按 {@code MainTurnResult.action} 路由，不信任自然语言。
-     * CHAT/TURN_DONE 必须携带面向用户的可见回复（§7 硬规则）；FULL_CURATION 交由完整整理流程。
-     * 解析失败或业务校验不满足时进入修复回路（fix_main_agent），不逃逸 Graph。
+     * CHAT/TURN_DONE 必须携带面向用户的可见回复（§7 硬规则）——双通道契约下可见回复来自消息正文，
+     * 缺省时回退 memo（极短降级摘要），两者皆缺才判"没有可见回复"进修复回路。
+     * 正文缺失且 memo 达到 100 码点上限时视为「模型把完整回复误放结构化字段」的违规形态（runId=68 实测半句），
+     * 同样进修复回路要求重写正文，而不是把截断的半句当作回复放行。
+     * FULL_CURATION 交由完整整理流程。解析失败或业务校验不满足时进入修复回路（fix_main_agent），不逃逸 Graph。
      */
     String mainRoute(com.alibaba.cloud.ai.graph.OverAllState state) {
         try {
@@ -1027,8 +1049,17 @@ public class KnowledgeCurationGraphFactory {
             }
             String route = switch (result.action()) {
                 case CHAT, TURN_DONE -> {
-                    if (isBlank(result.summary())) {
-                        throw new IllegalStateException("主 Agent 输出 " + result.action() + " 但没有可见回复");
+                    KnowledgeCurationGraphFactory.SplitMessage split = KnowledgeCurationGraphFactory
+                            .splitTailJson(objectMapper, state.data().get("mainTurnResult"));
+                    if (split == null || !split.hasBody()) {
+                        if (result.memo() == null || result.memo().isBlank()) {
+                            throw new IllegalStateException("主 Agent 输出 " + result.action() + " 但没有可见回复");
+                        }
+                        if (KnowledgeCurationGraphResult.MainTurnResult.memoHitLimit(result.memo())) {
+                            throw new IllegalStateException("主 Agent 输出 " + result.action()
+                                    + " 的 memo 达到 100 码点上限（疑似把完整回复写进结构化字段）："
+                                    + "完整回复必须写在可见正文，memo 仅作极短摘要（≤20 字），请重写输出");
+                        }
                     }
                     yield result.action().name();
                 }
@@ -1083,14 +1114,17 @@ public class KnowledgeCurationGraphFactory {
 
     /**
      * 宽容结构化解析（路由条件边与最终回复共用同一份容错，避免"路由能过、最终回复解析失败"的分叉）：
-     * 兼容类型实例 / 消息 / 字符串 / Checkpoint 往返后的 Map 四种形态；先截取最外层 JSON 再 readTree→treeToValue。
+     * 兼容类型实例 / 消息 / 字符串 / Checkpoint 往返后的 Map 四种形态；先从消息**尾部**提取 JSON
+     * （双通道契约，见 main_agent.md：正文在前、JSON 尾缀最后），再 readTree→treeToValue。
      *
      * <ul>
      *   <li>重复键：模型长 JSON 输出存在把开头字段重复写在结尾的伪影（实测 candidateTargetDocumentId 两现）。
      *       Jackson 对 record 按构造器属性反序列化时，同一 creator 属性第二次出现会走进"已建对象后再 set"路径，
      *       record 没有 setter/field 可回退，直接抛 InvalidDefinitionException 使整个 run 失败；
      *       JsonNode 层面重复键是 last-wins 覆盖（不抛错），因此先 readTree 再去树转换。</li>
-     *   <li>前后附加文字：模型常在 JSON 后补说明（本轮 run 60 即如此），先截取首尾括号再解析。</li>
+     *   <li>尾部尾缀：正文（自然语言）可能含花括号或 JSON 示例文本，旧的"首尾括号截取"会把正文里的
+     *       示例当成结构化输出；双通道契约下 JSON 必须是消息最后的内容，改从右向左取第一个
+     *       "完整 JSON 文档" 候选（详见 {@link #splitTailJson}）。</li>
      * </ul>
      *
      * @return 解析后的结构；找不到正文文本时返回 null
@@ -1099,36 +1133,80 @@ public class KnowledgeCurationGraphFactory {
         if (type.isInstance(value)) {
             return type.cast(value);
         }
-        String text;
-        if (value instanceof AssistantMessage message) {
-            text = message.getText();
-        } else if (value instanceof String string) {
-            text = string;
-        } else if (value instanceof Map<?, ?> map) {
-            // Checkpoint 恢复后节点输出被框架序列化为 Map，需重新取出正文文本再解析。
-            text = messageTextFromMap(map);
-        } else {
-            text = value == null ? null : value.toString();
-        }
+        String text = messageText(value);
         if (text == null || text.isBlank()) {
             return null;
         }
         try {
-            return objectMapper.treeToValue(objectMapper.readTree(jsonObject(text)), type);
+            SplitMessage split = splitTailJson(objectMapper, text);
+            if (split == null) {
+                throw new IllegalStateException("结构化输出中未找到 JSON 对象（JSON 必须位于消息末尾的尾缀）");
+            }
+            return objectMapper.treeToValue(objectMapper.readTree(split.json()), type);
         } catch (Exception exception) {
             throw new IllegalStateException("Agent 结构化结果无法解析：" + type.getSimpleName(), exception);
         }
     }
 
-    /** @return 截取最外层 JSON 对象（容忍模型在 JSON 前后附加说明性文字）。 */
-    private static String jsonObject(String text) {
-        String stripped = text.strip();
-        int start = stripped.indexOf('{');
-        int end = stripped.lastIndexOf('}');
-        if (start < 0 || end <= start) {
-            throw new IllegalStateException("结构化输出中未找到 JSON 对象");
+    /** 双通道切分结果：正文（面向用户的可见回复，空白表示无）+ 结构化 JSON 尾缀文本。 */
+    public record SplitMessage(String body, String json) {
+        public boolean hasBody() {
+            return body != null && !body.isBlank();
         }
-        return stripped.substring(start, end + 1);
+    }
+
+    /**
+     * 从消息中提取「正文 + 尾部 JSON」分界（双通道契约）：JSON 必须是消息最后的内容。
+     * 从右向左遍历所有 {@code '{'} 位置，候选 {@code substring(i)} 必须构成**完整 JSON 文档**。
+     * 注意不能只用 {@code readTree} 验证——锁定版 Jackson 的 readTree 默认容忍尾随文本
+     * （实操确认 {@code {"a":1} trailing} 也解析成功），必须再验 {@code parser.nextToken()==null}
+     * 证明流已消费到底，否则正文里的 {@code {}} 片段或"JSON 后跟散文"会被误认为结构化输出。
+     *
+     * @return 正文与 JSON 的切分结果；null 表示消息不含可解析的尾部 JSON（调用方走修复回路）
+     */
+    public static SplitMessage splitTailJson(ObjectMapper objectMapper, String text) {
+        if (text == null) {
+            return null;
+        }
+        String stripped = text.strip();
+        for (int i = stripped.length() - 1; i >= 0; i--) {
+            if (stripped.charAt(i) != '{') {
+                continue;
+            }
+            String candidate = stripped.substring(i);
+            try (JsonParser parser = objectMapper.getFactory().createParser(candidate)) {
+                objectMapper.readTree(parser);
+                if (parser.nextToken() == null) {
+                    return new SplitMessage(stripped.substring(0, i).strip(), candidate.strip());
+                }
+            } catch (Exception ignore) {
+                // 该候选不是完整 JSON 文档（正文示例或残缺 JSON），继续向左找下一候选。
+            }
+        }
+        return null;
+    }
+
+    /**
+     * @return 从任意状态值中切分「正文 + 尾部 JSON」（同 {@link #splitTailJson(ObjectMapper, String)}，
+     *         先按 {@code AssistantMessage}/字符串/Map 提取正文文本）；null 表示不含可解析的尾部 JSON
+     */
+    public static SplitMessage splitTailJson(ObjectMapper objectMapper, Object value) {
+        return splitTailJson(objectMapper, messageText(value));
+    }
+
+    /** @return 从任意状态值中取出消息正文文本；无法定位时返回 null。 */
+    private static String messageText(Object value) {
+        if (value instanceof AssistantMessage message) {
+            return message.getText();
+        }
+        if (value instanceof String string) {
+            return string;
+        }
+        if (value instanceof Map<?, ?> map) {
+            // Checkpoint 恢复后节点输出被框架序列化为 Map，需重新取出正文文本再解析。
+            return messageTextFromMap(map);
+        }
+        return value == null ? null : value.toString();
     }
 
     /** @return 从框架序列化的消息 Map 中取出正文文本；无法定位时返回 null 触发安全失败。 */
