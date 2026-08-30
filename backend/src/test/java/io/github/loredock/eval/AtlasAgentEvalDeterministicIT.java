@@ -296,8 +296,9 @@ class AtlasAgentEvalDeterministicIT {
     }
 
     /**
-     * 确定性脚本模型：先按提示内容识别场景——包含工具响应时用真实证据 ID 给出带引用回答，
-     * 知识整理目标返回纯文本最终回复，证据不足问题返回明确拒答，其余情况发起 knowledge_search。
+     * 确定性脚本模型：先按提示内容识别场景——裁判提示回固定评判；当前编排协议下
+     * 知识整理目标由会话级主 Agent 直接结构化完成（MainTurnResult，不走旧单 Agent 纯文本），
+     * 证据充足问题用真实证据 ID 给出带引用回答，其余情况发起 knowledge_search。
      */
     static final class EvalScriptedChatModel implements ChatModel {
 
@@ -321,12 +322,12 @@ class AtlasAgentEvalDeterministicIT {
             if (text.contains(JUDGE_SIGNAL)) {
                 return text.contains("忠实度") ? qaJudgeResponse() : curationJudgeResponse();
             }
+            if (text.contains(CURATION_GOAL_SIGNAL)) {
+                return curationFinalResponse();
+            }
             Long evidenceId = firstEvidenceId(prompt);
             if (evidenceId != null) {
                 return answer(evidenceId);
-            }
-            if (text.contains(CURATION_GOAL_SIGNAL)) {
-                return curationFinalResponse();
             }
             if (text.contains(REFUSAL_QUESTION_SIGNAL)) {
                 return refusal();
@@ -397,11 +398,14 @@ class AtlasAgentEvalDeterministicIT {
         }
 
         private ChatResponse curationFinalResponse() {
+            // 会话级编排协议下主 Agent 输出 MainTurnResult：本轮判定为重复主题不创建工作文档，
+            // 以 TURN_DONE 直接完成（§7 硬规则要求 TURN_DONE 携带可见回复）。
             // 脚本回复使用与数据集期望答案不同的措辞：确定性报告里实际回复不得与期望逐字相同，
             // 避免造成"期望答案泄漏给 Agent"的假象；此处只验证管道，不验证回答内容。
-            return response(new AssistantMessage(
-                    "核对完成：该候选草稿与已发布的审核发布规则为同一主题，"
-                            + "未发现需要单独发布的新内容，本轮不创建工作文档。"));
+            return response(new AssistantMessage("""
+                    {"action":"TURN_DONE","summary":"核对完成：该候选草稿与已发布的审核发布规则为同一主题，\
+                    未发现需要单独发布的新内容，本轮不创建工作文档。","expertCalls":[]}
+                    """));
         }
 
         private ChatResponse knowledgeSearchCall() {

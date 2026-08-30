@@ -44,4 +44,4 @@
 - [x] 7.1 更新 `docs/product/LoreDock_MVP功能开发计划.md`：登记记忆模块任务状态与"超出 MVP 基线、用户确认新增"说明；`docs/architecture/` 简单登记记忆模块卡片（归属/边界/非证据约束）
 - [x] 7.2 全量相关测试通过 + `openspec validate` 通过 + `tasks.md` 勾选同步 + 提交信息按规范记录改动点与验证证据
   - 验证证据：单元 467/467（跳过 3 为 POC）；集成 199 例中用户记忆相关全部通过（MemoryServiceIT 12、MemoryWebContractTest 6、MemoryToolsTest 4、DriveIT 8 含端到端证据行「场景=记忆端到端，写入 id=1(GLOBAL/FORMAT)，runB主Agent两次注入=- [FORMAT/GLOBAL] 正文格式偏好…，专家视图无记忆块，发布门禁不变」）；`openspec validate --changes/--specs` 7 changes + 18 specs 全部通过
-  - 遗留（非本 change 缺陷，写明以免被误认）：`AtlasAgentEvalDeterministicIT` 2 例在干净 HEAD(6cdf6d3) 同样失败（回归确认：`AgentRunStatus` 缺 `PAUSE_REQUESTED/WAITING_FOR_USER` 枚举常量 + 评估脚本仍为旧单 Agent 协议），属于 `multiagent-knowledge-curation` 编排 change 的遗留，应在该 change 中修复
+  - 遗留（非本 change 缺陷，已另行修复）：`AtlasAgentEvalDeterministicIT` 2 例在干净 HEAD(6cdf6d3) 同样失败（回归确认：`AgentRunStatus` 缺 `PAUSE_REQUESTED/WAITING_FOR_USER` 枚举常量 + 评估脚本仍为旧单 Agent 协议），属于 `multiagent-knowledge-curation` 编排 change 的遗留；已通过 `fix(agent): AgentRunStatus 补暂停恢复状态 + 评估脚本改主 Agent TURN_DONE 结构化协议` 提交修复（全量 verify 通过）
