@@ -91,11 +91,18 @@ class AtlasEvalJudgeIT {
         assertThat(written.curationResults())
                 .allSatisfy(result -> assertThat(result.verdict().issueCorrect())
                         .as(result.caseId() + " 问题识别判定").isNotNull());
-        assertThat(written.qaMetrics().averageFaithfulness()).isNotNull();
-        assertThat(written.qaMetrics().averageRelevance()).isNotNull();
+        // 允许知识整理专用报告没有 QA：此时 QA Judge 指标为空是正确语义。
+        if (!written.qaResults().isEmpty()) {
+            assertThat(written.qaMetrics().averageFaithfulness()).isNotNull();
+            assertThat(written.qaMetrics().averageRelevance()).isNotNull();
+        }
         assertThat(written.curationMetrics().issueTypeF1()).isNotEmpty();
         assertThat(Files.isRegularFile(output)).isTrue();
-        assertThat(Files.readString(output)).contains("faithfulness").contains("issueCorrect");
+        String reportText = Files.readString(output);
+        assertThat(reportText).contains("issueCorrect");
+        if (!written.qaResults().isEmpty()) {
+            assertThat(reportText).contains("faithfulness");
+        }
         System.out.printf("测试证据：场景=离线评判完成，裁判模型=%s，报告=%s，评判报告=%s，QA=%d，知识整理=%d，"
                         + "平均忠实度=%s，平均相关性=%s，问题类型F1=%s%n",
                 judgeModel(), reportPath, output, written.qaResults().size(), written.curationResults().size(),

@@ -16,8 +16,11 @@ import io.github.loredock.eval.AtlasEvalMetrics.QaSummary;
 import io.github.loredock.eval.AtlasEvalMetrics.QaVerdict;
 import io.github.loredock.eval.AtlasQaEvalRunner.QaActual;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 
@@ -84,10 +87,36 @@ public final class AgentEvalReport {
                 .allMatch(actual -> actual.status() == io.github.loredock.qa.api.QaQuestion.Status.COMPLETED);
         boolean curationAllCompleted = curationActuals.stream()
                 .allMatch(actual -> actual.status() != null && actual.status().terminal());
-        Gates gates = new Gates(qaAllCompleted, curationAllCompleted, false);
+        Gates gates = new Gates(qaAllCompleted, curationAllCompleted, false, data.manifest().reviewedByHuman());
         return new Report(
                 data.manifest().datasetVersion(), data.manifest().projectIdentifier(), executedAt, environment,
-                qaResults, curationResults, qaMetrics(qaSummary), curationMetrics(curationSummary), gates);
+                experiment(data, curationActuals), qaResults, curationResults,
+                qaMetrics(qaSummary), curationMetrics(curationSummary), gates);
+    }
+
+    private static Experiment experiment(EvalData data, List<CurationActual> actuals) {
+        CurationActual first = actuals.stream().findFirst().orElse(null);
+        io.github.loredock.agent.api.KnowledgeTaskService.RuntimeDefinition definition =
+                first == null ? null : first.definition();
+        return new Experiment(
+                System.getProperty("loredock.agent-eval.system-variant", "MULTI_AGENT"),
+                definition == null ? null : definition.modelName(),
+                definition == null ? null : definition.skillDigest(),
+                definition == null ? null : definition.agentSpecDigest(),
+                io.github.loredock.agent.service.KnowledgeCurationGraphFactory.GRAPH_DEF_VERSION,
+                seedFingerprint(data));
+    }
+
+    private static String seedFingerprint(EvalData data) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            data.documents().stream().sorted(Comparator.comparing(AtlasAgentEvalFixture.DocumentSpec::businessId))
+                    .forEach(document -> digest.update((document.businessId() + "\n" + document.documentId()
+                            + "\n" + document.markdown() + "\n").getBytes(StandardCharsets.UTF_8)));
+            return java.util.HexFormat.of().formatHex(digest.digest());
+        } catch (Exception exception) {
+            throw new IllegalStateException("评估种子指纹计算失败", exception);
+        }
     }
 
     /** @param summary QA 汇总 @return 报告 QA 指标段 */
@@ -102,7 +131,9 @@ public final class AgentEvalReport {
     public static CurationMetrics curationMetrics(CurationSummary summary) {
         return new CurationMetrics(summary.caseCount(), summary.issueCaseCount(),
                 summary.actionCorrectRate(), summary.unsafeWriteRate(),
-                summary.issueCorrectRate(), summary.issueTypeF1());
+                summary.issueCorrectRate(), summary.completionRate(), summary.entryRoutingAccuracy(),
+                summary.pathInvariantRate(), summary.retrievalEvidenceCoverage(), summary.draftGroundingRate(),
+                summary.reviewPassRate(), summary.reviewReworkRate(), summary.issueTypeF1());
     }
 
     /** @return 报告输出路径；可通过系统属性 {@code loredock.agent-eval.output} 覆盖 */
@@ -121,9 +152,10 @@ public final class AgentEvalReport {
     public static Report write(Report report, Path output) throws IOException {
         Files.createDirectories(output.toAbsolutePath().normalize().getParent());
         Report written = new Report(report.datasetVersion(), report.projectIdentifier(), report.executedAt(),
-                report.environment(), report.qaResults(), report.curationResults(),
+                report.environment(), report.experiment(), report.qaResults(), report.curationResults(),
                 report.qaMetrics(), report.curationMetrics(),
-                new Gates(report.gates().qaAllCompleted(), report.gates().curationAllCompleted(), true));
+                new Gates(report.gates().qaAllCompleted(), report.gates().curationAllCompleted(), true,
+                        report.gates().datasetReviewedByHuman()));
         JSON.writeValue(output.toFile(), written);
         return written;
     }
@@ -149,10 +181,11 @@ public final class AgentEvalReport {
             CurationVerdict verdict = result.verdict();
             CurationActual actual = result.actual();
             System.out.printf("测试证据：场景=Agent评估知识整理，用例=%s，草稿=%s，预期问题=%s，预期动作=%s，"
-                            + "终态=%s，工作区数=%d，工作区匹配=%s，动作正确=%s，误写=%s，最终回复=%s%n",
+                            + "终态=%s，入口=%s，阶段数=%d，工具数=%d，工作区数=%d，工作区匹配=%s，动作正确=%s，误写=%s，最终回复=%s%n",
                     result.caseId(), result.input().selectedDraftId(),
                     result.expected().issueType() == null ? "NONE" : result.expected().issueType(),
-                    result.expected().action(), actual.status(), actual.workspace().size(),
+                    result.expected().action(), actual.status(), actual.trace().entryAction(), actual.trace().stages().size(),
+                    actual.trace().tools().size(), actual.workspace().size(),
                     verdict.workspaceMatch(), verdict.actionCorrect(), verdict.unsafeWrite(),
                     preview(actual.finalResponse(), 120));
         }
@@ -161,12 +194,20 @@ public final class AgentEvalReport {
         System.out.printf("测试证据：场景=Agent评估汇总，数据集=%s，项目=%s，QA用例=%d，参与统计=%d，"
                         + "准确率（Top-5出现率）=%.2f%%，召回率（目标找回率）=%.2f%%，Top5命中率=%.2f%%，"
                         + "结果类型匹配率=%.2f%%，知识整理用例=%d，动作正确率=%.2f%%，误写率=%.2f%%，"
-                        + "门禁：QA全部完成=%s，知识整理全部完成=%s%n",
+                        + "入口路由=%s，路径不变量=%s，证据覆盖=%s，审查通过=%s，"
+                        + "门禁：QA全部完成=%s，知识整理全部完成=%s，数据集人工复核=%s%n",
                 report.datasetVersion(), report.projectIdentifier(), qa.caseCount(), qa.answerableCount(),
                 qa.top5Precision() * 100.0D, qa.top5Recall() * 100.0D, qa.top5HitRate() * 100.0D,
                 qa.resultTypeMatchRate() * 100.0D,
                 curation.caseCount(), curation.actionCorrectRate() * 100.0D, curation.unsafeWriteRate() * 100.0D,
-                report.gates().qaAllCompleted(), report.gates().curationAllCompleted());
+                percent(curation.entryRoutingAccuracy()), percent(curation.pathInvariantRate()),
+                percent(curation.retrievalEvidenceCoverage()), percent(curation.reviewPassRate()),
+                report.gates().qaAllCompleted(), report.gates().curationAllCompleted(),
+                report.gates().datasetReviewedByHuman());
+    }
+
+    private static String percent(Double value) {
+        return value == null ? "未采集" : "%.2f%%".formatted(value * 100.0D);
     }
 
     private static String preview(String text, int maxCodePoints) {
@@ -183,6 +224,7 @@ public final class AgentEvalReport {
             String projectIdentifier,
             String executedAt,
             String environment,
+            Experiment experiment,
             List<QaCaseResult> qaResults,
             List<CurationCaseResult> curationResults,
             QaMetrics qaMetrics,
@@ -193,6 +235,27 @@ public final class AgentEvalReport {
             qaResults = qaResults == null ? List.of() : List.copyOf(qaResults);
             curationResults = curationResults == null ? List.of() : List.copyOf(curationResults);
         }
+
+        /** 兼容旧报告构造；旧报告没有实验版本段。 */
+        public Report(
+                String datasetVersion, String projectIdentifier, String executedAt, String environment,
+                List<QaCaseResult> qaResults, List<CurationCaseResult> curationResults,
+                QaMetrics qaMetrics, CurationMetrics curationMetrics, Gates gates
+        ) {
+            this(datasetVersion, projectIdentifier, executedAt, environment, null, qaResults, curationResults,
+                    qaMetrics, curationMetrics, gates);
+        }
+    }
+
+    /** 一次评估的系统变体、定义摘要、Graph 版本和固定种子指纹。 */
+    public record Experiment(
+            String systemVariant,
+            String modelName,
+            String skillDigest,
+            String agentSpecDigest,
+            String graphDefVersion,
+            String seedFingerprint
+    ) {
     }
 
     /** 单条 QA 用例：输入、预期、实际与客观判定。 */
@@ -220,18 +283,43 @@ public final class AgentEvalReport {
     /** 知识整理汇总指标（与文档第 9.2 节对应；问题识别相关指标需要 Judge）。 */
     public record CurationMetrics(
             int caseCount, int issueCaseCount, double actionCorrectRate, double unsafeWriteRate,
-            Double issueCorrectRate, Map<String, AtlasEvalMetrics.IssueTypeF1> issueTypeF1
+            Double issueCorrectRate, Double completionRate, Double entryRoutingAccuracy, Double pathInvariantRate,
+            Double retrievalEvidenceCoverage, Double draftGroundingRate, Double reviewPassRate,
+            Double reviewReworkRate, Map<String, AtlasEvalMetrics.IssueTypeF1> issueTypeF1
     ) {
         public CurationMetrics {
             issueTypeF1 = issueTypeF1 == null ? Map.of() : Map.copyOf(issueTypeF1);
         }
+
+        /** 兼容旧报告构造；新图轨迹指标为空。 */
+        public CurationMetrics(
+                int caseCount, int issueCaseCount, double actionCorrectRate, double unsafeWriteRate,
+                Double issueCorrectRate, Map<String, AtlasEvalMetrics.IssueTypeF1> issueTypeF1
+        ) {
+            this(caseCount, issueCaseCount, actionCorrectRate, unsafeWriteRate, issueCorrectRate,
+                    null, null, null, null, null, null, null, issueTypeF1);
+        }
     }
 
     /** 完成门禁：全部用例达到预期终态且报告已写出。 */
-    public record Gates(boolean qaAllCompleted, boolean curationAllCompleted, boolean reportWritten) {
+    public record Gates(boolean qaAllCompleted, boolean curationAllCompleted, boolean reportWritten,
+            boolean datasetReviewedByHuman) {
+
+        private static final boolean DEFAULT_REVIEWED = true;
+
+        /** 兼容旧报告构造；旧报告没有人工复核门禁字段。 */
+        public Gates(boolean qaAllCompleted, boolean curationAllCompleted, boolean reportWritten) {
+            this(qaAllCompleted, curationAllCompleted, reportWritten, DEFAULT_REVIEWED);
+        }
+
         /** @return 全部门禁是否通过 */
         public boolean allPassed() {
             return qaAllCompleted && curationAllCompleted && reportWritten;
+        }
+
+        /** @return 正式评估门禁；开发验证允许使用未人工复核的数据集，但不能冒充正式评估。 */
+        public boolean formalAllPassed() {
+            return allPassed() && datasetReviewedByHuman;
         }
     }
 }

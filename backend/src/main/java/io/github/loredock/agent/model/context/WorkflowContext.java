@@ -14,8 +14,23 @@ public record WorkflowContext(
         DraftInstruction draftInstruction,
         ReviewTarget reviewTarget,
         RetryContext retry,
-        List<ReviewFinding> findings
+        List<ReviewFinding> findings,
+        CurationOutcome curationOutcome
 ) {
+
+    /** 兼容非汇总阶段的最小工作上下文构造。 */
+    public WorkflowContext(
+            List<SupportedFact> facts,
+            List<UnresolvedQuestion> unresolvedQuestions,
+            List<SourceReference> sourceRefs,
+            List<DraftReference> drafts,
+            DraftInstruction draftInstruction,
+            ReviewTarget reviewTarget,
+            RetryContext retry,
+            List<ReviewFinding> findings
+    ) {
+        this(facts, unresolvedQuestions, sourceRefs, drafts, draftInstruction, reviewTarget, retry, findings, null);
+    }
 
     /** 本轮审查发现（仅 REVISE 返工入口的 Drafter 接收当前轮发现；旧轮结论不继承）。 */
     public record ReviewFinding(String code, String draftId, String description) {
@@ -45,8 +60,24 @@ public record WorkflowContext(
     public record ReviewTarget(String draftId, int revision) {
     }
 
-    /** 修复回路上下文：最后一次校验失败的有界摘要与节点。 */
-    public record RetryContext(int attempt, String lastValidatedNode, String validationError) {
+    /** 修复回路上下文：最后一次校验失败的有界摘要、节点与原阶段。 */
+    public record RetryContext(int attempt, String lastValidatedNode, String validationError, String stage) {
+        /** 兼容旧调用方：没有阶段信息时由组装层按未知阶段处理。 */
+        public RetryContext(int attempt, String lastValidatedNode, String validationError) {
+            this(attempt, lastValidatedNode, validationError, null);
+        }
+    }
+
+    /** 完整整理结束时交给最终汇报 Agent 的结构化结果摘要。 */
+    public record CurationOutcome(
+            String issueType,
+            String coordinatorAction,
+            String coordinatorReason,
+            String coordinatorQuestion,
+            String coordinatorSummary,
+            String draftStatus,
+            String reviewVerdict
+    ) {
     }
 
     public WorkflowContext {

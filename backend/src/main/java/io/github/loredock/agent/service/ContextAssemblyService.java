@@ -3,6 +3,7 @@ package io.github.loredock.agent.service;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import io.github.loredock.agent.mapper.KnowledgeTaskConversationMapper;
 import io.github.loredock.agent.mapper.KnowledgeTaskMessageMapper;
+import io.github.loredock.agent.mapper.KnowledgeTaskSelectedDraftMapper;
 import io.github.loredock.agent.model.request.ContextAssemblyRequest;
 import io.github.loredock.agent.model.context.ContextBudget;
 import io.github.loredock.agent.model.enums.ContextMode;
@@ -13,6 +14,7 @@ import io.github.loredock.agent.model.context.ConversationContext;
 import io.github.loredock.agent.model.context.PreparedModelContext;
 import io.github.loredock.agent.model.context.WorkflowContext;
 import io.github.loredock.agent.model.entity.KnowledgeTaskConversationEntity;
+import io.github.loredock.agent.model.entity.KnowledgeTaskSelectedDraftEntity;
 import io.github.loredock.memory.api.MemoryRelevant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -57,6 +59,7 @@ public class ContextAssemblyService {
     private final ContextDeterministicCompressor compressor;
     private final ContextCompressionService compressionService;
     private final MemoryPreloadSupply memoryPreload;
+    private final KnowledgeTaskSelectedDraftMapper selectedDrafts;
 
     public ContextAssemblyService(
             KnowledgeTaskConversationMapper conversations,
@@ -65,7 +68,7 @@ public class ContextAssemblyService {
             ContextTokenEstimator estimator,
             ContextCompressionService compressionService
     ) {
-        this(conversations, messages, budget, estimator, compressionService, null);
+        this(conversations, messages, budget, estimator, compressionService, null, null);
     }
 
     /**
@@ -79,6 +82,21 @@ public class ContextAssemblyService {
             ContextCompressionService compressionService,
             MemoryPreloadSupply memoryPreload
     ) {
+        this(conversations, messages, budget, estimator, compressionService, memoryPreload, null);
+    }
+
+    /**
+     * @param selectedDrafts 启动时固定候选草稿的会话快照，用于首轮路由投影；只投影元数据，不注入正文
+     */
+    public ContextAssemblyService(
+            KnowledgeTaskConversationMapper conversations,
+            KnowledgeTaskMessageMapper messages,
+            ContextBudget budget,
+            ContextTokenEstimator estimator,
+            ContextCompressionService compressionService,
+            MemoryPreloadSupply memoryPreload,
+            KnowledgeTaskSelectedDraftMapper selectedDrafts
+    ) {
         this.conversations = conversations;
         this.messages = messages;
         this.budget = budget;
@@ -86,6 +104,7 @@ public class ContextAssemblyService {
         this.compressionService = compressionService;
         this.compressor = new ContextDeterministicCompressor(estimator);
         this.memoryPreload = memoryPreload;
+        this.selectedDrafts = selectedDrafts;
     }
 
     /** @return 本服务承载的预算配置（准备节点与组装共用同一常量）。 */
@@ -214,6 +233,12 @@ public class ContextAssemblyService {
             blocks.add(memory);
         }
         blocks.add("【当前指令】" + text(request.currentInstruction()));
+        if (purpose == ContextPurpose.CHAT || purpose == ContextPurpose.FULL_CURATION_RETRIEVE) {
+            String selectedDraftBlock = selectedDraftBlock(request.conversationId());
+            if (selectedDraftBlock != null) {
+                blocks.add(selectedDraftBlock);
+            }
+        }
         if (workflow != null) {
             if (!workflow.facts().isEmpty()) {
                 StringBuilder facts = new StringBuilder("【允许处理的事实与引用】");
@@ -249,6 +274,18 @@ public class ContextAssemblyService {
                 blocks.add("【未解决问题】" + workflow.unresolvedQuestions().stream()
                         .map(q -> q.id() + " " + bounded(q.question(), 200)).sorted().toList());
             }
+            if (workflow.curationOutcome() != null) {
+                WorkflowContext.CurationOutcome outcome = workflow.curationOutcome();
+                StringBuilder result = new StringBuilder("【完整整理结果摘要】");
+                appendResultField(result, "检索判断", outcome.issueType());
+                appendResultField(result, "调度动作", outcome.coordinatorAction());
+                appendResultField(result, "调度原因", outcome.coordinatorReason());
+                appendResultField(result, "待确认问题", outcome.coordinatorQuestion());
+                appendResultField(result, "调度汇总", outcome.coordinatorSummary());
+                appendResultField(result, "草稿状态", outcome.draftStatus());
+                appendResultField(result, "审查结论", outcome.reviewVerdict());
+                blocks.add(result.toString());
+            }
         }
         if (purpose == ContextPurpose.CHAT || purpose == ContextPurpose.DIRECT_RETRIEVE
                 || purpose == ContextPurpose.DIRECT_DRAFT || purpose == ContextPurpose.DIRECT_REVIEW) {
@@ -262,6 +299,41 @@ public class ContextAssemblyService {
             blocks.add(marker);
         }
         return String.join("\n\n", blocks);
+    }
+
+    /**
+     * 首轮主 Agent 也必须知道任务确实带有候选输入，否则会把“正文由 Retriever Tool 读取”误判为没有材料。
+     * 这里只投影固定草稿的稳定引用、标题、目录和长度，正文仍由 Retriever 通过受限 Tool 读取。
+     */
+    private String selectedDraftBlock(Long conversationId) {
+        if (selectedDrafts == null || conversationId == null || conversationId <= 0) {
+            return null;
+        }
+        List<KnowledgeTaskSelectedDraftEntity> inputs = selectedDrafts.selectList(
+                Wrappers.<KnowledgeTaskSelectedDraftEntity>lambdaQuery()
+                        .eq(KnowledgeTaskSelectedDraftEntity::getConversationId, conversationId)
+                        .orderByAsc(KnowledgeTaskSelectedDraftEntity::getOrdinal));
+        if (inputs == null || inputs.isEmpty()) {
+            return null;
+        }
+        StringBuilder block = new StringBuilder("【已固定候选材料】");
+        for (KnowledgeTaskSelectedDraftEntity input : inputs) {
+            String markdown = input.getMarkdown() == null ? "" : input.getMarkdown();
+            block.append("\n- draftRef: ").append(input.getDocumentId())
+                    .append(" revision=").append(input.getDocumentRevision())
+                    .append(" title=").append(bounded(input.getTitle(), 160))
+                    .append(" directory=").append(bounded(input.getDirectoryPath(), 160))
+                    .append(" codePoints=").append(markdown.codePointCount(0, markdown.length()));
+        }
+        block.append("\n这是本轮知识整理的固定输入；正文尚未进入主 Agent 上下文，必须先进入 FULL_CURATION 并由 Retriever 读取。");
+        return block.toString();
+    }
+
+    /** 结果摘要字段只传递有限结构化结论，避免最终汇报节点重新接收原始 Agent 输出。 */
+    private static void appendResultField(StringBuilder result, String label, String value) {
+        if (value != null && !value.isBlank()) {
+            result.append("\n- ").append(label).append("：").append(bounded(value, 500));
+        }
     }
 
     /** 用户记忆块硬上限（码点）：超出时从行尾确定性裁剪，结尾指引不变（设计文档 §8）。 */
@@ -328,13 +400,31 @@ public class ContextAssemblyService {
         String lastNode = workflow == null || workflow.retry() == null || workflow.retry().lastValidatedNode() == null
                 ? "未知" : workflow.retry().lastValidatedNode();
         int attempt = workflow == null || workflow.retry() == null ? 0 : workflow.retry().attempt();
+        String stage = workflow == null || workflow.retry() == null || workflow.retry().stage() == null
+                ? "未知" : workflow.retry().stage();
         boolean drafter = request.agentNode() == io.github.loredock.agent.model.enums.AgentNode.DRAFTER;
         String reconciliation = drafter
                 ? "；若上一轮你已成功写入草稿（工具回执显示新修订），请先确认当前 revision 再输出" : "";
-        return "【结构化结果无效，请修复】\n你刚输出的结构化结果校验失败（lastValidatedNode=" + lastNode
+        StringBuilder block = new StringBuilder("【结构化结果无效，请修复】\n【当前阶段：")
+                .append(stage).append("】\n【当前指令】").append(text(request.currentInstruction()))
+                .append("\n你刚输出的结构化结果校验失败（lastValidatedNode=").append(lastNode
                 + "，attempt=" + attempt + "），错误摘要：" + retryText
                 + "\n请按任务要求重新输出一份字段完整、严格符合 JSON 结构的全新结果，不要重复错误字段，不要输出解释文本。"
-                + reconciliation;
+                + reconciliation);
+        if (workflow != null && !workflow.facts().isEmpty()) {
+            block.append("\n【已校验事实】");
+            workflow.facts().forEach(fact -> block.append("\n- ")
+                    .append(bounded(fact.statement(), 300))
+                    .append(" sourceRefs=[").append(String.join(",", fact.sourceRefs())).append("]"));
+        }
+        if (workflow != null && workflow.curationOutcome() != null) {
+            WorkflowContext.CurationOutcome outcome = workflow.curationOutcome();
+            block.append("\n【已完成整理摘要】");
+            appendResultField(block, "检索判断", outcome.issueType());
+            appendResultField(block, "调度动作", outcome.coordinatorAction());
+            appendResultField(block, "调度汇总", outcome.coordinatorSummary());
+        }
+        return block.toString();
     }
 
     private static String pendingGuidance(ContextAssemblyRequest request) {

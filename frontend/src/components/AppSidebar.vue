@@ -13,6 +13,7 @@
       <RouterLink to="/projects"><IconGlyph name="folder" />项目</RouterLink>
       <RouterLink data-testid="global-knowledge-link" to="/knowledge"><IconGlyph name="book" />通用业务知识</RouterLink>
       <RouterLink data-testid="global-search-link" to="/search"><IconGlyph name="search" />全局搜索</RouterLink>
+      <RouterLink v-if="role === 'ADMIN'" data-testid="memory-management-link" to="/memories"><IconGlyph name="user" />用户记忆</RouterLink>
     </nav>
 
     <div v-if="currentProject" class="sidebar-project">

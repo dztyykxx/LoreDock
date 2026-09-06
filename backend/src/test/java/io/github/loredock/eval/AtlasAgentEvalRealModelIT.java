@@ -58,8 +58,8 @@ class AtlasAgentEvalRealModelIT {
             "3a40c6eab3abdf2bd07651031a36038c2dfaf4ebb8d62ddc78f2324b2ff4389a";
     private static final String BCRYPT_HASH =
             "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
-    /** 单条用例等待终态的超时：生产运行上限 90 秒，留足模型重试与排队余量。 */
-    private static final Duration PER_CASE_TIMEOUT = Duration.ofMinutes(5);
+    /** 单条用例等待终态的超时：覆盖真实模型修复与审查链路的排队余量，避免已完成任务被误判为超时。 */
+    private static final Duration PER_CASE_TIMEOUT = Duration.ofMinutes(10);
 
     @Container
     private static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(
@@ -194,7 +194,13 @@ class AtlasAgentEvalRealModelIT {
                 .isTrue();
         assertThat(Files.isRegularFile(output)).isTrue();
         String reportJson = Files.readString(output);
-        assertThat(reportJson).contains(qaActuals.getLast().caseId()).contains(curationActuals.getLast().caseId());
+        // 允许只跑知识整理评估：qa-cases=0 时不应因验证报告包含最后一条 QA 而失败。
+        if (!qaActuals.isEmpty()) {
+            assertThat(reportJson).contains(qaActuals.getLast().caseId());
+        }
+        if (!curationActuals.isEmpty()) {
+            assertThat(reportJson).contains(curationActuals.getLast().caseId());
+        }
         System.out.printf("测试证据：场景=真实模型评估完成，数据集=%s，实际QA=%d/%d，实际知识整理=%d/%d，"
                         + "续跑=%s，本次重跑QA=%d，本次重跑知识整理=%d，"
                         + "QA准确率（Top-5出现率）=%.2f%%，召回率（目标找回率）=%.2f%%，Top5命中率=%.2f%%，"

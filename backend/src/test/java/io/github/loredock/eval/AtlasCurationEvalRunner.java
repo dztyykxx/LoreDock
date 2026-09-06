@@ -1,10 +1,14 @@
 package io.github.loredock.eval;
 
+import io.github.loredock.agent.api.AgentEvent;
 import io.github.loredock.agent.api.KnowledgeTaskService;
 import io.github.loredock.knowledge.api.KnowledgeDraftService;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 
 /**
  * 知识整理评估运行器：逐条执行评估数据集中的知识整理用例，从真实任务快照和工作区草稿中收集实际结果。
@@ -95,15 +99,19 @@ public final class AtlasCurationEvalRunner {
         KnowledgeTaskService.KnowledgeTask terminal = awaitTerminal(started.conversationId(), perCaseTimeout);
         KnowledgeTaskService.KnowledgeTaskRun run = terminal.runs().getLast();
         String finalResponse = terminal.messages().stream()
+                .filter(message -> Objects.equals(message.runId(), run.runId()))
                 .filter(message -> message.role() == KnowledgeTaskService.MessageRole.COORDINATOR_AGENT)
                 .filter(message -> message.content() != null && !message.content().isBlank())
                 .reduce((first, second) -> second)
                 .map(KnowledgeTaskService.KnowledgeTaskMessage::content)
                 .orElse(null);
         List<WorkspaceActual> workspace = workspaceActuals(terminal, run.runId());
+        GraphTrace trace = graphTrace(terminal, run.runId());
+        RunUsage usage = runUsage(run, trace);
         long elapsedMillis = Duration.ofNanos(System.nanoTime() - startedNanos).toMillis();
         return new CurationActual(
-                curationCase.caseId(), run.status(), run.errorCode(), finalResponse, workspace, elapsedMillis);
+                curationCase.caseId(), run.status(), run.errorCode(), finalResponse, workspace, trace, usage,
+                run.definition(), elapsedMillis);
     }
 
     private KnowledgeTaskService.KnowledgeTask awaitTerminal(Long conversationId, Duration timeout) {
@@ -112,7 +120,8 @@ public final class AtlasCurationEvalRunner {
         while (System.nanoTime() < deadline) {
             snapshot = tasks.get(conversationId, OPERATOR_ID);
             KnowledgeTaskService.RunStatus status = snapshot.runs().getLast().status();
-            if (status.terminal()) {
+            // WAITING_FOR_USER 是知识整理允许的可恢复暂停：评估需要记录该真实结果，不能继续等待到超时。
+            if (status.terminal() || status == KnowledgeTaskService.RunStatus.WAITING_FOR_USER) {
                 return snapshot;
             }
             try {
@@ -157,14 +166,190 @@ public final class AtlasCurationEvalRunner {
             String errorCode,
             String finalResponse,
             List<WorkspaceActual> workspace,
+            GraphTrace trace,
+            RunUsage usage,
+            KnowledgeTaskService.RuntimeDefinition definition,
             long elapsedMillis
     ) {
         public CurationActual {
             workspace = workspace == null ? List.of() : List.copyOf(workspace);
+            trace = trace == null ? GraphTrace.empty() : trace;
+            usage = usage == null ? RunUsage.empty() : usage;
+        }
+
+        /** 兼容旧评估测试构造；旧结果没有轨迹和成本时显式标记为空。 */
+        public CurationActual(
+                String caseId,
+                KnowledgeTaskService.RunStatus status,
+                String errorCode,
+                String finalResponse,
+                List<WorkspaceActual> workspace,
+                long elapsedMillis
+        ) {
+            this(caseId, status, errorCode, finalResponse, workspace,
+                    GraphTrace.empty(), RunUsage.empty(), null, elapsedMillis);
         }
     }
 
     /** 实际工作区文档：operation 为 ADD/MODIFY，markdown 为实际草稿修订正文。 */
     public record WorkspaceActual(String operation, Long baselineDocumentId, String markdown) {
+    }
+
+    /** 从安全 AGENT_STAGE 事件重建的图轨迹；不包含 Prompt、Graph State 或原始 Tool JSON。 */
+    public record GraphTrace(
+            String entryAction,
+            String finalAction,
+            List<AgentStageActual> stages,
+            List<RouteActual> routes,
+            List<SafeToolActual> tools,
+            RetrievalObservation retrieval,
+            DraftObservation draft,
+            ReviewObservation review
+    ) {
+        public GraphTrace {
+            stages = stages == null ? List.of() : List.copyOf(stages);
+            routes = routes == null ? List.of() : List.copyOf(routes);
+            tools = tools == null ? List.of() : List.copyOf(tools);
+        }
+
+        static GraphTrace empty() {
+            return new GraphTrace(null, null, List.of(), List.of(), List.of(), null, null, null);
+        }
+    }
+
+    public record AgentStageActual(
+            String phase,
+            String node,
+            String status,
+            String summary,
+            Integer promptTokens,
+            Integer completionTokens,
+            AgentEvent.CurationProjection curation,
+            long sequence
+    ) {
+    }
+
+    public record RouteActual(String from, String to, String action) {
+    }
+
+    public record SafeToolActual(
+            String toolName,
+            String agentNode,
+            String status,
+            String purpose,
+            String resultSummary,
+            Long durationMillis,
+            boolean resultTruncated
+    ) {
+    }
+
+    public record RetrievalObservation(String issueType, List<Long> sourceRefIds) {
+        public RetrievalObservation {
+            sourceRefIds = sourceRefIds == null ? List.of() : List.copyOf(sourceRefIds);
+        }
+    }
+
+    public record DraftObservation(String status, List<DraftObservationEntry> drafts) {
+        public DraftObservation {
+            drafts = drafts == null ? List.of() : List.copyOf(drafts);
+        }
+    }
+
+    public record DraftObservationEntry(Long draftId, Integer revision, String operation) {
+    }
+
+    public record ReviewObservation(String verdict, List<DraftObservationEntry> drafts, List<String> findingCodes) {
+        public ReviewObservation {
+            drafts = drafts == null ? List.of() : List.copyOf(drafts);
+            findingCodes = findingCodes == null ? List.of() : List.copyOf(findingCodes);
+        }
+    }
+
+    /** 运行级真实成本和阶段 token 归属；未知 usage 与实际 0 明确区分。 */
+    public record RunUsage(
+            int modelCallCount,
+            int toolCallCount,
+            Long inputTokens,
+            Long outputTokens,
+            boolean usageAvailable,
+            Map<String, AgentTokenUsage> byAgent
+    ) {
+        public RunUsage {
+            byAgent = byAgent == null ? Map.of() : Map.copyOf(byAgent);
+        }
+
+        static RunUsage empty() {
+            return new RunUsage(0, 0, null, null, false, Map.of());
+        }
+    }
+
+    public record AgentTokenUsage(Integer promptTokens, Integer completionTokens, boolean usageAvailable) {
+    }
+
+    private GraphTrace graphTrace(KnowledgeTaskService.KnowledgeTask task, Long runId) {
+        List<AgentStageActual> stages = task.events().stream()
+                .filter(event -> Objects.equals(event.runId(), runId))
+                .filter(event -> event.type() == AgentEvent.Type.AGENT_STAGE)
+                .map(event -> new AgentStageActual(
+                        event.payload().phase(), event.payload().name(), event.payload().status(),
+                        event.payload().summary(), event.payload().promptTokens(), event.payload().completionTokens(),
+                        event.payload().curation(), event.sequence()))
+                .toList();
+        List<RouteActual> routes = new ArrayList<>();
+        for (int index = 1; index < stages.size(); index++) {
+            AgentStageActual previous = stages.get(index - 1);
+            AgentStageActual current = stages.get(index);
+            routes.add(new RouteActual(previous.node(), current.node(),
+                    current.curation() == null ? null : current.curation().action()));
+        }
+        List<SafeToolActual> tools = task.toolInvocations().stream()
+                .filter(tool -> Objects.equals(tool.runId(), runId))
+                .map(tool -> new SafeToolActual(tool.toolName(), tool.agentNode(), tool.status().name(),
+                        tool.purpose(), tool.resultSummary(), tool.durationMillis(), tool.resultTruncated()))
+                .toList();
+        List<AgentEvent.CurationProjection> mainProjections = stages.stream()
+                .filter(stage -> "main_agent".equals(stage.node()))
+                .map(AgentStageActual::curation).filter(Objects::nonNull)
+                .filter(value -> value.action() != null)
+                .toList();
+        AgentEvent.CurationProjection main = mainProjections.isEmpty() ? null : mainProjections.getLast();
+        AgentEvent.CurationProjection retrieval = projectionFor(stages, "RETRIEVE");
+        AgentEvent.CurationProjection draft = projectionFor(stages, "DRAFT");
+        AgentEvent.CurationProjection review = projectionFor(stages, "REVIEW");
+        return new GraphTrace(
+                mainProjections.isEmpty() ? null : mainProjections.getFirst().action(),
+                main == null ? null : main.action(),
+                stages, routes, tools,
+                retrieval == null ? null : new RetrievalObservation(retrieval.issueType(), retrieval.sourceRefs().stream()
+                        .map(AgentEvent.SourceRefProjection::id).filter(Objects::nonNull).toList()),
+                draft == null ? null : new DraftObservation(draft.draftStatus(), draft.drafts().stream()
+                        .map(value -> new DraftObservationEntry(value.draftId(), value.revision(), value.operation())).toList()),
+                review == null ? null : new ReviewObservation(review.reviewVerdict(), review.drafts().stream()
+                        .map(value -> new DraftObservationEntry(value.draftId(), value.revision(), value.operation())).toList(),
+                        review.findings().stream().map(AgentEvent.FindingProjection::code).toList()));
+    }
+
+    private AgentEvent.CurationProjection projectionFor(List<AgentStageActual> stages, String phase) {
+        return stages.stream().filter(stage -> phase.equals(stage.phase()))
+                .map(AgentStageActual::curation).filter(Objects::nonNull)
+                .reduce((first, second) -> second).orElse(null);
+    }
+
+    private RunUsage runUsage(
+            KnowledgeTaskService.KnowledgeTaskRun run, GraphTrace trace) {
+        Map<String, List<AgentStageActual>> grouped = new LinkedHashMap<>();
+        trace.stages().forEach(stage -> grouped.computeIfAbsent(stage.node(), ignored -> new ArrayList<>()).add(stage));
+        Map<String, AgentTokenUsage> byAgent = new LinkedHashMap<>();
+        grouped.forEach((agent, stages) -> {
+            boolean available = stages.stream().allMatch(stage -> stage.promptTokens() != null
+                    && stage.completionTokens() != null);
+            int prompt = stages.stream().map(AgentStageActual::promptTokens).filter(Objects::nonNull)
+                    .mapToInt(Integer::intValue).sum();
+            int completion = stages.stream().map(AgentStageActual::completionTokens).filter(Objects::nonNull)
+                    .mapToInt(Integer::intValue).sum();
+            byAgent.put(agent, new AgentTokenUsage(prompt, completion, available));
+        });
+        return new RunUsage(run.modelCallCount(), run.toolCallCount(), run.inputTokens(), run.outputTokens(),
+                run.inputTokens() != null && run.outputTokens() != null, byAgent);
     }
 }

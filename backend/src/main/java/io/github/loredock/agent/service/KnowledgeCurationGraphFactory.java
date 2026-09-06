@@ -290,12 +290,23 @@ public class KnowledgeCurationGraphFactory {
         // 各 Agent 入口的完整消息视图由准备节点按目的重建（含与 spec 约定一致的显式阶段标记）。
         graph.addNode("set_decide", (AsyncNodeAction) state -> {
             log.info("knowledge graph 节点推进 set_decide：stage -> DECIDE");
-            return CompletableFuture.completedFuture(stateUpdateOnly("stage", "DECIDE"));
+            Map<String, Object> out = stateUpdateOnly("stage", "DECIDE");
+            clearRetryState(out);
+            return CompletableFuture.completedFuture(out);
         });
         // 调度 Agent 的两条结束路径先推进到 FINISH 再回到调度 Agent 汇总；FINISH 标记由准备节点按 stage 生成。
         graph.addNode("set_finish", (AsyncNodeAction) state -> {
             log.info("knowledge graph 节点推进 set_finish：stage -> FINISH");
-            return CompletableFuture.completedFuture(stateUpdateOnly("stage", "FINISH"));
+            Map<String, Object> out = stateUpdateOnly("stage", "FINISH");
+            KnowledgeCurationGraphResult.CoordinatorResult decision =
+                    safeStructured(state, "coordinationResult", KnowledgeCurationGraphResult.CoordinatorResult.class);
+            if (decision != null && decision.action() != null) {
+                out.put("decisionAction", decision.action().name());
+                out.put("decisionReason", decision.reason());
+                out.put("decisionQuestion", decision.question());
+            }
+            clearRetryState(out);
+            return CompletableFuture.completedFuture(out);
         });
         // 审查返工节点：REVISE 未达上限时递增起草轮数再回到草稿 Agent，保证最多返工两轮（draftRound 最大 2）。
         graph.addNode("set_draft_round", (AsyncNodeAction) state -> {
@@ -326,7 +337,9 @@ public class KnowledgeCurationGraphFactory {
         // 【当前阶段：FULL CURATION 完成】标记由 prep_main 按 purpose 生成。
         graph.addNode("set_main_resume", (AsyncNodeAction) state -> {
             log.info("knowledge graph 节点推进 set_main_resume：子图完成，回主 Agent 汇总");
-            return CompletableFuture.completedFuture(stateUpdateOnly("mainMode", "REPORT"));
+            Map<String, Object> out = stateUpdateOnly("mainMode", "REPORT");
+            clearRetryState(out);
+            return CompletableFuture.completedFuture(out);
         });
 
         // 结构化结果修复与恢复门（validate→repair→recovery 回路）：每个 Agent 的结果校验失败（解析或业务字段）不当作逃逸
@@ -337,7 +350,9 @@ public class KnowledgeCurationGraphFactory {
             String fixNode = FIX_PREFIX + role;
             String outputKey = OUTPUT_KEYS.get(role);
             graph.addNode(fixNode, (AsyncNodeAction) state -> {
-                int attempt = integer(state, "retryAttempt");
+                // 重试次数按失败节点归属；前一个 Agent 修复成功后，不能消耗当前 Agent 的重试额度。
+                int attempt = role.equals(stateText(state, "lastValidatedNode"))
+                        ? integer(state, "retryAttempt") : 0;
                 String error = validationErrorSummary(state, outputKey, role);
                 Map<String, Object> out = new HashMap<>();
                 out.put("retryAttempt", attempt + 1);
@@ -375,7 +390,8 @@ public class KnowledgeCurationGraphFactory {
         graph.addEdge("set_main_resume", PREP_PREFIX + MAIN_AGENT);
 
         graph.addConditionalEdges(COORDINATOR, coordinatorRouter(), coordinatorRoutes());
-        graph.addEdge(RETRIEVER, "set_decide");
+        // Retriever 也必须经过结构化结果校验；否则截断 JSON 可能被宽容解析成空结果，继续污染 Coordinator 上下文。
+        graph.addConditionalEdges(RETRIEVER, retrievalRouter(), retrievalRoutes());
         graph.addEdge("set_decide", PREP_PREFIX + COORDINATOR);
 
         graph.addConditionalEdges(DRAFTER, draftRouter(), draftRoutes());
@@ -437,7 +453,8 @@ public class KnowledgeCurationGraphFactory {
 
     /** @return 当前节点入口的组装意图：修复回路优先；主 Agent 按主入口/汇总入口；Coordinator 按 DECIDE/FINISH 阶段。 */
     private ContextPurpose purposeOf(com.alibaba.cloud.ai.graph.OverAllState state, String role) {
-        if (integer(state, "retryAttempt") > 0 && stateText(state, "validationError") != null) {
+        if (role.equals(stateText(state, "lastValidatedNode"))
+                && integer(state, "retryAttempt") > 0 && stateText(state, "validationError") != null) {
             return ContextPurpose.REPAIR;
         }
         return switch (role) {
@@ -485,16 +502,19 @@ public class KnowledgeCurationGraphFactory {
      * 事实与引用来自结构化结果键（已规范化），不携带 Tool 原文。
      */
     private WorkflowContext workflowContext(com.alibaba.cloud.ai.graph.OverAllState state, ContextPurpose purpose) {
+        // 修复入口可能正持有上一轮的残缺 JSON；这里不能再次抛解析异常阻断修复 Agent。
         KnowledgeCurationGraphResult.RetrievalResult retrieval =
-                structured(state, "retrievalResult", KnowledgeCurationGraphResult.RetrievalResult.class);
+                safeStructured(state, "retrievalResult", KnowledgeCurationGraphResult.RetrievalResult.class);
         KnowledgeCurationGraphResult.CoordinatorResult coordination =
-                structured(state, "coordinationResult", KnowledgeCurationGraphResult.CoordinatorResult.class);
+                safeStructured(state, "coordinationResult", KnowledgeCurationGraphResult.CoordinatorResult.class);
         KnowledgeCurationGraphResult.DraftResult draft =
-                structured(state, "draftResult", KnowledgeCurationGraphResult.DraftResult.class);
+                safeStructured(state, "draftResult", KnowledgeCurationGraphResult.DraftResult.class);
         KnowledgeCurationGraphResult.ReviewResult review =
-                structured(state, "reviewResult", KnowledgeCurationGraphResult.ReviewResult.class);
+                safeStructured(state, "reviewResult", KnowledgeCurationGraphResult.ReviewResult.class);
         boolean includeFacts = purpose == ContextPurpose.FULL_CURATION_DECIDE
-                || purpose == ContextPurpose.FULL_CURATION_DRAFT || purpose == ContextPurpose.FULL_CURATION_REVIEW;
+                || purpose == ContextPurpose.FULL_CURATION_DRAFT || purpose == ContextPurpose.FULL_CURATION_REVIEW
+                || purpose == ContextPurpose.FULL_CURATION_FINISH || purpose == ContextPurpose.FULL_CURATION_REPORT
+                || (purpose == ContextPurpose.REPAIR && !RETRIEVER.equals(stateText(state, "lastValidatedNode")));
         List<WorkflowContext.SupportedFact> facts = new ArrayList<>();
         List<WorkflowContext.UnresolvedQuestion> unresolved = new ArrayList<>();
         List<WorkflowContext.SourceReference> refs = new ArrayList<>();
@@ -521,7 +541,8 @@ public class KnowledgeCurationGraphFactory {
                 : null;
         WorkflowContext.RetryContext retry = purpose == ContextPurpose.REPAIR && stateText(state, "validationError") != null
                 ? new WorkflowContext.RetryContext(integer(state, "retryAttempt"),
-                        stateText(state, "lastValidatedNode"), stateText(state, "validationError"))
+                        stateText(state, "lastValidatedNode"), stateText(state, "validationError"),
+                        stateText(state, "stage"))
                 : null;
         // REVISE 返工入口（draftRound>0）：只带本轮审查发现，不继承旧轮结论。
         List<WorkflowContext.ReviewFinding> findings = purpose == ContextPurpose.FULL_CURATION_DRAFT
@@ -529,7 +550,36 @@ public class KnowledgeCurationGraphFactory {
                 ? review.findings().stream().map(finding -> new WorkflowContext.ReviewFinding(
                         finding.code().name(), String.valueOf(finding.draftId()), finding.suggestion()))
                 .toList() : List.of();
-        return new WorkflowContext(facts, unresolved, refs, drafts, instruction, target, retry, findings);
+        WorkflowContext.CurationOutcome outcome = purpose == ContextPurpose.FULL_CURATION_FINISH
+                || purpose == ContextPurpose.FULL_CURATION_REPORT
+                || (purpose == ContextPurpose.REPAIR
+                && ("FINISH".equals(stateText(state, "stage")) || "REPORT".equals(stateText(state, "mainMode"))))
+                ? curationOutcome(retrieval, coordination, draft, review,
+                        stateText(state, "decisionAction"), stateText(state, "decisionReason"),
+                        stateText(state, "decisionQuestion")) : null;
+        return new WorkflowContext(facts, unresolved, refs, drafts, instruction, target, retry, findings, outcome);
+    }
+
+    /** @return 只供最终汇报使用的结构化结果摘要，不携带 Tool 原文或完整模型 JSON。 */
+    private static WorkflowContext.CurationOutcome curationOutcome(
+            KnowledgeCurationGraphResult.RetrievalResult retrieval,
+            KnowledgeCurationGraphResult.CoordinatorResult coordination,
+            KnowledgeCurationGraphResult.DraftResult draft,
+            KnowledgeCurationGraphResult.ReviewResult review,
+            String decisionAction,
+            String decisionReason,
+            String decisionQuestion
+    ) {
+        return new WorkflowContext.CurationOutcome(
+                retrieval == null || retrieval.issueType() == null ? null : retrieval.issueType().name(),
+                isBlank(decisionAction)
+                        ? coordination == null || coordination.action() == null ? null : coordination.action().name()
+                        : decisionAction,
+                isBlank(decisionReason) ? coordination == null ? null : coordination.reason() : decisionReason,
+                isBlank(decisionQuestion) ? coordination == null ? null : coordination.question() : decisionQuestion,
+                coordination == null ? null : coordination.summary(),
+                draft == null || draft.status() == null ? null : draft.status().name(),
+                review == null || review.verdict() == null ? null : review.verdict().name());
     }
 
     /** @return 草稿结果中最新一条修订（draftId + revision），REVISE 与审查目标按此投影。 */
@@ -604,6 +654,13 @@ public class KnowledgeCurationGraphFactory {
         return out;
     }
 
+    /** 清理已完成节点留下的修复状态，避免后续入口误用旧 Agent 的 REPAIR 上下文。 */
+    private static void clearRetryState(Map<String, Object> state) {
+        state.put("retryAttempt", 0);
+        state.put("lastValidatedNode", null);
+        state.put("validationError", null);
+    }
+
     private KeyStrategyFactory keyStrategies() {
         return KeyStrategy.builder()
                 // messages 只作为下一 Agent 节点的一次性输入缓冲区：准备节点 REPLACE 组装结果，
@@ -612,6 +669,9 @@ public class KnowledgeCurationGraphFactory {
                 .addStrategy("stage", KeyStrategy.REPLACE)
                 .addStrategy("goal", KeyStrategy.REPLACE)
                 .addStrategy("coordinationResult", KeyStrategy.REPLACE)
+                .addStrategy("decisionAction", KeyStrategy.REPLACE)
+                .addStrategy("decisionReason", KeyStrategy.REPLACE)
+                .addStrategy("decisionQuestion", KeyStrategy.REPLACE)
                 .addStrategy("retrievalResult", KeyStrategy.REPLACE)
                 .addStrategy("draftResult", KeyStrategy.REPLACE)
                 .addStrategy("reviewResult", KeyStrategy.REPLACE)
@@ -820,6 +880,14 @@ public class KnowledgeCurationGraphFactory {
         return routes;
     }
 
+    private Map<String, String> retrievalRoutes() {
+        Map<String, String> routes = new LinkedHashMap<>();
+        routes.put("VALID", "set_decide");
+        // Retriever 校验失败时先进入 fix_retriever，再由修复节点决定 REPAIR/RECOVERY。
+        routes.putAll(fixEntries());
+        return routes;
+    }
+
     /** @return 指定结果键当前内容的解析错误摘要；解析成功但路由侧不满足业务规则时给出规则的概括说明。 */
     private String validationErrorSummary(com.alibaba.cloud.ai.graph.OverAllState state, String outputKey, String role) {
         Object value = state.data().get(outputKey);
@@ -887,6 +955,35 @@ public class KnowledgeCurationGraphFactory {
         return state -> CompletableFuture.completedFuture(reviewRoute(state));
     }
 
+    private AsyncEdgeAction retrievalRouter() {
+        return state -> CompletableFuture.completedFuture(retrievalRoute(state));
+    }
+
+    /** Retriever 结果校验：解析成功不代表业务结果完整，缺少关键字段必须进入同一修复回路。 */
+    String retrievalRoute(com.alibaba.cloud.ai.graph.OverAllState state) {
+        try {
+            KnowledgeCurationGraphResult.RetrievalResult result =
+                    structured(state, "retrievalResult", KnowledgeCurationGraphResult.RetrievalResult.class);
+            if (!validRetrievalResult(result)) {
+                throw new IllegalStateException("检索 Agent 结构化结果缺少 issueType、summary 或有效 facts");
+            }
+            return "VALID";
+        } catch (IllegalStateException exception) {
+            return FIX_PREFIX + RETRIEVER;
+        }
+    }
+
+    private boolean validRetrievalResult(KnowledgeCurationGraphResult.RetrievalResult result) {
+        if (result == null || result.issueType() == null || isBlank(result.summary())) {
+            return false;
+        }
+        return result.facts().stream().allMatch(fact -> fact != null
+                && !isBlank(fact.statement())
+                && fact.support() != null
+                && fact.sourceRefs().stream().allMatch(ref -> ref != null && ref.type() != null && ref.id() != null))
+                && result.unresolvedQuestions().stream().noneMatch(KnowledgeCurationGraphFactory::isBlank);
+    }
+
     /**
      * 调度 Agent 条件边：stage=START 时按 CHAT/RETRIEVE 决定直接结束或进入检索；
      * stage=DECIDE 时按 DRAFT/ASK_USER/NO_CHANGE 决定进入草稿或结束；stage=FINISH 时结束。
@@ -897,13 +994,21 @@ public class KnowledgeCurationGraphFactory {
                 String stage = text(state, "stage");
                 KnowledgeCurationGraphResult.CoordinatorResult result =
                         structured(state, "coordinationResult", KnowledgeCurationGraphResult.CoordinatorResult.class);
-                if (stage == null || result == null || result.action() == null) {
+                if (stage == null || result == null || result.stage() == null || result.action() == null
+                        || !stage.equals(result.stage().name())) {
                     throw new IllegalStateException("调度 Agent 结构化结果无效");
                 }
                 String route;
                 if ("FINISH".equals(stage)) {
+                    if (result.action() != KnowledgeCurationGraphResult.CoordinatorAction.END
+                            || isBlank(result.summary())) {
+                        throw new IllegalStateException("FINISH 阶段调度结果必须是 END 且包含汇报摘要");
+                    }
                     route = "FINISH";
                 } else if ("DECIDE".equals(stage)) {
+                    if (isBlank(result.summary())) {
+                        throw new IllegalStateException("DECIDE 阶段调度结果缺少摘要");
+                    }
                     route = switch (result.action()) {
                         case DRAFT -> {
                             // §9：DECIDE 输出 DRAFT 但没有任何 SUPPORTED 事实或没有 draftInstruction，拒绝进入草稿节点。
@@ -1060,6 +1165,9 @@ public class KnowledgeCurationGraphFactory {
                                     + " 的 memo 达到 100 码点上限（疑似把完整回复写进结构化字段）："
                                     + "完整回复必须写在可见正文，memo 仅作极短摘要（≤20 字），请重写输出");
                         }
+                    } else if ("REPORT".equals(stateText(state, "mainMode"))
+                            && !hasCurationReportContent(split.body())) {
+                        throw new IllegalStateException("主 Agent 汇报正文缺少整理结论、写入情况或待确认事项");
                     }
                     yield result.action().name();
                 }
@@ -1071,6 +1179,15 @@ public class KnowledgeCurationGraphFactory {
         } catch (IllegalStateException exception) {
             return FIX_PREFIX + MAIN_AGENT;
         }
+    }
+
+    /** 最终汇报必须携带可观察业务结论，避免“已汇总”一类空洞正文进入用户消息。 */
+    private static boolean hasCurationReportContent(String body) {
+        if (body == null || body.codePointCount(0, body.length()) < 20) {
+            return false;
+        }
+        return List.of("重复", "冲突", "缺失", "新增", "写入", "未写入", "待管理员", "ASK_USER", "DUPLICATE")
+                .stream().anyMatch(body::contains);
     }
 
     private Map<String, String> coordinatorRoutes() {
@@ -1112,6 +1229,15 @@ public class KnowledgeCurationGraphFactory {
         }
     }
 
+    /** 修复上下文的安全读取：残缺结果交给修复 Agent，不在组装阶段重复抛错。 */
+    private <T> T safeStructured(com.alibaba.cloud.ai.graph.OverAllState state, String key, Class<T> type) {
+        try {
+            return tolerantStructured(objectMapper, state.data().get(key), type);
+        } catch (IllegalStateException exception) {
+            return null;
+        }
+    }
+
     /**
      * 宽容结构化解析（路由条件边与最终回复共用同一份容错，避免"路由能过、最终回复解析失败"的分叉）：
      * 兼容类型实例 / 消息 / 字符串 / Checkpoint 往返后的 Map 四种形态；先从消息**尾部**提取 JSON
@@ -1119,9 +1245,7 @@ public class KnowledgeCurationGraphFactory {
      *
      * <ul>
      *   <li>重复键：模型长 JSON 输出存在把开头字段重复写在结尾的伪影（实测 candidateTargetDocumentId 两现）。
-     *       Jackson 对 record 按构造器属性反序列化时，同一 creator 属性第二次出现会走进"已建对象后再 set"路径，
-     *       record 没有 setter/field 可回退，直接抛 InvalidDefinitionException 使整个 run 失败；
-     *       JsonNode 层面重复键是 last-wins 覆盖（不抛错），因此先 readTree 再去树转换。</li>
+     *       解析器启用严格重复键检测，避免静默采用 last-wins 造成路由结果与最终回复不一致；该结果会进入对应 Agent 的修复回路。</li>
      *   <li>尾部尾缀：正文（自然语言）可能含花括号或 JSON 示例文本，旧的"首尾括号截取"会把正文里的
      *       示例当成结构化输出；双通道契约下 JSON 必须是消息最后的内容，改从右向左取第一个
      *       "完整 JSON 文档" 候选（详见 {@link #splitTailJson}）。</li>
@@ -1142,7 +1266,10 @@ public class KnowledgeCurationGraphFactory {
             if (split == null) {
                 throw new IllegalStateException("结构化输出中未找到 JSON 对象（JSON 必须位于消息末尾的尾缀）");
             }
-            return objectMapper.treeToValue(objectMapper.readTree(split.json()), type);
+            try (JsonParser parser = objectMapper.getFactory().createParser(split.json())) {
+                parser.enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION);
+                return objectMapper.treeToValue(objectMapper.readTree(parser), type);
+            }
         } catch (Exception exception) {
             throw new IllegalStateException("Agent 结构化结果无法解析：" + type.getSimpleName(), exception);
         }

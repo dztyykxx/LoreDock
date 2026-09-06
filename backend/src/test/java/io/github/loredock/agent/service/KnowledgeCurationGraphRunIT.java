@@ -461,6 +461,7 @@ class KnowledgeCurationGraphRunIT {
         List<String> coordinator = model.prompts("coordinator");
         assertThat(coordinator).hasSize(2);
         assertThat(coordinator.get(1)).contains("【当前阶段：FINISH】");
+        assertThat(model.prompts("main_agent").get(1)).contains("NO_CHANGE");
         System.out.printf("测试证据：场景=NO_CHANGE路径FINISH带阶段标记，coordinator进入=%d，FINISH含阶段标记=%s%n",
                 coordinator.size(), coordinator.get(1).contains("【当前阶段：FINISH】"));
     }

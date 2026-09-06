@@ -9,12 +9,14 @@ import java.time.Instant;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /** 复用项目既有有界 SSE 执行器，以数据库任务事件 ID 支持续读和跨进程恢复。 */
 @Service
+@Slf4j
 public class KnowledgeTaskSseService {
     private final KnowledgeTaskService tasks;
     private final AuthService sessions;
@@ -75,10 +77,15 @@ public class KnowledgeTaskSseService {
                 Thread.sleep(1000);
             }
         } catch (IOException ignored) {
+            // 客户端已断开，不记日志。
             closed.set(true);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-        } catch (RuntimeException ignored) {
+        } catch (RuntimeException exception) {
+            // 连接异常（读任务、鉴权复核等失败）会立即终止本次推送；
+            // 记录关键信息便于定位“前端收不到更新”类问题，避免静默消失。
+            log.warn("knowledge_task sse stream failed conversationId={} operator={} cursor={} because={}",
+                    request.conversationId(), request.operatorId(), cursor, exception.toString());
             closed.set(true);
         } finally {
             if (closed.compareAndSet(false, true)) {

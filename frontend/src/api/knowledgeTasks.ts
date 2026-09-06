@@ -3,6 +3,17 @@ import { requestJson } from './http'
 export type KnowledgeTaskRunStatus = 'ACCEPTED' | 'RUNNING' | 'PAUSE_REQUESTED' | 'WAITING_FOR_USER' | 'COMPLETED' | 'FAILED' | 'TERMINATED' | 'CANCELLED'
 export type KnowledgeTaskStatus = 'PROCESSING' | 'PUBLISHED' | 'CLOSED_NO_CHANGE' | 'ABANDONED'
 
+export interface KnowledgeTaskCurationProjection {
+  action: string | null
+  issueType: string | null
+  draftStatus: string | null
+  reviewVerdict: string | null
+  sourceRefs: Array<{ type: string; id: number }>
+  drafts: Array<{ draftId: number; revision: number; operation: string }>
+  findings: Array<{ code: string; draftId: number }>
+  expertCalls: string[]
+}
+
 /** 与后端公开 AgentEvent 契约一致的字段白名单；不含 Prompt、思维链、Checkpoint、完整 Graph State 或 Tool 原始返回。 */
 export interface KnowledgeTaskEventPayload {
   phase: string | null
@@ -21,6 +32,8 @@ export interface KnowledgeTaskEventPayload {
   truncated: boolean
   promptTokens: number | null
   completionTokens: number | null
+  /** 仅供评估与安全回放读取；页面默认不展开这些稳定 ID/枚举。 */
+  curation?: KnowledgeTaskCurationProjection | null
 }
 
 export interface KnowledgeTaskEvent {

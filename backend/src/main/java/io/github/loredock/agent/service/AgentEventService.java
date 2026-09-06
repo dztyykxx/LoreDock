@@ -13,6 +13,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -28,6 +29,18 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 @Service
 @Slf4j
 public class AgentEventService {
+
+    private static final int MAX_PROJECTION_LIST_SIZE = 20;
+    private static final int MAX_PROJECTION_TEXT_CODE_POINTS = 100;
+    private static final Set<String> ACTIONS = Set.of("CHAT", "TURN_DONE", "FULL_CURATION", "RETRIEVE",
+            "DRAFT", "ASK_USER", "NO_CHANGE", "END");
+    private static final Set<String> ISSUE_TYPES = Set.of("DUPLICATE", "CONFLICT", "MISSING", "NONE");
+    private static final Set<String> DRAFT_STATUSES = Set.of("WRITTEN", "BLOCKED");
+    private static final Set<String> REVIEW_VERDICTS = Set.of("PASS", "REVISE", "ASK_USER");
+    private static final Set<String> SOURCE_TYPES = Set.of("EVIDENCE", "SELECTED_DRAFT", "USER_MESSAGE");
+    private static final Set<String> DRAFT_OPERATIONS = Set.of("ADD", "MODIFY");
+    private static final Set<String> FINDING_CODES = Set.of("UNSUPPORTED_CLAIM", "USER_INTENT_MISMATCH",
+            "UNRESOLVED_CONFLICT", "DOCUMENT_BOUNDARY");
 
     private final AgentRunEventMapper events;
     private final ObjectMapper objectMapper;
@@ -66,6 +79,9 @@ public class AgentEventService {
     ) {
         Objects.requireNonNull(subjectType, "event subject type");
         Objects.requireNonNull(payload, "event payload");
+        if (payload.curation() != null && type != AgentEventType.AGENT_STAGE) {
+            throw new IllegalArgumentException("curation projection only allowed on AGENT_STAGE");
+        }
         AgentRunEventEntity entity = events.appendWhileRunningReturning(
                 runId, type.name(), subjectType.name(), typedJson(payload), createdAt);
         if (entity == null) {
@@ -179,9 +195,78 @@ public class AgentEventService {
 
     private String typedJson(AgentEvent.Payload payload) {
         try {
+            validateCurationProjection(payload.curation());
             return objectMapper.writeValueAsString(payload);
         } catch (JsonProcessingException exception) {
             throw new IllegalArgumentException("agent typed event payload invalid", exception);
+        }
+    }
+
+    /**
+     * 校验知识整理评估投影的白名单和大小边界。投影是可选的，旧事件和 QA 事件保持 null；
+     * 任何越界或未知枚举都拒绝落库，避免评估字段逐渐演变成原始模型输出存储。
+     */
+    private void validateCurationProjection(AgentEvent.CurationProjection projection) {
+        if (projection == null) {
+            return;
+        }
+        validateValue(projection.action(), ACTIONS, "curation.action");
+        validateValue(projection.issueType(), ISSUE_TYPES, "curation.issueType");
+        validateValue(projection.draftStatus(), DRAFT_STATUSES, "curation.draftStatus");
+        validateValue(projection.reviewVerdict(), REVIEW_VERDICTS, "curation.reviewVerdict");
+        validateSize(projection.sourceRefs().size(), "curation.sourceRefs");
+        projection.sourceRefs().forEach(source -> {
+            if (source == null || source.id() == null) {
+                throw new IllegalArgumentException("curation.sourceRefs contains invalid id");
+            }
+            requireValue(source.type(), SOURCE_TYPES, "curation.sourceRefs.type");
+        });
+        validateSize(projection.drafts().size(), "curation.drafts");
+        projection.drafts().forEach(draft -> {
+            if (draft == null || draft.draftId() == null || draft.revision() == null) {
+                throw new IllegalArgumentException("curation.drafts contains invalid id or revision");
+            }
+            requireValue(draft.operation(), DRAFT_OPERATIONS, "curation.drafts.operation");
+        });
+        validateSize(projection.findings().size(), "curation.findings");
+        projection.findings().forEach(finding -> {
+            if (finding == null) {
+                throw new IllegalArgumentException("curation.findings contains null");
+            }
+            requireValue(finding.code(), FINDING_CODES, "curation.findings.code");
+            if (finding.draftId() == null) {
+                throw new IllegalArgumentException("curation.findings contains invalid draft id");
+            }
+        });
+        validateSize(projection.expertCalls().size(), "curation.expertCalls");
+        projection.expertCalls().forEach(value -> validateText(value, "curation.expertCalls"));
+    }
+
+    private void validateSize(int size, String field) {
+        if (size > MAX_PROJECTION_LIST_SIZE) {
+            throw new IllegalArgumentException(field + " exceeds public bound");
+        }
+    }
+
+    private void validateValue(String value, Set<String> allowed, String field) {
+        if (value != null && !allowed.contains(value)) {
+            throw new IllegalArgumentException(field + " contains unsupported value");
+        }
+        if (value != null) {
+            validateText(value, field);
+        }
+    }
+
+    private void requireValue(String value, Set<String> allowed, String field) {
+        if (value == null) {
+            throw new IllegalArgumentException(field + " is required");
+        }
+        validateValue(value, allowed, field);
+    }
+
+    private void validateText(String value, String field) {
+        if (value == null || value.codePointCount(0, value.length()) > MAX_PROJECTION_TEXT_CODE_POINTS) {
+            throw new IllegalArgumentException(field + " exceeds public text bound");
         }
     }
 

@@ -87,22 +87,18 @@ const loading = ref(true)
 const error = ref('')
 const publicationConflict = ref(false)
 let pollTimer: number | undefined
-let polling = false
 let eventSource: EventSource | undefined
 
-function runIsActive(): boolean {
-  const status = task.value?.runs.at(-1)?.status
-  return status !== undefined && ['ACCEPTED', 'RUNNING', 'PAUSE_REQUESTED'].includes(status)
-}
-
+/**
+ * 持续刷新只在任务处于 PROCESSING 期间运行，不再随“最近一轮的状态”启停：
+ * 失败/终止的一轮结束后仍然需要收到下一轮的实时过程，而 SSE 可能因 5 分钟
+ * 上限或静默异常退出，唯一的低延迟兜底就是这条定时链；任务关闭前它必须保持存活。
+ */
 function schedulePoll(): void {
-  if (!runIsActive() || pollTimer !== undefined) return
+  if (task.value?.status !== 'PROCESSING' || pollTimer !== undefined) return
   pollTimer = window.setTimeout(async () => {
     pollTimer = undefined
-    if (polling) return schedulePoll()
-    polling = true
     await refresh()
-    polling = false
     schedulePoll()
   }, 5000)
 }
@@ -118,6 +114,9 @@ async function load(): Promise<void> {
 
 async function refresh(): Promise<void> {
   try { await load() } catch { error.value = '知识任务刷新失败，请稍后重试。' }
+  // 任何触发刷新的事件（SSE、继续、停止、手动）都顺带续上定时链；
+  // 即使定时器自身某次刷新失败/停顿，也会被下一次事件重新激活。
+  schedulePoll()
 }
 
 async function stop(runId: number): Promise<void> {
@@ -129,8 +128,8 @@ async function stop(runId: number): Promise<void> {
 async function continueTask(guidance: string): Promise<void> {
   try {
     await knowledgeTaskApi.continueTask(identifier, conversationId, guidance)
+    // refresh 内部会续上定时链：无论上一轮是否失败或刚结束，新一轮的过程都能持续刷新。
     await refresh()
-    schedulePoll()
   } catch { error.value = '消息发送失败，请重试。' }
 }
 

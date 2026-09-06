@@ -34,6 +34,7 @@ import io.github.loredock.agent.exception.ContextRunBudgetExceededException;
 
 import io.github.loredock.agent.mapper.KnowledgeTaskConversationMapper;
 import io.github.loredock.agent.mapper.KnowledgeTaskMessageMapper;
+import io.github.loredock.agent.mapper.KnowledgeTaskSelectedDraftMapper;
 import io.github.loredock.agent.model.entity.AgentRunEntity;
 import io.github.loredock.agent.model.entity.KnowledgeTaskConversationEntity;
 import io.github.loredock.agent.model.entity.KnowledgeTaskMessageEntity;
@@ -128,6 +129,32 @@ public class KnowledgeCurationRunExecutor {
             Clock clock,
             MemoryPreloadSupply memoryPreload
     ) {
+        this(models, properties, toolResolver, checkpoints, definitions, objectMapper, runs, conversations, messages,
+                events, taskEvents, toolInvocations, projection, scheduler, contextBudget, clock, memoryPreload, null);
+    }
+
+    /** Spring 生产装配：把会话固定候选的元数据投影到首轮上下文，正文仍由 Retriever Tool 读取。 */
+    @org.springframework.beans.factory.annotation.Autowired
+    public KnowledgeCurationRunExecutor(
+            ObjectProvider<ChatModel> models,
+            AgentProperties properties,
+            ToolCallbackResolver toolResolver,
+            PostgresSaver checkpoints,
+            KnowledgeAgentDefinitionService definitions,
+            ObjectMapper objectMapper,
+            AgentRunMapper runs,
+            KnowledgeTaskConversationMapper conversations,
+            KnowledgeTaskMessageMapper messages,
+            AgentEventService events,
+            KnowledgeTaskEventService taskEvents,
+            KnowledgeToolInvocationService toolInvocations,
+            KnowledgeTaskRunProjectionService projection,
+            BoundedAgentRunScheduler scheduler,
+            ContextBudget contextBudget,
+            Clock clock,
+            MemoryPreloadSupply memoryPreload,
+            KnowledgeTaskSelectedDraftMapper selectedDrafts
+    ) {
         this.models = models;
         this.properties = properties;
         this.toolResolver = toolResolver;
@@ -147,7 +174,7 @@ public class KnowledgeCurationRunExecutor {
         this.memoryPreload = Objects.requireNonNull(memoryPreload, "memory preload supply");
         this.contextAssembly = new ContextAssemblyService(conversations, messages, contextBudget,
                 contextEstimator, new ContextCompressionService(objectMapper, messages, contextEstimator),
-                memoryPreload);
+                memoryPreload, selectedDrafts);
         this.clock = clock;
     }
 
@@ -557,14 +584,114 @@ public class KnowledgeCurationRunExecutor {
         String phase = stagePhase(node, message.getText());
         String summary = bounded(projectSummary(node, message.getText()), MAX_PUBLIC_PROGRESS_CODE_POINTS);
         RunMetrics.AgentToken tokens = metrics.takeStageTokens(node);
+        ProjectionData projection = curationProjection(node, message.getText());
         Instant now = clock.instant();
         events.append(run.getId(), AgentEventType.AGENT_STAGE, AgentEvent.SubjectType.AGENT,
                 new AgentEvent.Payload(phase, node, null, null, null, null, null, "COMPLETED",
-                        List.of(), summary, null, null, null, false, false,
-                        tokens.promptTokens(), tokens.completionTokens()),
+                        List.of(), summary, null, null, null, false,
+                        projection != null && projection.truncated(),
+                        tokens.promptTokens(), tokens.completionTokens(),
+                        projection == null ? null : projection.value()),
                 now);
         taskEvents.append(run.getKnowledgeTaskConversationId(), run.getId(), "AGENT_STAGE_UPDATED",
                 run.getId(), now);
+    }
+
+    /**
+     * 从已通过图节点解析的结构化结果构造最小评估投影。解析失败时返回 null，让现有修复/恢复链路继续
+     * 负责业务结果；这里绝不把模型原始 JSON 或事实正文复制进公开事件。
+     */
+    private ProjectionData curationProjection(String node, String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        try {
+            if (KnowledgeCurationGraphFactory.MAIN_AGENT.equals(node)) {
+                KnowledgeCurationGraphResult.MainTurnResult result = KnowledgeCurationGraphFactory
+                        .tolerantStructured(objectMapper, text, KnowledgeCurationGraphResult.MainTurnResult.class);
+                if (result == null) {
+                    return null;
+                }
+                List<String> calls = result.expertCalls() == null ? List.of() : result.expertCalls();
+                boolean truncated = calls.size() > 10;
+                AgentEvent.CurationProjection value = new AgentEvent.CurationProjection(
+                        result.action().name(), null, null, null, List.of(), List.of(), List.of(),
+                        calls.stream().filter(Objects::nonNull).limit(10).toList());
+                return new ProjectionData(value, truncated);
+            }
+            if (KnowledgeCurationGraphFactory.COORDINATOR.equals(node)) {
+                KnowledgeCurationGraphResult.CoordinatorResult result = KnowledgeCurationGraphFactory
+                        .tolerantStructured(objectMapper, text, KnowledgeCurationGraphResult.CoordinatorResult.class);
+                return result == null ? null : new ProjectionData(new AgentEvent.CurationProjection(
+                        result.action().name(), null, null, null, List.of(), List.of(), List.of(), List.of()), false);
+            }
+            if (KnowledgeCurationGraphFactory.RETRIEVER.equals(node)) {
+                KnowledgeCurationGraphResult.RetrievalResult result = KnowledgeCurationGraphFactory
+                        .tolerantStructured(objectMapper, text, KnowledgeCurationGraphResult.RetrievalResult.class);
+                if (result == null) {
+                    return null;
+                }
+                List<AgentEvent.SourceRefProjection> refs = result.facts().stream()
+                        .filter(Objects::nonNull)
+                        .flatMap(fact -> fact.sourceRefs().stream())
+                        .filter(Objects::nonNull)
+                        .filter(ref -> ref.type() != null && ref.id() != null)
+                        .map(ref -> new AgentEvent.SourceRefProjection(
+                                ref.type().name(), ref.id()))
+                        .distinct()
+                        .toList();
+                boolean truncated = refs.size() > 20;
+                return new ProjectionData(new AgentEvent.CurationProjection(
+                        null, result.issueType() == null ? null : result.issueType().name(), null, null,
+                        refs.stream().limit(20).toList(), List.of(), List.of(), List.of()), truncated);
+            }
+            if (KnowledgeCurationGraphFactory.DRAFTER.equals(node)) {
+                KnowledgeCurationGraphResult.DraftResult result = KnowledgeCurationGraphFactory
+                        .tolerantStructured(objectMapper, text, KnowledgeCurationGraphResult.DraftResult.class);
+                if (result == null) {
+                    return null;
+                }
+                List<AgentEvent.DraftProjection> drafts = result.drafts().stream()
+                        .filter(Objects::nonNull)
+                        .filter(draft -> draft.draftId() != null && draft.revision() != null && draft.operation() != null)
+                        .map(draft -> new AgentEvent.DraftProjection(
+                                draft.draftId(), draft.revision(), draft.operation().name()))
+                        .toList();
+                boolean truncated = drafts.size() > 10;
+                return new ProjectionData(new AgentEvent.CurationProjection(
+                        null, null, result.status() == null ? null : result.status().name(), null,
+                        List.of(), drafts.stream().limit(10).toList(), List.of(), List.of()), truncated);
+            }
+            if (KnowledgeCurationGraphFactory.REVIEWER.equals(node)) {
+                KnowledgeCurationGraphResult.ReviewResult result = KnowledgeCurationGraphFactory
+                        .tolerantStructured(objectMapper, text, KnowledgeCurationGraphResult.ReviewResult.class);
+                if (result == null) {
+                    return null;
+                }
+                List<AgentEvent.DraftProjection> drafts = result.reviewedDrafts().stream()
+                        .filter(Objects::nonNull)
+                        .filter(draft -> draft.draftId() != null && draft.revision() != null && draft.operation() != null)
+                        .map(draft -> new AgentEvent.DraftProjection(
+                                draft.draftId(), draft.revision(), draft.operation().name()))
+                        .toList();
+                List<AgentEvent.FindingProjection> findings = result.findings().stream()
+                        .filter(Objects::nonNull)
+                        .filter(finding -> finding.code() != null && finding.draftId() != null)
+                        .map(finding -> new AgentEvent.FindingProjection(
+                                finding.code().name(), finding.draftId()))
+                        .toList();
+                boolean truncated = drafts.size() > 10 || findings.size() > 20;
+                return new ProjectionData(new AgentEvent.CurationProjection(
+                        null, null, null, result.verdict() == null ? null : result.verdict().name(),
+                        List.of(), drafts.stream().limit(10).toList(), findings.stream().limit(20).toList(), List.of()), truncated);
+            }
+        } catch (RuntimeException exception) {
+            log.debug("knowledge curation projection skipped node={} reason={}", node, exception.toString());
+        }
+        return null;
+    }
+
+    private record ProjectionData(AgentEvent.CurationProjection value, boolean truncated) {
     }
 
     /** 阶段事件 phase：主 Agent 标记 MAIN；调度 Agent 按 stage（START/DECIDE/FINISH）；三个专家按 RETRIEVE/DRAFT/REVIEW。 */
@@ -635,8 +762,8 @@ public class KnowledgeCurationRunExecutor {
         Object mainRaw = snapshot.state().data().get("mainTurnResult");
         // 双通道契约（见 main_agent.md）：最终回复优先取消息**正文**（面向管理员的完整回复），
         // 正文缺失时回退 memo（极短降级摘要）；两者皆缺才继续回退协调结果摘要。
-        // 与路由条件边共用同一份宽容解析（tail 提取 + 重复键 last-wins，见 tolerantStructured），
-        // 坏输出不再把 run 打成 AGENT_MODEL_RESPONSE_INVALID（runId=60 教训）。
+        // 与路由条件边共用同一份尾缀解析（见 tolerantStructured）；重复键或残缺 JSON
+        // 会进入修复/恢复路径，不再把不可信的局部字段当作最终可见结论。
         KnowledgeCurationGraphFactory.SplitMessage split =
                 KnowledgeCurationGraphFactory.splitTailJson(objectMapper, mainRaw);
         if (split != null && split.hasBody()) {

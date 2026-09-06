@@ -49,7 +49,7 @@ public final class AtlasAgentEvalFixture {
                 });
         List<CurationCase> curationCases = readJson(testsRoot.resolve("curation-cases.json"),
                 new com.fasterxml.jackson.core.type.TypeReference<List<CurationCase>>() {
-                });
+                }).stream().map(AtlasAgentEvalFixture::normalizeCurationCase).toList();
         DocumentManifest documentManifest = readJson(documentsRoot.resolve("manifest.json"), DocumentManifest.class);
         List<DocumentSpec> documents = new ArrayList<>();
         for (DocumentEntry entry : documentManifest.documents()) {
@@ -65,6 +65,17 @@ public final class AtlasAgentEvalFixture {
         EvalData data = new EvalData(manifest, qaCases, curationCases, List.copyOf(documents));
         validate(data);
         return data;
+    }
+
+    /** v1 兼容：null 只表示旧数据集未写明问题类型，加载后的评估契约统一使用 NONE。 */
+    private static CurationCase normalizeCurationCase(CurationCase value) {
+        CurationExpected expected = value.expected();
+        if (expected == null || expected.issueType() != null) {
+            return value;
+        }
+        return new CurationCase(value.caseId(), value.input(), new CurationExpected(
+                "NONE", expected.relatedDocumentIds(), expected.action(), expected.finalResponse(), expected.workspace(),
+                expected.forbiddenDraftFacts(), expected.pathExpectation(), expected.responseCriteria()));
     }
 
     /**
@@ -164,6 +175,13 @@ public final class AtlasAgentEvalFixture {
             if (curationCase.expected().finalResponse() == null || curationCase.expected().finalResponse().isBlank()) {
                 violations.add(curationCase.caseId() + " 缺少完整参考最终回答");
             }
+            if (!Set.of("DUPLICATE", "CONFLICT", "MISSING", "NONE").contains(curationCase.expected().issueType())) {
+                violations.add(curationCase.caseId() + " issueType 不在允许枚举中");
+            }
+            if (!Set.of("NO_CHANGE", "MERGE", "ASK_USER", "ADD_OR_UPDATE").contains(curationCase.expected().action())) {
+                violations.add(curationCase.caseId() + " action 不在允许枚举中");
+            }
+            validatePathExpectation(curationCase, violations);
             for (Long documentId : curationCase.expected().relatedDocumentIds()) {
                 if (!byId.containsKey(documentId)) {
                     violations.add(curationCase.caseId() + " 关联文档 ID=" + documentId + " 不在加载文档中");
@@ -175,6 +193,36 @@ public final class AtlasAgentEvalFixture {
         }
         if (!violations.isEmpty()) {
             throw new IllegalStateException("Atlas Agent 评估数据最小质量检查失败：\n  - " + String.join("\n  - ", violations));
+        }
+    }
+
+    private static void validatePathExpectation(CurationCase value, List<String> violations) {
+        PathExpectation path = value.expected().pathExpectation();
+        ResponseCriteria response = value.expected().responseCriteria();
+        if (response != null && response.mustMention().size() > 10) {
+            violations.add(value.caseId() + " responseCriteria.mustMention 数量超过上限");
+        }
+        if (path == null) {
+            return;
+        }
+        if (!Set.of("CHAT", "TURN_DONE", "FULL_CURATION").contains(path.entryAction())) {
+            violations.add(value.caseId() + " pathExpectation.entryAction 不在允许枚举中");
+        }
+        Set<String> agents = Set.of("main_agent", "coordinator", "retriever", "drafter", "reviewer");
+        if (path.requiredLogicalAgents().stream().anyMatch(agent -> !agents.contains(agent))) {
+            violations.add(value.caseId() + " pathExpectation.requiredLogicalAgents 含未知 Agent");
+        }
+        if (path.forbiddenLogicalAgents().stream().anyMatch(agent -> !agents.contains(agent))) {
+            violations.add(value.caseId() + " pathExpectation.forbiddenLogicalAgents 含未知 Agent");
+        }
+        if (path.requiredLogicalAgents().stream().anyMatch(path.forbiddenLogicalAgents()::contains)) {
+            violations.add(value.caseId() + " pathExpectation 同时要求和禁止同一 Agent");
+        }
+        if (path.forbiddenWrites() && value.expected().workspace() != null) {
+            violations.add(value.caseId() + " forbiddenWrites=true 时不应设置 workspace");
+        }
+        if (path.requiredLogicalAgents().size() > 5 || path.forbiddenLogicalAgents().size() > 5) {
+            violations.add(value.caseId() + " pathExpectation Agent 数量超过上限");
         }
     }
 
@@ -315,11 +363,48 @@ public final class AtlasAgentEvalFixture {
             String action,
             String finalResponse,
             WorkspaceExpectation workspace,
-            List<String> forbiddenDraftFacts
+            List<String> forbiddenDraftFacts,
+            PathExpectation pathExpectation,
+            ResponseCriteria responseCriteria
     ) {
         public CurationExpected {
             relatedDocumentIds = relatedDocumentIds == null ? List.of() : List.copyOf(relatedDocumentIds);
             forbiddenDraftFacts = forbiddenDraftFacts == null ? List.of() : List.copyOf(forbiddenDraftFacts);
+        }
+
+        /** 兼容 v1 数据集的六字段结构。 */
+        public CurationExpected(
+                String issueType,
+                List<Long> relatedDocumentIds,
+                String action,
+                String finalResponse,
+                WorkspaceExpectation workspace,
+                List<String> forbiddenDraftFacts
+        ) {
+            this(issueType, relatedDocumentIds, action, finalResponse, workspace, forbiddenDraftFacts, null, null);
+        }
+    }
+
+    /** 业务路径不变量；不写死准备节点、事件数量或框架内部节点。 */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record PathExpectation(
+            String entryAction,
+            List<String> requiredLogicalAgents,
+            List<String> forbiddenLogicalAgents,
+            boolean forbiddenWrites,
+            boolean reviewRequired
+    ) {
+        public PathExpectation {
+            requiredLogicalAgents = requiredLogicalAgents == null ? List.of() : List.copyOf(requiredLogicalAgents);
+            forbiddenLogicalAgents = forbiddenLogicalAgents == null ? List.of() : List.copyOf(forbiddenLogicalAgents);
+        }
+    }
+
+    /** 最终公开回复的语义检查条件；不要求与参考回答逐字相同。 */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record ResponseCriteria(List<String> mustMention, boolean mustNotClaimPublished) {
+        public ResponseCriteria {
+            mustMention = mustMention == null ? List.of() : List.copyOf(mustMention);
         }
     }
 

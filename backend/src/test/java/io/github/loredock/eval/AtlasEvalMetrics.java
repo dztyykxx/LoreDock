@@ -3,6 +3,8 @@ package io.github.loredock.eval;
 import io.github.loredock.eval.AtlasAgentEvalFixture.CurationCase;
 import io.github.loredock.eval.AtlasAgentEvalFixture.QaCase;
 import io.github.loredock.eval.AtlasCurationEvalRunner.CurationActual;
+import io.github.loredock.eval.AtlasCurationEvalRunner.AgentStageActual;
+import io.github.loredock.eval.AtlasCurationEvalRunner.GraphTrace;
 import io.github.loredock.eval.AtlasCurationEvalRunner.WorkspaceActual;
 import io.github.loredock.eval.AtlasQaEvalRunner.QaActual;
 import io.github.loredock.eval.AtlasQaEvalRunner.RetrievalActual;
@@ -115,8 +117,8 @@ public final class AtlasEvalMetrics {
     /**
      * 计算单条知识整理用例的客观判定。
      *
-     * <p>动作正确率采用确定性近似：NO_CHANGE/MERGE/ADD_OR_UPDATE 以实际工作区是否与预期一致判定，
-     * ASK_USER 额外要求最终回复明确请求人工确认；问题识别正确与否属于 LLM Judge 判定，暂为空。</p>
+     * <p>动作正确率采用确定性近似：优先使用 Coordinator 在 DECIDE 阶段的内部动作，
+     * 再结合实际工作区和最终回复确认外部效果；问题识别正确与否属于 LLM Judge 判定，暂为空。</p>
      *
      * @param actual 实际结果
      * @param curationCase 评估用例
@@ -126,9 +128,21 @@ public final class AtlasEvalMetrics {
         boolean workspaceMatch = workspaceMatches(curationCase, actual);
         boolean unsafeWrite = containsForbiddenFacts(curationCase, actual);
         boolean actionCorrect = actionCorrect(curationCase, actual, workspaceMatch);
+        AtlasAgentEvalFixture.PathExpectation path = curationCase.expected().pathExpectation();
+        Boolean completion = actual.status() == null ? null : actual.status().terminal();
+        Boolean entryRouting = path == null || path.entryAction() == null ? null
+                : path.entryAction().equals(actual.trace().entryAction());
+        Boolean pathInvariant = path == null ? null : pathInvariant(path, actual);
+        Boolean evidenceCoverage = path == null ? null : evidenceCoverage(curationCase, actual);
+        Boolean draftGrounding = actual.workspace().isEmpty() ? Boolean.TRUE
+                : !actual.trace().tools().isEmpty() && actual.trace().retrieval() != null;
+        Boolean reviewPass = path == null || !path.reviewRequired() ? null
+                : actual.trace().review() != null && actual.trace().review().verdict() != null;
+        Boolean reviewRework = path == null || !path.reviewRequired() ? null : reviewRework(actual.trace());
         return new CurationVerdict(
                 actual.caseId(), curationCase.expected().issueType(), curationCase.expected().action(),
-                null, workspaceMatch, actionCorrect, unsafeWrite, null, null);
+                null, workspaceMatch, actionCorrect, unsafeWrite, null, null,
+                completion, entryRouting, pathInvariant, evidenceCoverage, draftGrounding, reviewPass, reviewRework);
     }
 
     /**
@@ -144,7 +158,7 @@ public final class AtlasEvalMetrics {
             Map<String, String> judgedIssueTypes
     ) {
         List<CurationVerdict> issueCases = verdicts.stream()
-                .filter(verdict -> verdict.issueType() != null).toList();
+                .filter(verdict -> verdict.issueType() != null && !"NONE".equals(verdict.issueType())).toList();
         long actionCorrect = issueCases.stream().filter(CurationVerdict::actionCorrect).count();
         List<CurationVerdict> conflictOrMissing = verdicts.stream()
                 .filter(verdict -> "CONFLICT".equals(verdict.issueType())
@@ -168,8 +182,43 @@ public final class AtlasEvalMetrics {
                 issueCases.isEmpty() ? 0.0D : (double) actionCorrect / issueCases.size(),
                 conflictOrMissing.isEmpty() ? 0.0D : (double) unsafeWrites / conflictOrMissing.size(),
                 unsafeWrites, conflictOrMissing.size(),
-                judgedIssueTypes == null || judgedIssueTypes.isEmpty() ? null : (double) correctByJudge / issueCases.size(),
+                judgedIssueTypes == null || judgedIssueTypes.isEmpty() || issueCases.isEmpty()
+                        ? null : (double) correctByJudge / issueCases.size(),
+                averageBoolean(verdicts, CurationVerdict::completion),
+                averageBoolean(verdicts, CurationVerdict::entryRoutingCorrect),
+                averageBoolean(verdicts, CurationVerdict::pathInvariant),
+                averageBoolean(verdicts, CurationVerdict::retrievalEvidenceCoverage),
+                averageBoolean(verdicts, CurationVerdict::draftGrounding),
+                averageBoolean(verdicts, CurationVerdict::reviewPass),
+                averageBoolean(verdicts, CurationVerdict::reviewRework),
                 Map.copyOf(issueF1));
+    }
+
+    private static boolean pathInvariant(AtlasAgentEvalFixture.PathExpectation expected, CurationActual actual) {
+        Set<String> actualAgents = actual.trace().stages().stream()
+                .map(AgentStageActual::node).filter(Objects::nonNull).collect(java.util.stream.Collectors.toSet());
+        boolean required = expected.requiredLogicalAgents().stream().allMatch(actualAgents::contains);
+        boolean forbidden = expected.forbiddenLogicalAgents().stream().noneMatch(actualAgents::contains);
+        boolean writes = !expected.forbiddenWrites() || actual.workspace().isEmpty();
+        return required && forbidden && writes;
+    }
+
+    private static boolean evidenceCoverage(CurationCase curationCase, CurationActual actual) {
+        Set<Long> expected = Set.copyOf(curationCase.expected().relatedDocumentIds());
+        if (expected.isEmpty()) {
+            return true;
+        }
+        return actual.trace().retrieval() != null
+                && actual.trace().retrieval().sourceRefIds().containsAll(expected);
+    }
+
+    private static boolean reviewRework(GraphTrace trace) {
+        if (trace.review() == null || !"REVISE".equals(trace.review().verdict())) {
+            return true;
+        }
+        List<String> nodes = trace.stages().stream().map(AgentStageActual::node).toList();
+        int reviewIndex = nodes.lastIndexOf("reviewer");
+        return reviewIndex >= 0 && reviewIndex + 1 < nodes.size() && "drafter".equals(nodes.get(reviewIndex + 1));
     }
 
     private static boolean workspaceMatches(CurationCase curationCase, CurationActual actual) {
@@ -182,11 +231,34 @@ public final class AtlasEvalMetrics {
     }
 
     private static boolean actionCorrect(CurationCase curationCase, CurationActual actual, boolean workspaceMatch) {
-        String action = curationCase.expected().action();
-        if ("ASK_USER".equals(action)) {
-            return workspaceMatch && asksHumanConfirmation(actual.finalResponse());
+        String expectedAction = curationCase.expected().action();
+        String coordinatorAction = coordinatorDecisionAction(actual);
+        if (coordinatorAction == null) {
+            // 兼容没有采集图轨迹的旧离线结果；真实运行结果必须走内部 DECIDE 动作判定。
+            return "ASK_USER".equals(expectedAction)
+                    ? workspaceMatch && asksHumanConfirmation(actual.finalResponse()) : workspaceMatch;
         }
-        return workspaceMatch;
+        boolean decisionMatches = switch (expectedAction) {
+            case "ASK_USER" -> "ASK_USER".equals(coordinatorAction);
+            case "NO_CHANGE" -> "NO_CHANGE".equals(coordinatorAction);
+            case "MERGE", "ADD_OR_UPDATE" -> "DRAFT".equals(coordinatorAction);
+            default -> false;
+        };
+        if (!decisionMatches || !workspaceMatch) {
+            return false;
+        }
+        return !"ASK_USER".equals(expectedAction) || asksHumanConfirmation(actual.finalResponse());
+    }
+
+    private static String coordinatorDecisionAction(CurationActual actual) {
+        return actual.trace().stages().stream()
+                .filter(stage -> "DECIDE".equals(stage.phase()))
+                .map(AgentStageActual::curation)
+                .filter(Objects::nonNull)
+                .map(io.github.loredock.agent.api.AgentEvent.CurationProjection::action)
+                .filter(action -> action != null && !action.isBlank())
+                .reduce((first, second) -> second)
+                .orElse(null);
     }
 
     private static boolean asksHumanConfirmation(String finalResponse) {
@@ -239,6 +311,12 @@ public final class AtlasEvalMetrics {
 
     private static Double average(List<Integer> values) {
         return values.isEmpty() ? null : values.stream().mapToInt(Integer::intValue).average().orElseThrow();
+    }
+
+    private static Double averageBoolean(List<CurationVerdict> values,
+            java.util.function.Function<CurationVerdict, Boolean> getter) {
+        List<Boolean> present = values.stream().map(getter).filter(Objects::nonNull).toList();
+        return present.isEmpty() ? null : present.stream().filter(Boolean::booleanValue).count() / (double) present.size();
     }
 
     /**
@@ -294,8 +372,24 @@ public final class AtlasEvalMetrics {
             boolean actionCorrect,
             boolean unsafeWrite,
             Boolean issueCorrect,
-            String judgedIssueType
+            String judgedIssueType,
+            Boolean completion,
+            Boolean entryRoutingCorrect,
+            Boolean pathInvariant,
+            Boolean retrievalEvidenceCoverage,
+            Boolean draftGrounding,
+            Boolean reviewPass,
+            Boolean reviewRework
     ) {
+        /** 兼容旧评估测试构造；扩展轨迹字段为空表示未采集。 */
+        public CurationVerdict(
+                String caseId, String issueType, String action, String reason,
+                boolean workspaceMatch, boolean actionCorrect, boolean unsafeWrite,
+                Boolean issueCorrect, String judgedIssueType
+        ) {
+            this(caseId, issueType, action, reason, workspaceMatch, actionCorrect, unsafeWrite,
+                    issueCorrect, judgedIssueType, null, null, null, null, null, null, null);
+        }
     }
 
     /** 知识整理汇总指标；问题识别相关指标需要 LLM Judge，未接入时为空。 */
@@ -307,10 +401,27 @@ public final class AtlasEvalMetrics {
             long unsafeWriteCount,
             long conflictOrMissingCount,
             Double issueCorrectRate,
+            Double completionRate,
+            Double entryRoutingAccuracy,
+            Double pathInvariantRate,
+            Double retrievalEvidenceCoverage,
+            Double draftGroundingRate,
+            Double reviewPassRate,
+            Double reviewReworkRate,
             Map<String, IssueTypeF1> issueTypeF1
     ) {
         public CurationSummary {
             issueTypeF1 = issueTypeF1 == null ? Map.of() : Map.copyOf(issueTypeF1);
+        }
+
+        /** 兼容旧指标构造；新图轨迹指标为空。 */
+        public CurationSummary(
+                int caseCount, int issueCaseCount, double actionCorrectRate, double unsafeWriteRate,
+                long unsafeWriteCount, long conflictOrMissingCount, Double issueCorrectRate,
+                Map<String, IssueTypeF1> issueTypeF1
+        ) {
+            this(caseCount, issueCaseCount, actionCorrectRate, unsafeWriteRate, unsafeWriteCount,
+                    conflictOrMissingCount, issueCorrectRate, null, null, null, null, null, null, null, issueTypeF1);
         }
     }
 

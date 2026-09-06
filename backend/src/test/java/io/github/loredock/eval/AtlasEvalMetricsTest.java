@@ -2,6 +2,7 @@ package io.github.loredock.eval;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import io.github.loredock.agent.api.AgentEvent;
 import io.github.loredock.agent.api.KnowledgeTaskService;
 import io.github.loredock.eval.AtlasAgentEvalFixture.CurationCase;
 import io.github.loredock.eval.AtlasAgentEvalFixture.CurationExpected;
@@ -11,6 +12,8 @@ import io.github.loredock.eval.AtlasAgentEvalFixture.QaExpected;
 import io.github.loredock.eval.AtlasAgentEvalFixture.QaInput;
 import io.github.loredock.eval.AtlasAgentEvalFixture.WorkspaceExpectation;
 import io.github.loredock.eval.AtlasCurationEvalRunner.CurationActual;
+import io.github.loredock.eval.AtlasCurationEvalRunner.AgentStageActual;
+import io.github.loredock.eval.AtlasCurationEvalRunner.GraphTrace;
 import io.github.loredock.eval.AtlasCurationEvalRunner.WorkspaceActual;
 import io.github.loredock.eval.AtlasEvalMetrics.CurationSummary;
 import io.github.loredock.eval.AtlasEvalMetrics.CurationVerdict;
@@ -232,6 +235,29 @@ class AtlasEvalMetricsTest {
         assertThat(silentVerdict.actionCorrect()).isFalse();
         System.out.printf("测试证据：场景=ASK_USER动作近似，请求确认=%s，未请求=%s%n",
                 askingVerdict.actionCorrect(), silentVerdict.actionCorrect());
+    }
+
+    /**
+     * 业务目的：最终回复可能描述了正确结果，但若 DECIDE 阶段内部动作错误，动作指标必须识别该错误，
+     * 防止只看工作区和自然语言把“应 NO_CHANGE 却走 DRAFT”误判为正确。
+     */
+    @Test
+    void curationVerdictUsesCoordinatorDecisionActionFromTrace() {
+        CurationCase curationCase = curationCase("CUR-001", "DUPLICATE", "NO_CHANGE", null, List.of());
+        AgentEvent.CurationProjection projection = new AgentEvent.CurationProjection(
+                "DRAFT", null, null, null, List.of(), List.of(), List.of(), List.of());
+        GraphTrace trace = new GraphTrace(null, null, List.of(new AgentStageActual(
+                "DECIDE", "coordinator", "COMPLETED", "", null, null, projection, 1L)),
+                List.of(), List.of(), null, null, null);
+        CurationActual actual = new CurationActual("CUR-001", KnowledgeTaskService.RunStatus.COMPLETED,
+                null, "已确认重复，未写入", List.of(), trace, null, null, 1000L);
+
+        CurationVerdict verdict = AtlasEvalMetrics.curationVerdict(actual, curationCase);
+
+        assertThat(verdict.workspaceMatch()).isTrue();
+        assertThat(verdict.actionCorrect()).isFalse();
+        System.out.printf("测试证据：场景=DECIDE内部动作校验，内部动作=DRAFT，预期=NO_CHANGE，动作正确=%s%n",
+                verdict.actionCorrect());
     }
 
     /**

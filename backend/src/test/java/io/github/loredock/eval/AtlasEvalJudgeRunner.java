@@ -135,7 +135,12 @@ public final class AtlasEvalJudgeRunner {
                     relatedDocuments.isBlank() ? "（无相关正式文档）" : relatedDocuments,
                     result.expected().issueType(), result.expected().action(),
                     result.expected().finalResponse(), actual.finalResponse(),
-                    workspaceMarkdown(actual.workspace()), result.expected().forbiddenDraftFacts()));
+                    workspaceMarkdown(actual.workspace()), traceSummary(actual.trace()),
+                    result.expected().responseCriteria() == null
+                            ? List.of() : result.expected().responseCriteria().mustMention(),
+                    result.expected().responseCriteria() != null
+                            && result.expected().responseCriteria().mustNotClaimPublished(),
+                    result.expected().forbiddenDraftFacts()));
             judgedIssueTypes.put(result.caseId(), normalizeIssueType(judgement.issueType()));
             CurationVerdict verdict = result.verdict();
             CurationVerdict judged = new CurationVerdict(verdict.caseId(), verdict.issueType(), verdict.action(),
@@ -154,7 +159,7 @@ public final class AtlasEvalJudgeRunner {
         CurationSummary curationSummary = AtlasEvalMetrics.curationSummary(
                 curationResults.stream().map(CurationCaseResult::verdict).toList(), judgedIssueTypes);
         Report finalReport = new Report(report.datasetVersion(), report.projectIdentifier(), report.executedAt(),
-                report.environment(), List.copyOf(qaResults), List.copyOf(curationResults),
+                report.environment(), report.experiment(), List.copyOf(qaResults), List.copyOf(curationResults),
                 AgentEvalReport.qaMetrics(qaSummary), AgentEvalReport.curationMetrics(curationSummary),
                 report.gates());
         writeCheckpoint(judgedOutput, finalReport, finalReport.qaResults(), finalReport.curationResults());
@@ -228,7 +233,7 @@ public final class AtlasEvalJudgeRunner {
                 curationResults.stream().map(CurationCaseResult::verdict).toList(),
                 judgedIssueTypes(curationResults));
         Report snapshot = new Report(base.datasetVersion(), base.projectIdentifier(), base.executedAt(),
-                base.environment(), List.copyOf(qaResults), List.copyOf(curationResults),
+                base.environment(), base.experiment(), List.copyOf(qaResults), List.copyOf(curationResults),
                 AgentEvalReport.qaMetrics(qaSummary), AgentEvalReport.curationMetrics(curationSummary),
                 base.gates());
         try {
@@ -263,6 +268,20 @@ public final class AtlasEvalJudgeRunner {
                 .map(document -> document.operation() + " baseline=" + document.baselineDocumentId()
                         + "\n" + document.markdown())
                 .reduce("", (first, second) -> first + "\n\n" + second);
+    }
+
+    /** 只向 Judge 提供安全轨迹摘要，避免把评估器变成隐藏状态读取器。 */
+    private static String traceSummary(AtlasCurationEvalRunner.GraphTrace trace) {
+        if (trace == null) {
+            return "（无轨迹投影）";
+        }
+        return "entryAction=" + trace.entryAction()
+                + ", finalAction=" + trace.finalAction()
+                + ", stages=" + trace.stages().stream().map(stage -> stage.node() + "/" + stage.phase()).toList()
+                + ", tools=" + trace.tools().stream().map(AtlasCurationEvalRunner.SafeToolActual::toolName).toList()
+                + ", retrieval=" + (trace.retrieval() == null ? null : trace.retrieval().sourceRefIds())
+                + ", draft=" + (trace.draft() == null ? null : trace.draft().status())
+                + ", review=" + (trace.review() == null ? null : trace.review().verdict());
     }
 
     /** 汇总本轮实际提供给模型的检索原文（保留项），超长截断并注明。 */

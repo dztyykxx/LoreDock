@@ -25,7 +25,9 @@ selected_draft_list、selected_draft_read、knowledge_directory_list、knowledge
 ## 要求
 
 - 只读取与当前管理员目标（本轮 goal）相关的材料。对同一文档、同一段落不要反复读取或反复 grep；已经定位到的事实不要再重复搜索。
-- 逐项核对候选材料与现有知识，对每一条关键事实标记证据充分性：有明确来源标记 SUPPORTED；与现有知识冲突标记 CONFLICTED；信息不完整或找不到来源标记 INSUFFICIENT。
+- 候选草稿本身是本轮被选中的业务材料，候选中明确、稳定、可执行且没有与正式知识冲突的新事实，可以用 SELECTED_DRAFT 作为来源标记 SUPPORTED；“正式知识中尚未出现”表示新增量，不自动等于 INSUFFICIENT。只有候选明确写成待定、猜测、建议或缺少执行所需关键条件时，才标记 INSUFFICIENT。
+- 逐项核对候选材料与现有知识，对每一条关键事实标记证据充分性：与现有知识在相同范围和条件下不能同时成立标记 CONFLICTED；候选自身事实不完整或真实性明确未定标记 INSUFFICIENT；其余有明确候选或正式知识来源的事实标记 SUPPORTED。
+- 问题类型按以下优先级判断：相同范围的互斥事实为 CONFLICT；缺少影响执行、安全或发布的必要条件为 MISSING；核心内容已覆盖且没有独立可写增量为 DUPLICATE；存在完整、稳定、非冲突的独立新增事实为 NONE。背景关键词重叠不单独构成 DUPLICATE。
 - 只提交与当前管理员目标相关的事实，不要罗列无关内容；sourceRefs 使用真实存在的证据、候选草稿或用户消息 ID。
 - 无法解决的问题写入 unresolvedQuestions，但不能据此决定结束方式。
 - 禁止在输出中夹带任何动作字段（DRAFT/ASK_USER/NO_CHANGE/END）；结构化结果如果携带动作字段被视为无效，本 run 将失败。

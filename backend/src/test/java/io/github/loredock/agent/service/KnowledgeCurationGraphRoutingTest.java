@@ -112,12 +112,10 @@ class KnowledgeCurationGraphRoutingTest {
     }
 
     /**
-     * 业务目的：模型长 JSON 输出存在把开头字段重复写在结尾的伪影（实测 candidateTargetDocumentId 在首尾各出现一次）。
-     * 此时 Jackson 直接解析 record 会因"构造器属性被二次赋值"抛 InvalidDefinitionException，使整个 run 失败；
-     * 应容忍重复键（JsonNode 层面 last-wins 覆盖），正常路由。
+     * 业务目的：重复字段可能覆盖有效结论，必须进入修复而不是静默采用 last-wins；防止模型输出被部分字段污染。
      */
     @Test
-    void duplicateCreatorFieldInModelOutputIsTolerated() {
+    void duplicateCreatorFieldInModelOutputTriggersRepair() {
         String retrieval = "{\"issueType\":\"MISSING\",\"candidateTargetDocumentId\":1,\"facts\":[{\"statement\":\"a\","
                 + "\"support\":\"SUPPORTED\",\"sourceRefs\":[]}],\"unresolvedQuestions\":[],\"summary\":\"r\","
                 + "\"candidateTargetDocumentId\":6}";
@@ -126,8 +124,19 @@ class KnowledgeCurationGraphRoutingTest {
                 "coordinationResult", "{\"stage\":\"DECIDE\",\"action\":\"DRAFT\",\"reason\":\"r\","
                         + "\"draftInstruction\":\"写入背景\",\"question\":null,\"summary\":\"s\"}",
                 "retrievalResult", retrieval)));
-        assertThat(route).isEqualTo("DRAFT");
-        System.out.println("测试证据：场景=模型输出重复键，重复候选文档字段仍可解析并正常路由");
+        assertThat(route).isEqualTo("fix_coordinator");
+        System.out.println("测试证据：场景=模型输出重复键，冲突字段进入修复回路=true");
+    }
+
+    /**
+     * 业务目的：截断 JSON 的内部对象不能被当成 Retriever 根结果；必须拒绝并进入 Retriever 修复，防止空检索结论污染决策。
+     */
+    @Test
+    void truncatedRetrieverObjectTriggersRetrieverRepair() {
+        assertThat(factory.retrievalRoute(state(Map.of(
+                "retrievalResult", "{\"issueType\":\"DUPLICATE\",\"facts\":[{\"sourceRefs\":[{\"type\":\"EVIDENCE\",\"id\":710004}]}"))))
+                .isEqualTo("fix_retriever");
+        System.out.println("测试证据：场景=截断 Retriever JSON，内部对象误识别=否，修复路由=true");
     }
 
     /**
@@ -141,6 +150,16 @@ class KnowledgeCurationGraphRoutingTest {
         assertThat(factory.mainRoute(state(Map.of(
                 "mainTurnResult", "你好，我在线。\n{\"action\":\"CHAT\",\"expertCalls\":[]}"))))
                 .isEqualTo("CHAT");
+        // REPORT 不能只返回“已汇总”状态词，必须携带真实整理结论。
+        assertThat(factory.mainRoute(state(Map.of(
+                "mainMode", "REPORT",
+                "mainTurnResult", "已汇总裁剪整理结果\n{\"action\":\"TURN_DONE\",\"expertCalls\":[]}"))))
+                .isEqualTo("fix_main_agent");
+        assertThat(factory.mainRoute(state(Map.of(
+                "mainMode", "REPORT",
+                "mainTurnResult", "核对结论：候选内容与正式知识重复，本轮未写入，待管理员确认。\n"
+                        + "{\"action\":\"TURN_DONE\",\"expertCalls\":[]}"))))
+                .isEqualTo("TURN_DONE");
         // 合法：正文缺失但尾缀含 memo → 允许以极短降级摘要结束本轮。
         assertThat(factory.mainRoute(state(Map.of(
                 "mainTurnResult", "{\"action\":\"TURN_DONE\",\"expertCalls\":[],\"memo\":\"已整理的极短摘要\"}"))))

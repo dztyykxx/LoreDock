@@ -11,6 +11,7 @@ import KnowledgeTaskView from '../views/KnowledgeTaskView.vue'
 import KnowledgeTaskListView from '../views/KnowledgeTaskListView.vue'
 import GlobalKnowledgeTaskListView from '../views/GlobalKnowledgeTaskListView.vue'
 import GlobalSearchView from '../views/GlobalSearchView.vue'
+import MemoryManagementView from '../views/MemoryManagementView.vue'
 
 export function createLoreDockRouter(session: SessionController): Router {
   const router = createRouter({
@@ -35,6 +36,12 @@ export function createLoreDockRouter(session: SessionController): Router {
         name: 'global-search',
         component: GlobalSearchView,
         meta: { requiresAuth: true },
+      },
+      {
+        path: '/memories',
+        name: 'memory-management',
+        component: MemoryManagementView,
+        meta: { requiresAuth: true, adminOnly: true, memberFallback: '/projects' },
       },
       {
         path: '/qa',

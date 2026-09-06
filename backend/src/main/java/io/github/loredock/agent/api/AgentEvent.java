@@ -84,6 +84,40 @@ public record AgentEvent(
     }
 
     /**
+     * 知识整理图的安全评估投影；只保存经过服务端校验的路由、稳定 ID 和有限枚举。
+     * 不包含事实正文、完整 Tool 返回、Prompt、Graph State 或隐藏推理。
+     */
+    public record CurationProjection(
+            String action,
+            String issueType,
+            String draftStatus,
+            String reviewVerdict,
+            List<SourceRefProjection> sourceRefs,
+            List<DraftProjection> drafts,
+            List<FindingProjection> findings,
+            List<String> expertCalls
+    ) {
+        public CurationProjection {
+            sourceRefs = sourceRefs == null ? List.of() : List.copyOf(sourceRefs);
+            drafts = drafts == null ? List.of() : List.copyOf(drafts);
+            findings = findings == null ? List.of() : List.copyOf(findings);
+            expertCalls = expertCalls == null ? List.of() : List.copyOf(expertCalls);
+        }
+    }
+
+    /** 评估投影中的稳定来源引用，只保留来源类型和业务 ID。 */
+    public record SourceRefProjection(String type, Long id) {
+    }
+
+    /** 评估投影中的草稿回执，只保留草稿、修订和操作类型。 */
+    public record DraftProjection(Long draftId, Integer revision, String operation) {
+    }
+
+    /** 评估投影中的审查发现，只保留稳定问题代码和草稿 ID。 */
+    public record FindingProjection(String code, Long draftId) {
+    }
+
+    /**
      * 类型化公开载荷。未使用字段为空；所有文本均由服务端生成或裁剪，不接收原始 Tool JSON。
      *
      * @param phase 服务端阶段
@@ -101,6 +135,9 @@ public record AgentEvent(
      * @param errorCode 稳定失败语义
      * @param modelGenerated 摘要是否由模型生成
      * @param truncated 载荷是否发生裁剪
+     * @param promptTokens 本阶段输入 token；模型未返回时为空
+     * @param completionTokens 本阶段输出 token；模型未返回时为空
+     * @param curation 知识整理专用安全评估投影；非知识整理事件为空
      */
     public record Payload(
             String phase,
@@ -119,7 +156,8 @@ public record AgentEvent(
             boolean modelGenerated,
             boolean truncated,
             Integer promptTokens,
-            Integer completionTokens
+            Integer completionTokens,
+            CurationProjection curation
     ) {
         public Payload {
             sources = sources == null ? List.of() : List.copyOf(sources);
@@ -148,7 +186,32 @@ public record AgentEvent(
         ) {
             this(phase, name, purpose, parameterSummary, resultSummary, count, durationMillis,
                     status, sources, summary, textDelta, resultType, errorCode, modelGenerated,
-                    truncated, null, null);
+                    truncated, null, null, null);
+        }
+
+        /** 兼容已有带阶段 token 的调用方；新投影只由知识整理阶段事件显式传入。 */
+        public Payload(
+                String phase,
+                String name,
+                String purpose,
+                String parameterSummary,
+                String resultSummary,
+                Integer count,
+                Long durationMillis,
+                String status,
+                List<Source> sources,
+                String summary,
+                String textDelta,
+                AgentRun.ResultType resultType,
+                AgentRun.ErrorCode errorCode,
+                boolean modelGenerated,
+                boolean truncated,
+                Integer promptTokens,
+                Integer completionTokens
+        ) {
+            this(phase, name, purpose, parameterSummary, resultSummary, count, durationMillis,
+                    status, sources, summary, textDelta, resultType, errorCode, modelGenerated,
+                    truncated, promptTokens, completionTokens, null);
         }
     }
 

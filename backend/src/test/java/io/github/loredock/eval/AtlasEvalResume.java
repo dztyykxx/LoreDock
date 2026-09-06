@@ -29,6 +29,9 @@ public final class AtlasEvalResume {
      * @return 需要重跑的 QA 用例 caseId（上一轮缺失或未达到 COMPLETED），保持数据集顺序
      */
     public static Set<String> pendingQaCaseIds(AtlasAgentEvalFixture.EvalData data, Report previous) {
+        if (!compatible(data, previous)) {
+            return allQaCaseIds(data);
+        }
         Set<String> completed = previous == null ? Set.of() : previous.qaResults().stream()
                 .filter(result -> result.actual().status() == QaQuestion.Status.COMPLETED)
                 .map(QaCaseResult::caseId)
@@ -45,6 +48,9 @@ public final class AtlasEvalResume {
      * @return 需要重跑的知识整理用例 caseId（上一轮缺失或未达到 COMPLETED），保持数据集顺序
      */
     public static Set<String> pendingCurationCaseIds(AtlasAgentEvalFixture.EvalData data, Report previous) {
+        if (!compatible(data, previous)) {
+            return allCurationCaseIds(data);
+        }
         Set<String> completed = previous == null ? Set.of() : previous.curationResults().stream()
                 .filter(result -> result.actual().status() == KnowledgeTaskService.RunStatus.COMPLETED)
                 .map(CurationCaseResult::caseId)
@@ -75,5 +81,27 @@ public final class AtlasEvalResume {
                 .filter(result -> result.caseId().equals(caseId))
                 .map(CurationCaseResult::actual)
                 .findFirst().orElse(null);
+    }
+
+    private static boolean compatible(AtlasAgentEvalFixture.EvalData data, Report previous) {
+        if (previous == null) {
+            return true;
+        }
+        if (!data.manifest().datasetVersion().equals(previous.datasetVersion())) {
+            return false;
+        }
+        return previous.experiment() == null
+                || System.getProperty("loredock.agent-eval.system-variant", "MULTI_AGENT")
+                .equals(previous.experiment().systemVariant());
+    }
+
+    private static Set<String> allQaCaseIds(AtlasAgentEvalFixture.EvalData data) {
+        return data.qaCases().stream().map(AtlasAgentEvalFixture.QaCase::caseId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private static Set<String> allCurationCaseIds(AtlasAgentEvalFixture.EvalData data) {
+        return data.curationCases().stream().map(AtlasAgentEvalFixture.CurationCase::caseId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 }

@@ -298,3 +298,13 @@ AI 不得执行：根据生产级最佳实践自动扩张 MVP；在没有当前�
   ```
 - 一个提交应对应一个清晰、可审查的逻辑改动，正文只说明关键改动和验证证据，不堆砌实现过程；
 - 提交前应运行与改动风险相匹配的测试或检查；若存在未执行的验证，必须在交付说明中明确指出。
+
+## 15. 本机验证环境约定
+
+- LoreDock 后端构建必须使用 Java 21。当前 macOS 开发机可用的 Java 21 用户目录运行时为：
+  `/Users/dztyykxx/Library/Caches/JetBrains/IntelliJIdea2026.1/acp-agents/junie/2144.9.0/Applications/junie.app/Contents/runtime/Contents/Home`。
+- 执行后端 Maven 命令前先设置并核验：
+  `export JAVA_HOME="/Users/dztyykxx/Library/Caches/JetBrains/IntelliJIdea2026.1/acp-agents/junie/2144.9.0/Applications/junie.app/Contents/runtime/Contents/Home"`
+  和 `"$JAVA_HOME/bin/java" -version`。用户目录中的 `openjdk-26.0.1` 不是本项目构建目标，会被 Maven Java 版本门禁拒绝。
+- 需要真实 PostgreSQL/Testcontainers 的集成测试前先执行 `docker info` 和 `docker ps` 确认 Docker Desktop 已启动；当前开发环境使用 Compose 服务 `loredock-database-1`，镜像为 `pgvector/pgvector:0.8.1-pg17`。Docker 不可用时，集成测试不能视为已验证，不得仅凭单元测试宣称真实数据库链路通过。
+- 正常验证不得使用 `-Denforcer.skip=true` 绕过 Java 版本门禁；该参数仅可用于诊断编译或单元测试环境问题，交付结论仍必须基于 Java 21 的构建结果。

@@ -98,6 +98,7 @@ describe('router session guards', () => {
 
     expect(router.resolve('/knowledge').name).toBe('knowledge-global')
     expect(router.resolve('/search').name).toBe('global-search')
+    expect(router.resolve('/memories').name).toBe('memory-management')
     expect(router.resolve('/knowledge/new').name).toBe('knowledge-global-new')
     expect(router.resolve('/knowledge/import').name).toBe('knowledge-global-import')
     expect(router.resolve('/knowledge/51').name).toBe('knowledge-global-detail')

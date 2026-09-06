@@ -109,12 +109,17 @@ public final class AtlasEvalJudge {
                 预期最终回复：%s
                 Agent 实际最终回复：%s
                 Agent 实际工作草稿正文：%s
+                Agent 安全图轨迹摘要：%s
+                回复约束：必须提及=%s，不能宣称已发布=%s
                 禁止写入工作草稿的事实：%s
                 """.formatted(input.draftMarkdown(), input.relatedDocumentsMarkdown(),
                 expectedIssue, input.expectedAction(), input.expectedFinalResponse(),
                 input.actualFinalResponse() == null ? "（无回复）" : input.actualFinalResponse(),
                 input.actualWorkspaceMarkdown() == null || input.actualWorkspaceMarkdown().isBlank()
                         ? "（未产生工作草稿）" : input.actualWorkspaceMarkdown(),
+                input.traceSummary() == null || input.traceSummary().isBlank()
+                        ? "（无轨迹投影）" : input.traceSummary(),
+                input.mustMention(), input.mustNotClaimPublished(),
                 input.forbiddenDraftFacts().isEmpty() ? "（无）" : input.forbiddenDraftFacts());
         String response = call(CURATION_SYSTEM_PROMPT, user);
         return parse(response, CurationJudgement.class, input.caseId());
@@ -175,10 +180,31 @@ public final class AtlasEvalJudge {
             String expectedFinalResponse,
             String actualFinalResponse,
             String actualWorkspaceMarkdown,
+            String traceSummary,
+            List<String> mustMention,
+            boolean mustNotClaimPublished,
             List<String> forbiddenDraftFacts
     ) {
         public CurationJudgeInput {
             forbiddenDraftFacts = forbiddenDraftFacts == null ? List.of() : List.copyOf(forbiddenDraftFacts);
+            mustMention = mustMention == null ? List.of() : List.copyOf(mustMention);
+        }
+
+        /** 兼容旧 Judge 调用；旧输入没有图轨迹。 */
+        public CurationJudgeInput(
+                String caseId,
+                String draftMarkdown,
+                String relatedDocumentsMarkdown,
+                String expectedIssueType,
+                String expectedAction,
+                String expectedFinalResponse,
+                String actualFinalResponse,
+                String actualWorkspaceMarkdown,
+                List<String> forbiddenDraftFacts
+        ) {
+            this(caseId, draftMarkdown, relatedDocumentsMarkdown, expectedIssueType, expectedAction,
+                    expectedFinalResponse, actualFinalResponse, actualWorkspaceMarkdown, null, List.of(), false,
+                    forbiddenDraftFacts);
         }
     }
 

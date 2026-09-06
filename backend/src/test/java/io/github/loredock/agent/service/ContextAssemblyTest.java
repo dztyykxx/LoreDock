@@ -9,12 +9,14 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.loredock.agent.mapper.KnowledgeTaskConversationMapper;
 import io.github.loredock.agent.mapper.KnowledgeTaskMessageMapper;
+import io.github.loredock.agent.mapper.KnowledgeTaskSelectedDraftMapper;
 import io.github.loredock.agent.model.context.ContextBudget;
 import io.github.loredock.agent.model.enums.ContextMode;
 import io.github.loredock.agent.model.context.ContextSummaryState;
 import io.github.loredock.agent.model.context.ConversationContext;
 import io.github.loredock.agent.model.context.PreparedModelContext;
 import io.github.loredock.agent.model.context.WorkflowContext;
+import io.github.loredock.agent.model.entity.KnowledgeTaskSelectedDraftEntity;
 import io.github.loredock.agent.model.enums.AgentNode;
 import io.github.loredock.agent.model.enums.ContextPurpose;
 import io.github.loredock.agent.model.request.ContextAssemblyRequest;
@@ -66,6 +68,35 @@ class ContextAssemblyTest {
                 text.contains("decision-1"), !text.contains(RAW_RETRIEVAL_MARKER));
     }
 
+    /** 业务目的：带固定候选的首轮主 Agent 必须知道输入存在并进入完整整理，防止因正文仅由 Retriever Tool 读取而误答“未收到材料”。 */
+    @Test
+    void selectedDraftMetadataIsProjectedIntoInitialContext() {
+        KnowledgeTaskSelectedDraftMapper selectedDrafts = mock(KnowledgeTaskSelectedDraftMapper.class);
+        KnowledgeTaskSelectedDraftEntity candidate = KnowledgeTaskSelectedDraftEntity.builder()
+                .conversationId(1L).documentId(720003L).documentRevision(1L)
+                .title("自动重试规则候选").directoryPath("运行稳定性")
+                .markdown("# 自动重试规则\n候选正文").ordinal(0).build();
+        when(selectedDrafts.selectList(any())).thenReturn(List.of(candidate));
+        ContextTokenEstimator estimator = new ContextTokenEstimator();
+        ContextAssemblyService candidateAssembly = new ContextAssemblyService(
+                mock(KnowledgeTaskConversationMapper.class), mock(KnowledgeTaskMessageMapper.class),
+                ContextAssemblyFixtures.budget(), estimator,
+                new ContextCompressionService(OBJECT_MAPPER, mock(KnowledgeTaskMessageMapper.class), estimator),
+                null, selectedDrafts);
+
+        String text = text(candidateAssembly.assemble(
+                request(AgentNode.MAIN_AGENT, ContextPurpose.CHAT, List.of(), conversation(), emptyWorkflow()),
+                noSummary(), 0, mock(ChatModel.class)).prepared().messages());
+
+        assertThat(text).contains("【已固定候选材料】")
+                .contains("draftRef: 720003 revision=1")
+                .contains("自动重试规则候选")
+                .contains("必须先进入 FULL_CURATION")
+                .doesNotContain("候选正文");
+        System.out.printf("测试证据：场景=首轮候选上下文投影，固定草稿=720003，触发完整整理提示=%s，正文未泄漏=%s%n",
+                text.contains("必须先进入 FULL_CURATION"), !text.contains("候选正文"));
+    }
+
     /** 业务目的：DRAFT 目的包含草稿基线 revision 与写入指令，且不含 Retriever 原文。 */
     @Test
     void draftPurposeIncludesBaselineRevisionAndSkipsRetrieverRaw() {
@@ -104,6 +135,40 @@ class ContextAssemblyTest {
         assertThat(text).contains("解析失败");
         System.out.printf("测试证据：场景=REPAIR最小输入，含lastValidatedNode=%s，含错误摘要=%s%n",
                 text.contains("lastValidatedNode=coordinator"), text.contains("解析失败"));
+    }
+
+    /**
+     * 业务目的：完整整理的 FINISH/REPORT 节点必须接收当前轮的检索与调度结果；
+     * 防止最终汇报 Agent 只看到“流程完成”标记而丢失冲突、动作和待确认问题。
+     */
+    @Test
+    void fullCurationCompletionProjectsCurrentOutcome() {
+        WorkflowContext workflow = new WorkflowContext(
+                List.of(new WorkflowContext.SupportedFact("机器校验后仍需人工审核", List.of("KNOWLEDGE:710007"))),
+                List.of(new WorkflowContext.UnresolvedQuestion("q0", "是否保留现有正式文档")),
+                List.of(new WorkflowContext.SourceReference("KNOWLEDGE", "710007")),
+                List.of(), null, null, null, List.of(),
+                new WorkflowContext.CurationOutcome(
+                        "DUPLICATE", "ASK_USER", "已有正式知识覆盖候选内容", "请管理员确认是否保留现有口径",
+                        "候选内容与正式文档重复，未创建新文档", "BLOCKED", "ASK_USER"));
+
+        for (ContextPurpose purpose : List.of(ContextPurpose.FULL_CURATION_FINISH,
+                ContextPurpose.FULL_CURATION_REPORT)) {
+            AgentNode node = purpose == ContextPurpose.FULL_CURATION_REPORT
+                    ? AgentNode.MAIN_AGENT : AgentNode.COORDINATOR;
+            PreparedModelContext prepared = assembly.assemble(
+                    request(node, purpose, List.of(), conversation(), workflow),
+                    noSummary(), 0, mock(ChatModel.class)).prepared();
+
+            String text = text(prepared.messages());
+            assertThat(text).contains("机器校验后仍需人工审核")
+                    .contains("DUPLICATE")
+                    .contains("ASK_USER")
+                    .contains("已有正式知识覆盖候选内容")
+                    .contains("请管理员确认是否保留现有口径")
+                    .contains("候选内容与正式文档重复，未创建新文档");
+        }
+        System.out.println("测试证据：场景=FINISH/REPORT结果投影，检索事实/动作/原因/待确认项均可见=true");
     }
 
     /** 业务目的：确定性压缩只删最旧完整轮次、半轮不截断，且同一输入两次压缩结果完全一致（可复现）。 */
