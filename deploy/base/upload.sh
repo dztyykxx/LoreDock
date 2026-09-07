@@ -13,8 +13,11 @@ cd "$REPO_ROOT"
 
 [ -f deploy/.env.production ] || { echo "缺少 deploy/.env.production：先 cp deploy/.env.production.example deploy/.env.production 并填真值"; exit 1; }
 
-# 把 ~ 在本地展开成绝对路径，避免远端 shell 的 tilde 展开差异
-REMOTE_ABS="${REMOTE_DIR/#\~/$HOME}"
+# 远端 shell 的 tilde 展开差异：本脚本在开发机上运行，$HOME 是本机的，
+# 不能用来展开远端 ~。先向远端询问真实 $HOME，再用它把 ~ 展开成远端绝对路径；
+# 后续所有 mkdir/rsync/ssh 都基于该绝对路径，杜绝「字面 ~ 目录」与「本地 HOME 误展开」两类坑。
+REMOTE_HOME="$($RSH "$SERVER" 'printf %s "$HOME"')"
+REMOTE_ABS="${REMOTE_DIR/#\~/$REMOTE_HOME}"
 
 echo "==> 1/4 准备服务器目录 $REMOTE_ABS ..."
 $RSH "$SERVER" "mkdir -p '$REMOTE_ABS'"
