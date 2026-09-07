@@ -2642,6 +2642,7 @@ a {
 .qa-recent > button {
   width: 100%;
   min-height: 52px;
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
