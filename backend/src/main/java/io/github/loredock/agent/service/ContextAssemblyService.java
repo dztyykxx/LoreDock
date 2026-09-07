@@ -325,7 +325,9 @@ public class ContextAssemblyService {
                     .append(" directory=").append(bounded(input.getDirectoryPath(), 160))
                     .append(" codePoints=").append(markdown.codePointCount(0, markdown.length()));
         }
-        block.append("\n这是本轮知识整理的固定输入；正文尚未进入主 Agent 上下文，必须先进入 FULL_CURATION 并由 Retriever 读取。");
+        block.append("\n这是本轮知识整理的固定输入；候选正文尚未进入主 Agent 上下文，需要由 Retriever Tool 读取。"
+                + "若本轮指令是合并/写入/整理候选材料，请进入 FULL_CURATION；"
+                + "若只是只读查询（找文档/看概要/查事实/核对内容）或明确的小改写，直接调用对应专家即可，不必进入完整整理。");
         return block.toString();
     }
 
@@ -388,7 +390,10 @@ public class ContextAssemblyService {
             case FULL_CURATION_FINISH ->
                     "【当前阶段：FINISH】\n所有工作已完成。你是唯一汇报口径：请输出 action=END，并在 summary 给出面向管理员的最终汇报。切勿再次输出“请提供…”“现在开始检索…”等开场白。";
             case FULL_CURATION_REPORT ->
-                    "【当前阶段：FULL CURATION 完成】\n完整整理流程已完成，专家结果都已经过校验。请只输出 TURN_DONE，并在 summary 给出面向管理员的最终汇报，不要再调用任何专家、不要再发起完整整理。";
+                    "【当前阶段：FULL CURATION 完成】\n完整整理流程已完成，专家结果都已经过校验。"
+                            + "请只输出 TURN_DONE，并在消息可见正文给出面向管理员的完整最终汇报"
+                            + "（结论、主要依据、已写入/未写入内容、待人工判断项）；memo 仅作 ≤20 字动作摘要或留空，"
+                            + "不得把完整汇报写进 JSON 字段。不要再调用任何专家、不要再发起完整整理。";
             default -> null;
         };
     }
@@ -403,14 +408,29 @@ public class ContextAssemblyService {
         String stage = workflow == null || workflow.retry() == null || workflow.retry().stage() == null
                 ? "未知" : workflow.retry().stage();
         boolean drafter = request.agentNode() == io.github.loredock.agent.model.enums.AgentNode.DRAFTER;
+        // 主 Agent 完整整理汇报轮（REPORT）的修复判定：curationOutcome 只在完整整理收尾上下文投影，
+        // 据此恢复「FULL CURATION 完成」阶段语义，让汇报规则（正文承载完整回复）在修复入口重新生效。
+        boolean mainReport = request.agentNode() == io.github.loredock.agent.model.enums.AgentNode.MAIN_AGENT
+                && workflow != null && workflow.curationOutcome() != null;
         String reconciliation = drafter
                 ? "；若上一轮你已成功写入草稿（工具回执显示新修订），请先确认当前 revision 再输出" : "";
         StringBuilder block = new StringBuilder("【结构化结果无效，请修复】\n【当前阶段：")
-                .append(stage).append("】\n【当前指令】").append(text(request.currentInstruction()))
-                .append("\n你刚输出的结构化结果校验失败（lastValidatedNode=").append(lastNode
-                + "，attempt=" + attempt + "），错误摘要：" + retryText
-                + "\n请按任务要求重新输出一份字段完整、严格符合 JSON 结构的全新结果，不要重复错误字段，不要输出解释文本。"
-                + reconciliation);
+                .append(mainReport ? "FULL CURATION 完成" : stage).append("】\n【当前指令】")
+                .append(text(request.currentInstruction()));
+        if (mainReport) {
+            // 完整汇报轮修复：上一轮把完整汇报写进结构化字段且正文缺失，系统按双通道契约判为违规输出。
+            // 修复必须把完整汇报重写进可见正文，不能只输出短占位（runId=80 教训）。
+            block.append("\n完整整理流程已完成，专家结果都已经过校验。你上一轮输出把完整汇报写入结构化字段且未提供可见正文，"
+                    + "系统已判定为违规输出（错误摘要：" + retryText + "）。"
+                    + "请只输出 action=TURN_DONE，并把面向管理员的完整最终汇报（结论、主要依据、已写入/未写入内容、"
+                    + "待人工判断项）重写进消息可见正文；memo 仅作 ≤20 字动作摘要或留空，"
+                    + "不要再调用任何专家、不要再发起完整整理，禁止只输出“已说明”“已汇总”一类占位句。");
+        } else {
+            block.append("\n你刚输出的结构化结果校验失败（lastValidatedNode=").append(lastNode
+                    + "，attempt=" + attempt + "），错误摘要：" + retryText
+                    + "\n请按任务要求重新输出一份字段完整、严格符合 JSON 结构的全新结果，不要重复错误字段，不要输出解释文本。"
+                    + reconciliation);
+        }
         if (workflow != null && !workflow.facts().isEmpty()) {
             block.append("\n【已校验事实】");
             workflow.facts().forEach(fact -> block.append("\n- ")
@@ -419,10 +439,22 @@ public class ContextAssemblyService {
         }
         if (workflow != null && workflow.curationOutcome() != null) {
             WorkflowContext.CurationOutcome outcome = workflow.curationOutcome();
-            block.append("\n【已完成整理摘要】");
-            appendResultField(block, "检索判断", outcome.issueType());
-            appendResultField(block, "调度动作", outcome.coordinatorAction());
-            appendResultField(block, "调度汇总", outcome.coordinatorSummary());
+            if (mainReport) {
+                // 汇报轮修复必须带全量结果摘要（含原因、待确认问题、草稿/审查结论），支撑重新撰写汇报正文。
+                block.append("\n【完整整理结果摘要】");
+                appendResultField(block, "检索判断", outcome.issueType());
+                appendResultField(block, "调度动作", outcome.coordinatorAction());
+                appendResultField(block, "调度原因", outcome.coordinatorReason());
+                appendResultField(block, "待确认问题", outcome.coordinatorQuestion());
+                appendResultField(block, "调度汇总", outcome.coordinatorSummary());
+                appendResultField(block, "草稿状态", outcome.draftStatus());
+                appendResultField(block, "审查结论", outcome.reviewVerdict());
+            } else {
+                block.append("\n【已完成整理摘要】");
+                appendResultField(block, "检索判断", outcome.issueType());
+                appendResultField(block, "调度动作", outcome.coordinatorAction());
+                appendResultField(block, "调度汇总", outcome.coordinatorSummary());
+            }
         }
         return block.toString();
     }

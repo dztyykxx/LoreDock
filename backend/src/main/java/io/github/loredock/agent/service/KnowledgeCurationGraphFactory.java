@@ -1156,7 +1156,17 @@ public class KnowledgeCurationGraphFactory {
                 case CHAT, TURN_DONE -> {
                     KnowledgeCurationGraphFactory.SplitMessage split = KnowledgeCurationGraphFactory
                             .splitTailJson(objectMapper, state.data().get("mainTurnResult"));
-                    if (split == null || !split.hasBody()) {
+                    // REPORT 轮（完整整理汇报）：汇报必须落在可见正文且足够充分，不允许用短 memo 顶替
+                    // 完整汇报——runId=80 教训：修复后仅剩短 memo 的 JSON 被降级放行，用户只见一句占位。
+                    // 只做「正文非空 + 长度下限」的弱约束，不校验内容措辞（格式由 agent-spec / 用户记忆承载）。
+                    if ("REPORT".equals(stateText(state, "mainMode"))) {
+                        if (split == null || !split.hasBody() || !isSubstantiveReportBody(split.body())) {
+                            throw new IllegalStateException("主 Agent 汇报轮缺少足够的可见正文"
+                                    + "（正文为空或过短，无法承载实质汇报）：完整汇报必须写在可见正文，"
+                                    + "memo 仅作极短摘要，请重写输出");
+                        }
+                    } else if (split == null || !split.hasBody()) {
+                        // 非汇报轮 CHAT/TURN_DONE：正文缺失时可降级到短 memo；memo 触顶仍判违规进修复。
                         if (result.memo() == null || result.memo().isBlank()) {
                             throw new IllegalStateException("主 Agent 输出 " + result.action() + " 但没有可见回复");
                         }
@@ -1165,9 +1175,6 @@ public class KnowledgeCurationGraphFactory {
                                     + " 的 memo 达到 100 码点上限（疑似把完整回复写进结构化字段）："
                                     + "完整回复必须写在可见正文，memo 仅作极短摘要（≤20 字），请重写输出");
                         }
-                    } else if ("REPORT".equals(stateText(state, "mainMode"))
-                            && !hasCurationReportContent(split.body())) {
-                        throw new IllegalStateException("主 Agent 汇报正文缺少整理结论、写入情况或待确认事项");
                     }
                     yield result.action().name();
                 }
@@ -1181,13 +1188,16 @@ public class KnowledgeCurationGraphFactory {
         }
     }
 
-    /** 最终汇报必须携带可观察业务结论，避免“已汇总”一类空洞正文进入用户消息。 */
-    private static boolean hasCurationReportContent(String body) {
-        if (body == null || body.codePointCount(0, body.length()) < 20) {
-            return false;
-        }
-        return List.of("重复", "冲突", "缺失", "新增", "写入", "未写入", "待管理员", "ASK_USER", "DUPLICATE")
-                .stream().anyMatch(body::contains);
+    /** 简短汇报正文的弱充分性长度下限（码点）：足以承载一次实质性汇报，且不依赖任何关键词。 */
+    private static final int MIN_REPORT_BODY_CODE_POINTS = 20;
+
+    /**
+     * 最终汇报正文的最小充分性检查：只拦「无正文 / 一句话占位」这类无法承载实质汇报的形态。
+     * 刻意与措辞无关——不做关键词、不做术语字典、不绑定任何格式偏好；格式由 agent-spec / 用户记忆承载，
+     * 正文按管理员偏好自由书写即可通过，避免把“人会怎么说”翻译成 Java 枚举（格式会变，字典式的语义门禁会被合法措辞误杀）。
+     */
+    private static boolean isSubstantiveReportBody(String body) {
+        return body != null && body.codePointCount(0, body.length()) >= MIN_REPORT_BODY_CODE_POINTS;
     }
 
     private Map<String, String> coordinatorRoutes() {

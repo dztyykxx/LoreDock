@@ -769,10 +769,15 @@ public class KnowledgeCurationRunExecutor {
         if (split != null && split.hasBody()) {
             return bounded(split.body(), MAX_FINAL_CODE_POINTS);
         }
-        KnowledgeCurationGraphResult.MainTurnResult main = tryStructured(
-                mainRaw, KnowledgeCurationGraphResult.MainTurnResult.class);
-        if (main != null && main.memo() != null && !main.memo().isBlank()) {
-            return bounded(main.memo(), MAX_FINAL_CODE_POINTS);
+        // 完整整理汇报轮（mainMode=REPORT）：正文缺失时回退协调结果摘要而不是短 memo——
+        // 短 memo 只会是一句占位，会吞掉 Coordinator 已产出的完整汇报（runId=80 教训）。
+        // 非汇报轮保留既有「正文缺失回退 memo」的降级语义。
+        if (!"REPORT".equals(stateText(snapshot, "mainMode"))) {
+            KnowledgeCurationGraphResult.MainTurnResult main = tryStructured(
+                    mainRaw, KnowledgeCurationGraphResult.MainTurnResult.class);
+            if (main != null && main.memo() != null && !main.memo().isBlank()) {
+                return bounded(main.memo(), MAX_FINAL_CODE_POINTS);
+            }
         }
         KnowledgeCurationGraphResult.CoordinatorResult coordinator = tryStructured(
                 snapshot.state().data().get("coordinationResult"), KnowledgeCurationGraphResult.CoordinatorResult.class);
