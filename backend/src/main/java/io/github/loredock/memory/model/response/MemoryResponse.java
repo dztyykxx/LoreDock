@@ -28,6 +28,7 @@ import java.time.OffsetDateTime;
  */
 public record MemoryResponse(
         long id,
+        long revision,
         MemoryScope scope,
         Long projectId,
         String projectIdentifier,
@@ -44,4 +45,14 @@ public record MemoryResponse(
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt
 ) {
+    /** 兼容已有 Controller 测试与内部构造；旧记录视为第 1 版。 */
+    public MemoryResponse(long id, MemoryScope scope, Long projectId, String projectIdentifier,
+            MemoryCategory category, String title, String summary, String content,
+            MemoryStatus status, MemorySourceType sourceType, Long sourceRunId,
+            Long sourceConversationId, long useCount, OffsetDateTime lastUsedAt,
+            OffsetDateTime createdAt, OffsetDateTime updatedAt) {
+        this(id, 1L, scope, projectId, projectIdentifier, category, title, summary, content,
+                status, sourceType, sourceRunId, sourceConversationId, useCount, lastUsedAt,
+                createdAt, updatedAt);
+    }
 }

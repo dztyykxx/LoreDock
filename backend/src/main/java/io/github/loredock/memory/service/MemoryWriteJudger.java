@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.loredock.memory.api.MemoryCategory;
 import io.github.loredock.memory.api.MemoryStatus;
+import io.github.loredock.memory.api.MemoryWriteDecision;
 import io.github.loredock.memory.api.MemoryWriteOutcome;
+import io.github.loredock.memory.api.MemoryWriteRelation;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -18,19 +20,12 @@ import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.beans.factory.ObjectProvider;
 
 /**
- * memory_write 语义判断器：单次受控 ChatModel 调用，为每个候选判断
- * CREATED / CONFLICT_CREATED / SKIP_DUPLICATE / SKIP_NOT_WORTH。
- *
- * <p>与 {@code ContextCompressionService} 同先例（内部受限调用、非 Agent、无 Spec/Tool），
- * 失败以 {@link IllegalStateException} 上报调用方（可整体重试），不产生无判断记录。</p>
- *
- * <p>模型通过 {@link ObjectProvider} 延迟解析：部署未显式启用模型（spring.ai.model.chat=none）时
- * 应用照常启动（记忆检索/预载不依赖模型），只有真正执行写入判断时才以明确错误失败。</p>
+ * 用户记忆关系判断器。模型只负责语义关系和合并文本，目标 ID、版本、范围与证据
+ * 是否来自服务端由 MemoryServiceImpl 再次校验。
  */
 public class MemoryWriteJudger {
 
     private static final Logger log = LoggerFactory.getLogger(MemoryWriteJudger.class);
-
     private static final String MODEL_UNAVAILABLE =
             "平台未配置 ChatModel（spring.ai.model.chat 未启用 openai），记忆写入判断不可用";
 
@@ -42,161 +37,207 @@ public class MemoryWriteJudger {
         this.objectMapper = objectMapper;
     }
 
-    /** 供给判断器的一条候选（编号独立于原始下标，避免参差）。 */
-    public record CandidateForJudgement(
-            int slot,
-            MemoryCategory category,
-            String title,
-            String content
-    ) {
+    public record CandidateForJudgement(int slot, MemoryCategory category, String title, String summary, String content) {
+        public CandidateForJudgement(int slot, MemoryCategory category, String title, String content) {
+            this(slot, category, title, null, content);
+        }
     }
 
-    /** 供给判断器的既有记忆视图：只含判断所需字段，不暴露正文全文。 */
-    public record ExistingMemories(
-            Long id,
-            MemoryCategory category,
-            MemoryStatus status,
-            String title,
-            String summary
-    ) {
+    /** 判断器可见的完整候选，正文不在此处静默截短。 */
+    public record ExistingMemories(Long id, MemoryCategory category, MemoryStatus status,
+            String title, String summary, String content, long revision) {
+        public ExistingMemories(Long id, MemoryCategory category, MemoryStatus status,
+                String title, String summary) {
+            this(id, category, status, title, summary, "", 1L);
+        }
     }
 
-    /** 单候选判断结论。 */
-    public record Judgement(
-            int slot,
-            MemoryWriteOutcome outcome,
-            List<Long> conflictsWith,
-            String summary
-    ) {
+    public record ConflictDetail(Long memoryId, Integer candidateIndex, String oldClause, String newClause) {
     }
 
-    /**
-     * 批量判断：模型无有效输出、JSON 非法或结论编号越界/引用不存在 -> {@link IllegalStateException}。
-     *
-     * @param candidates 候选（每条限长已由调用方校验）
-     * @param existing 同范围相近既有记忆（ACTIVE + DISABLED，上限调用方控制）
-     */
+    public record Judgement(int slot, MemoryWriteRelation relation, MemoryWriteDecision decision,
+            Long targetId, Integer targetCandidateIndex, String title, String summary, String content,
+            String reason, List<String> changes, List<ConflictDetail> conflicts,
+            String recommendation, String question, String replacementEvidence) {
+
+        /** 兼容旧模型回执，正式新提示词不再生成冲突双 ACTIVE。 */
+        public Judgement(int slot, MemoryWriteOutcome outcome, List<Long> conflictsWith, String summary) {
+            this(slot, relationOf(outcome), decisionOf(outcome),
+                    conflictsWith == null || conflictsWith.isEmpty() ? null : conflictsWith.get(0), null,
+                    null, summary, null, "兼容旧版判断回执", List.of(), details(conflictsWith), null, null, null);
+        }
+
+        public MemoryWriteOutcome outcome() {
+            if (decision == MemoryWriteDecision.CONFIRM) return MemoryWriteOutcome.NEEDS_CONFIRMATION;
+            if (decision == MemoryWriteDecision.SKIP) {
+                return relation == MemoryWriteRelation.DUPLICATE
+                        ? MemoryWriteOutcome.SKIP_DUPLICATE : MemoryWriteOutcome.SKIP_NOT_WORTH;
+            }
+            if (relation == MemoryWriteRelation.CONFLICT && decision == MemoryWriteDecision.CREATE) {
+                return MemoryWriteOutcome.CONFLICT_CREATED;
+            }
+            return decision == MemoryWriteDecision.UPDATE ? MemoryWriteOutcome.UPDATED : MemoryWriteOutcome.CREATED;
+        }
+
+        public List<Long> conflictsWith() {
+            return conflicts == null ? List.of() : conflicts.stream().map(ConflictDetail::memoryId)
+                    .filter(java.util.Objects::nonNull).toList();
+        }
+
+        private static List<ConflictDetail> details(List<Long> ids) {
+            if (ids == null) return List.of();
+            return ids.stream().map(id -> new ConflictDetail(id, null, "", "")).toList();
+        }
+
+        private static MemoryWriteRelation relationOf(MemoryWriteOutcome outcome) {
+            return switch (outcome) {
+                case SKIP_DUPLICATE -> MemoryWriteRelation.DUPLICATE;
+                case CONFLICT_CREATED -> MemoryWriteRelation.CONFLICT;
+                default -> MemoryWriteRelation.NEW;
+            };
+        }
+
+        private static MemoryWriteDecision decisionOf(MemoryWriteOutcome outcome) {
+            return switch (outcome) {
+                case SKIP_DUPLICATE, SKIP_NOT_WORTH -> MemoryWriteDecision.SKIP;
+                default -> MemoryWriteDecision.CREATE;
+            };
+        }
+    }
+
+    /** 单候选判断，批内工作视图由服务端在每次调用前构造。 */
     public List<Judgement> judge(List<CandidateForJudgement> candidates, List<ExistingMemories> existing) {
         String prompt = buildPrompt(candidates, existing);
-        log.info("记忆写入判断 agent=memory_write_judger candidates={} 既有记忆={}", candidates.size(), existing.size());
+        log.info("记忆写入判断 agent=memory_write_judger candidates={} 既有记忆={}",
+                candidates.size(), existing == null ? 0 : existing.size());
         ChatModel chatModel = model.getIfAvailable();
-        if (chatModel == null) {
-            throw new IllegalStateException(MODEL_UNAVAILABLE);
-        }
+        if (chatModel == null) throw new IllegalStateException(MODEL_UNAVAILABLE);
         ChatResponse response = chatModel.call(new Prompt(List.of(new UserMessage(prompt))));
         String text = response == null || response.getResult() == null || response.getResult().getOutput() == null
                 ? null : response.getResult().getOutput().getText();
-        if (text == null || text.isBlank()) {
-            throw new IllegalStateException("记忆写入判断无有效模型输出");
-        }
-        List<Judgement> result = parse(candidates, existing, text);
-        log.info("记忆写入判断 agent=memory_write_judger 完成 结论={}",
-                result.stream().map(item -> item.outcome() + ":" + item.slot()).toList());
+        if (text == null || text.isBlank()) throw new IllegalStateException("记忆写入判断无有效模型输出");
+        List<Judgement> result = parse(candidates, existing == null ? List.of() : existing, text);
+        log.info("记忆写入判断完成 结论={}", result.stream().map(item -> item.relation() + ":" + item.slot()).toList());
         return result;
     }
 
     private String buildPrompt(List<CandidateForJudgement> candidates, List<ExistingMemories> existing) {
-        String existingBlock = existing == null || existing.isEmpty()
-                ? "（无既存记忆）"
-                : existing.stream().map(item -> "#" + item.id() + " [" + item.status() + " " + item.category()
-                        + "] " + bounded(item.title(), 60) + ": " + bounded(item.summary(), 120))
-                .reduce((left, right) -> left + "\n" + right).orElse("");
-        String candidateBlock = candidates.stream().map(item ->
-                        "候选" + item.slot() + " 分类=" + item.category() + "\n标题：" + bounded(item.title(), 100)
-                                + "\n内容：" + bounded(item.content(), 600))
-                .reduce((left, right) -> left + "\n---\n" + right).orElse("");
-        return "你是知识整理的「用户偏好记忆提炼判断器」，用户在与助手的对话中表达了对文档产出的偏好，"
-                + "请逐条候选判断是否要作为长期记忆写入。\n"
-                + "规则：\n"
-                + "- 一次性任务指令（如“这次只先改标题”“本次用这个模板”）→ SKIP_NOT_WORTH；\n"
-                + "- 与既存记忆表达同一偏好（同分类、语义相同、异词表达）→ SKIP_DUPLICATE，不得改动既存记忆；\n"
-                + "- 与既存某条记忆语义冲突（同类目但内容相反/不一致，如“正式用语”vs“口语风格”）"
-                + "→ CONFLICT_CREATED，候选仍须写入，冲突双方同时保留 ACTIVE；\n"
-                + "- 其余 → CREATED。\n"
-                + "只输出一个 JSON 数组，不得输出解释："
-                + "[{\"candidateIndex\":0,\"verdict\":\"CREATED\",\"conflictsWith\":[既有编号],\"summary\":\"可选摘要≤300字\"}]\n"
-                + "candidateIndex 对应候选编号；conflictsWith 只能取列出的已有记忆编号，无冲突给空数组。\n"
-                + "既有记忆（含停用，停用记忆不得被复活）：\n" + existingBlock + "\n候选：\n" + candidateBlock;
+        String oldBlock = existing == null || existing.isEmpty() ? "（无既存记忆）" : existing.stream()
+                .map(item -> "#" + item.id() + " [" + item.status() + " " + item.category()
+                        + "]\n标题：" + bounded(item.title(), 200) + "\n摘要：" + bounded(item.summary(), 300)
+                        + "\n正文：" + bounded(item.content(), 4000))
+                .reduce((a, b) -> a + "\n---\n" + b).orElse("");
+        String newBlock = candidates.stream().map(item -> "候选" + item.slot() + " 分类=" + item.category()
+                        + "\n标题：" + bounded(item.title(), 200) + "\n建议摘要：" + bounded(item.summary(), 300)
+                        + "\n正文：" + bounded(item.content(), 4000))
+                .reduce((a, b) -> a + "\n---\n" + b).orElse("");
+        return "你是用户长期偏好记忆合并判断器，只处理用户对文档产出的长期偏好。\n"
+                + "DUPLICATE=旧正文已完整覆盖新要求；INCREMENTAL=同一偏好增加兼容条款；"
+                + "CONFLICT=同一条件下互斥。一次性指令返回 relation=NEW,decision=SKIP。\n"
+                + "明确用户改口且有证据时可 relation=CONFLICT,decision=UPDATE；未明确改口返回 decision=CONFIRM。"
+                + "停用目标不得复活。UPDATE 必须返回包含旧有效约束的完整合并正文；SKIP/CONFIRM 不要伪造正文。\n"
+                + "只输出 JSON 数组：[ {\"candidateIndex\":0,\"relation\":\"INCREMENTAL\","
+                + "\"decision\":\"UPDATE\",\"targetId\":1,\"targetCandidateIndex\":null,"
+                + "\"title\":\"...\",\"summary\":\"...\",\"content\":\"完整正文\","
+                + "\"reason\":\"...\",\"changes\":[\"...\"],\"conflicts\":[],"
+                + "\"recommendation\":null,\"question\":null,\"replacementEvidence\":null} ]\n"
+                + "targetId 只能引用下列已有编号；同批新候选目标才使用 targetCandidateIndex，二者互斥。"
+                + "conflicts 每项包含 memoryId 或 candidateIndex、oldClause、newClause。\n"
+                + "既有记忆：\n" + oldBlock + "\n候选：\n" + newBlock;
     }
 
-    private List<Judgement> parse(List<CandidateForJudgement> candidates, List<ExistingMemories> existing, String text) {
+    private List<Judgement> parse(List<CandidateForJudgement> candidates,
+            List<ExistingMemories> existing, String text) {
         try {
-            String json = jsonObject(text);
-            JsonNode array = objectMapper.readTree(json);
-            if (!array.isArray()) {
-                throw new IllegalStateException("记忆写入判断输出必须是 JSON 数组");
-            }
+            JsonNode array = objectMapper.readTree(jsonArray(text));
+            if (!array.isArray()) throw new IllegalStateException("判断结果必须是 JSON 数组");
             Set<Integer> slots = new HashSet<>();
-            List<Judgement> judgements = new ArrayList<>();
+            List<Judgement> result = new ArrayList<>();
             for (JsonNode item : array) {
                 int slot = item.path("candidateIndex").asInt(-1);
                 if (slot < 0 || slot >= candidates.size() || !slots.add(slot)) {
-                    throw new IllegalStateException("记忆写入判断候选编号非法：" + slot);
+                    throw new IllegalStateException("判断候选编号非法：" + slot);
                 }
-                MemoryWriteOutcome outcome = parseOutcome(item.path("verdict").asText(null));
-                List<Long> conflicts = new ArrayList<>();
-                JsonNode conflictsNode = item.path("conflictsWith");
-                if (conflictsNode.isArray()) {
-                    for (JsonNode id : conflictsNode) {
-                        long value = id.asLong(-1);
-                        if (value < 0 || existing.stream().noneMatch(entry -> entry.id() == value)) {
-                            throw new IllegalStateException("记忆写入判断 conflictsWith 引用了不存在的记忆编号：" + value);
-                        }
-                        conflicts.add(value);
+                if (item.has("verdict")) {
+                    result.add(parseLegacy(item, slot, existing));
+                    continue;
+                }
+                MemoryWriteRelation relation = enumValue(MemoryWriteRelation.class, item.path("relation").asText(null));
+                MemoryWriteDecision decision = enumValue(MemoryWriteDecision.class, item.path("decision").asText(null));
+                Long targetId = item.path("targetId").isNumber() ? item.path("targetId").longValue() : null;
+                Integer targetCandidate = item.path("targetCandidateIndex").isInt()
+                        ? item.path("targetCandidateIndex").intValue() : null;
+                if (targetId != null && targetCandidate != null) throw new IllegalStateException("目标引用互斥");
+                if (targetId != null && existing.stream().noneMatch(old -> old.id().equals(targetId))) {
+                    throw new IllegalStateException("引用了不存在的目标记忆：" + targetId);
+                }
+                List<ConflictDetail> conflicts = new ArrayList<>();
+                JsonNode conflictNode = item.path("conflicts");
+                if (conflictNode.isArray()) for (JsonNode c : conflictNode) {
+                    Long memoryId = c.path("memoryId").isNumber() ? c.path("memoryId").longValue() : null;
+                    Integer candidateIndex = c.path("candidateIndex").isInt() ? c.path("candidateIndex").intValue() : null;
+                    if (memoryId == null && candidateIndex == null || memoryId != null && candidateIndex != null) {
+                        throw new IllegalStateException("冲突目标引用非法");
                     }
+                    conflicts.add(new ConflictDetail(memoryId, candidateIndex,
+                            bounded(c.path("oldClause").asText(""), 500),
+                            bounded(c.path("newClause").asText(""), 500)));
                 }
-                String summary = item.has("summary") ? item.path("summary").asText(null) : null;
-                if (summary != null && summary.isBlank()) {
-                    summary = null;
-                }
-                if (summary != null && summary.codePointCount(0, summary.length()) > 300) {
-                    summary = bound(summary, 300);
-                }
-                judgements.add(new Judgement(slot, outcome, List.copyOf(conflicts), summary));
+                result.add(new Judgement(slot, relation, decision, targetId, targetCandidate,
+                        nullable(item, "title"), nullable(item, "summary"), nullable(item, "content"),
+                        bounded(item.path("reason").asText(""), 300), strings(item.path("changes"), 5, 200),
+                        List.copyOf(conflicts), nullable(item, "recommendation"), nullable(item, "question"),
+                        nullable(item, "replacementEvidence")));
             }
-            if (judgements.size() != candidates.size()) {
-                throw new IllegalStateException("记忆写入判断结论数量不完整：" + judgements.size() + "/" + candidates.size());
-            }
-            return List.copyOf(judgements);
-        } catch (IllegalStateException exception) {
-            throw exception;
-        } catch (Exception exception) {
-            throw new IllegalStateException("记忆写入判断输出非合法 JSON", exception);
+            if (result.size() != candidates.size()) throw new IllegalStateException("判断结论数量不完整");
+            return List.copyOf(result);
+        } catch (IllegalStateException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalStateException("判断输出非合法 JSON", e);
         }
     }
 
-    private static MemoryWriteOutcome parseOutcome(String verdict) {
-        if (verdict == null) {
-            throw new IllegalStateException("记忆写入判断缺少 verdict");
+    private Judgement parseLegacy(JsonNode item, int slot, List<ExistingMemories> existing) {
+        MemoryWriteOutcome outcome = enumValue(MemoryWriteOutcome.class, item.path("verdict").asText(null));
+        List<ConflictDetail> conflicts = new ArrayList<>();
+        JsonNode ids = item.path("conflictsWith");
+        if (ids.isArray()) for (JsonNode id : ids) {
+            long value = id.asLong(-1);
+            if (existing.stream().noneMatch(old -> old.id() == value)) throw new IllegalStateException("冲突编号不存在");
+            conflicts.add(new ConflictDetail(value, null, "", ""));
         }
-        try {
-            return MemoryWriteOutcome.valueOf(verdict);
-        } catch (IllegalArgumentException exception) {
-            throw new IllegalStateException("记忆写入判断 verdict 非法：" + verdict);
-        }
+        return new Judgement(slot, outcome, conflicts.stream().map(ConflictDetail::memoryId).toList(),
+                nullable(item, "summary"));
     }
 
-    /** @return 从模型文本中截取最外层 JSON 数组（容忍模型在前后附加说明）。 */
-    private static String jsonObject(String text) {
-        String stripped = text.strip();
-        int start = stripped.indexOf('[');
-        int end = stripped.lastIndexOf(']');
-        if (start < 0 || end <= start) {
-            throw new IllegalStateException("记忆写入判断输出中未找到 JSON 数组");
-        }
+    private static <T extends Enum<T>> T enumValue(Class<T> type, String value) {
+        if (value == null || value.isBlank()) throw new IllegalStateException("缺少枚举字段");
+        try { return Enum.valueOf(type, value); }
+        catch (IllegalArgumentException e) { throw new IllegalStateException("枚举值非法：" + value); }
+    }
+
+    private static List<String> strings(JsonNode node, int maxItems, int maxLength) {
+        if (!node.isArray()) return List.of();
+        List<String> result = new ArrayList<>();
+        for (JsonNode item : node) { if (result.size() == maxItems) break; result.add(bounded(item.asText(""), maxLength)); }
+        return List.copyOf(result);
+    }
+
+    private static String nullable(JsonNode node, String field) {
+        String value = node.path(field).asText(null);
+        return value == null || value.isBlank() ? null : value;
+    }
+
+    private static String jsonArray(String text) {
+        String stripped = text.strip(); int start = stripped.indexOf('['); int end = stripped.lastIndexOf(']');
+        if (start < 0 || end <= start) throw new IllegalStateException("未找到 JSON 数组");
         return stripped.substring(start, end + 1);
     }
 
     private static String bounded(String value, int limit) {
-        if (value == null) {
-            return "";
-        }
-        return bound(value, limit);
-    }
-
-    static String bound(String value, int limit) {
-        String text = value.strip();
-        int count = text.codePointCount(0, text.length());
+        if (value == null) return "";
+        String text = value.strip(); int count = text.codePointCount(0, text.length());
         return count <= limit ? text : text.substring(0, text.offsetByCodePoints(0, limit));
     }
 }

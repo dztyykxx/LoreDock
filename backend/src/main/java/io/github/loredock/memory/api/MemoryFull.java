@@ -24,6 +24,7 @@ import java.time.OffsetDateTime;
  */
 public record MemoryFull(
         Long id,
+        long revision,
         MemoryScope scope,
         Long projectId,
         String projectIdentifier,
@@ -40,4 +41,14 @@ public record MemoryFull(
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt
 ) {
+    /** 兼容已有调用方；迁移前的记忆统一视为第 1 版。 */
+    public MemoryFull(Long id, MemoryScope scope, Long projectId, String projectIdentifier,
+            MemoryCategory category, String title, String summary, String content,
+            MemoryStatus status, MemorySourceType sourceType, Long sourceRunId,
+            Long sourceConversationId, long useCount, OffsetDateTime lastUsedAt,
+            OffsetDateTime createdAt, OffsetDateTime updatedAt) {
+        this(id, 1L, scope, projectId, projectIdentifier, category, title, summary, content,
+                status, sourceType, sourceRunId, sourceConversationId, useCount, lastUsedAt,
+                createdAt, updatedAt);
+    }
 }

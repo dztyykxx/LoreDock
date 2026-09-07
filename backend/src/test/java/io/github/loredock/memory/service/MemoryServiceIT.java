@@ -8,9 +8,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.loredock.memory.api.MemoryCandidate;
 import io.github.loredock.memory.api.MemoryCategory;
 import io.github.loredock.memory.api.MemoryDraftInput;
+import io.github.loredock.memory.api.MemoryEditInput;
 import io.github.loredock.memory.api.MemoryFull;
 import io.github.loredock.memory.api.MemoryRelevant;
 import io.github.loredock.memory.api.MemoryRelevantQuery;
+import io.github.loredock.memory.api.MemoryRevisionPage;
 import io.github.loredock.memory.api.MemoryRequestException;
 import io.github.loredock.memory.api.MemoryScope;
 import io.github.loredock.memory.api.MemoryService;
@@ -20,6 +22,7 @@ import io.github.loredock.memory.api.MemoryWriteInput;
 import io.github.loredock.memory.api.MemoryWriteVerdict;
 import io.github.loredock.memory.config.MemoryProperties;
 import io.github.loredock.memory.mapper.UserMemoryMapper;
+import io.github.loredock.memory.mapper.UserMemoryRevisionMapper;
 import io.github.loredock.memory.model.entity.UserMemoryEntity;
 import io.github.loredock.memory.testsupport.MemoryTestFixtures;
 import io.github.loredock.persistence.MybatisMapperFactory;
@@ -79,6 +82,7 @@ class MemoryServiceIT {
 
     private DataSource dataSource;
     private UserMemoryMapper mapper;
+    private UserMemoryRevisionMapper revisionMapper;
     private MemoryService service;
     /** 项目 A/B 主键，超范围隔离用。 */
     private static final long PROJECT_A = 101L;
@@ -125,6 +129,7 @@ class MemoryServiceIT {
                 """, RUN_ID, HEX64, HEX64, PROJECT_A, "project-" + PROJECT_A, BRANCH_ID,
                 BASE.atOffset(ZoneOffset.UTC), BASE.atOffset(ZoneOffset.UTC));
         mapper = MybatisMapperFactory.create(dataSource, UserMemoryMapper.class);
+        revisionMapper = MybatisMapperFactory.create(dataSource, UserMemoryRevisionMapper.class);
         // 手动插入显式 id 不会推进 identity 序列；写路径用自增 id，必须跳过手动段（否则撞主键）
         new JdbcTemplate(dataSource).queryForObject(
                 "select setval(pg_get_serial_sequence('user_memory', 'id'), 1000)", Long.class);
@@ -469,6 +474,112 @@ class MemoryServiceIT {
         assertThat(written.getProjectIdentifier()).isEqualTo("project-" + PROJECT_A);
         System.out.println("测试证据：场景=项目级写入经真实项目应用服务，id=" + written.getId()
                 + "，scope=PROJECT，projectId=" + PROJECT_A + "，projectIdentifier=project-" + PROJECT_A);
+    }
+
+    /**
+     * 业务目的：人工创建与编辑必须产生连续版本，历史保存变更后完整快照，
+     * 防止原地更新后无法解释记忆为何变化（版本历史与当前值同步）。
+     */
+    @Test
+    @Order(14)
+    void manualUpdateCreatesRevisionHistoryAndKeepsCurrentVersion() {
+        MemoryService historyService = new MemoryServiceImpl(
+                mapper, MemoryTestFixtures.projectService(PROJECT_A, PROJECT_B),
+                MemoryTestFixtures.judgerNeverCalled(), MemoryTestFixtures.properties(), CLOCK,
+                revisionMapper, new ObjectMapper());
+        MemoryFull created = historyService.create(new MemoryDraftInput(
+                MemoryScope.GLOBAL, null, MemoryCategory.FORMAT, "历史测试记忆", "初始摘要", "初始正文", "test"));
+
+        MemoryFull updated = historyService.update(new MemoryEditInput(
+                created.id(), MemoryCategory.FORMAT, "历史测试记忆", "更新摘要", "更新正文", null,
+                null, null, "test", 1L));
+        MemoryRevisionPage history = historyService.listRevisions(created.id(), 1, 20);
+
+        assertThat(updated.revision()).isEqualTo(2L);
+        assertThat(history.total()).isEqualTo(2L);
+        assertThat(history.items().get(0).revision()).isEqualTo(2L);
+        assertThat(history.items().get(0).createdAt()).isNotNull();
+        assertThat(history.items().get(0).snapshot()).contains("更新正文");
+        System.out.println("测试证据：场景=记忆版本历史，memoryId=" + created.id()
+                + "，当前revision=2，历史条数=2，最新快照含更新正文");
+    }
+
+    /**
+     * 业务目的：模型判定为 INCREMENTAL 时必须原地更新目标记忆并产生新版本，
+     * 防止当前实现只支持新增/跳过，导致同一偏好被拆成多条记录且丢失历史。
+     */
+    @Test
+    @Order(15)
+    void incrementalJudgementUpdatesTargetAndCreatesHistory() {
+        MemoryService historyService = new MemoryServiceImpl(
+                mapper, MemoryTestFixtures.projectService(PROJECT_A, PROJECT_B),
+                MemoryTestFixtures.judgerNeverCalled(), MemoryTestFixtures.properties(), CLOCK,
+                revisionMapper, new ObjectMapper());
+        MemoryFull created = historyService.create(new MemoryDraftInput(
+                MemoryScope.GLOBAL, null, MemoryCategory.FORMAT, "增量合并记忆", "原始摘要", "原始正文" , "test"));
+
+        MemoryWriteJudger scripted = new MemoryWriteJudger(MemoryTestFixtures.single(new ScriptedChatModel("""
+                [{"candidateIndex":0,"relation":"INCREMENTAL","decision":"UPDATE","targetId":%d,
+                  "title":"增量合并记忆","summary":"补充后的摘要","content":"原始正文；补充新增约束",
+                  "reason":"候选是同一规则的增量说明","changes":["补充新增约束"],"conflicts":[]}]
+                """.formatted(created.id()))), new ObjectMapper());
+        MemoryService writeService = new MemoryServiceImpl(
+                mapper, MemoryTestFixtures.projectService(PROJECT_A, PROJECT_B),
+                scripted, MemoryTestFixtures.properties(), CLOCK, revisionMapper, new ObjectMapper());
+
+        List<MemoryWriteVerdict> verdicts = writeService.acceptWrite(request(null,
+                List.of(new MemoryCandidate("增量合并记忆", "原始正文；补充新增约束", MemoryCategory.FORMAT, null))));
+        MemoryFull updated = writeService.loadFull(created.id(), null);
+        MemoryRevisionPage history = writeService.listRevisions(created.id(), 1, 20);
+
+        assertThat(verdicts).singleElement().satisfies(verdict -> {
+            assertThat(verdict.outcome()).isEqualTo(MemoryWriteOutcome.UPDATED);
+            assertThat(verdict.memoryId()).isEqualTo(created.id());
+            assertThat(verdict.targetMemoryId()).isEqualTo(created.id());
+            assertThat(verdict.revision()).isEqualTo(2L);
+        });
+        assertThat(updated.id()).isEqualTo(created.id());
+        assertThat(updated.revision()).isEqualTo(2L);
+        assertThat(updated.content()).contains("补充新增约束");
+        assertThat(history.total()).isEqualTo(2L);
+        assertThat(history.items().get(0).relation()).isEqualTo("INCREMENTAL");
+        System.out.println("测试证据：场景=模型增量合并，memoryId=" + created.id()
+                + " 原地更新，revision=2，历史条数=2，正文保留新增约束");
+    }
+
+    /**
+     * 业务目的：结构化冲突在没有用户明确改口证据时必须停在待确认，
+     * 防止模型仅凭候选文本自动覆盖旧偏好或制造两条长期冲突记忆。
+     */
+    @Test
+    @Order(16)
+    void unresolvedStructuredConflictRequiresConfirmationWithoutMutation() {
+        seed(1005L, "GLOBAL", null, MemoryCategory.STYLE, "汇报语气偏好",
+                "正式表达", "正式表达，避免口语化措辞");
+        MemoryWriteJudger scripted = new MemoryWriteJudger(MemoryTestFixtures.single(new ScriptedChatModel("""
+                [{"candidateIndex":0,"relation":"CONFLICT","decision":"CONFIRM","targetId":1005,
+                  "title":null,"summary":null,"content":null,"reason":"两条语气要求互斥",
+                  "changes":[],"conflicts":[{"memoryId":1005,"oldClause":"避免口语化措辞","newClause":"使用口语化措辞"}],
+                  "recommendation":"建议确认后再替换旧语气要求","question":"是否将汇报语气改为口语化？"}]
+                """)), new ObjectMapper());
+        MemoryService writeService = new MemoryServiceImpl(
+                mapper, MemoryTestFixtures.projectService(PROJECT_A, PROJECT_B),
+                scripted, MemoryTestFixtures.properties(), CLOCK, revisionMapper, new ObjectMapper());
+
+        List<MemoryWriteVerdict> verdicts = writeService.acceptWrite(request(null,
+                List.of(new MemoryCandidate("汇报语气偏好", "使用口语化措辞", MemoryCategory.STYLE, null))));
+        UserMemoryEntity existing = mapper.selectById(1005L);
+
+        assertThat(verdicts).singleElement().satisfies(verdict -> {
+            assertThat(verdict.outcome()).isEqualTo(MemoryWriteOutcome.NEEDS_CONFIRMATION);
+            assertThat(verdict.memoryId()).isNull();
+            assertThat(verdict.targetMemoryId()).isEqualTo(1005L);
+            assertThat(verdict.conflicts()).contains("避免口语化措辞 -> 使用口语化措辞");
+            assertThat(verdict.recommendation()).contains("确认");
+        });
+        assertThat(existing.getContent()).isEqualTo("正式表达，避免口语化措辞");
+        assertThat(existing.getRevision()).isEqualTo(1L);
+        System.out.println("测试证据：场景=未决结构化冲突，target=1005，结果=NEEDS_CONFIRMATION，revision=1 未改变");
     }
 
     // ------------------------------------------------------------------ 数据

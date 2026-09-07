@@ -2,6 +2,7 @@ package io.github.loredock.memory.controller;
 
 import io.github.loredock.auth.api.AuthService;
 import io.github.loredock.memory.api.MemoryService;
+import io.github.loredock.memory.api.MemoryRevisionPage;
 import io.github.loredock.memory.converter.MemoryHttpContract;
 import io.github.loredock.memory.converter.MemoryHttpMapper;
 import io.github.loredock.memory.model.request.MemoryCreateRequest;
@@ -11,12 +12,14 @@ import io.github.loredock.memory.model.response.MemoryResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -80,7 +83,18 @@ public class MemoryAdminController {
             @Valid @RequestBody MemoryStatusRequest request
     ) {
         return MemoryHttpMapper.toResponse(
-                memories.setStatus(memoryId, request.status(), sessions.currentSession().username()));
+                request.expectedRevision() == null
+                        ? memories.setStatus(memoryId, request.status(), sessions.currentSession().username())
+                        : memories.setStatus(memoryId, request.status(), sessions.currentSession().username(),
+                                request.expectedRevision()));
+    }
+
+    /** 按需读取版本历史，避免列表接口携带全部历史正文。 */
+    @GetMapping("/{memoryId}/revisions")
+    public MemoryRevisionPage revisions(@PathVariable Long memoryId,
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return memories.listRevisions(memoryId, page, size);
     }
 
     /**
@@ -90,7 +104,9 @@ public class MemoryAdminController {
      */
     @DeleteMapping("/{memoryId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable Long memoryId) {
-        memories.delete(memoryId);
+    public void delete(@PathVariable Long memoryId,
+            @RequestParam(required = false) Long expectedRevision) {
+        if (expectedRevision == null) memories.delete(memoryId);
+        else memories.delete(memoryId, expectedRevision);
     }
 }

@@ -1,19 +1,24 @@
 package io.github.loredock.memory.api;
 
-/**
- * 单条候选的记忆写入结论，与 {@link MemoryWriteInput} 中候选按下标一一对应。
- *
- * @param candidateIndex 候选序号（从 0 开始）
- * @param outcome 判断结论
- * @param memoryId 实际写入后的记忆编号；跳过类结论为空
- * @param message 中文理由（工具回复与日志）
- * @param conflictsWith 冲突结论命中的既有记忆编号列表；仅 CONFLICT_CREATED 时有值
- */
+/** 单条候选的记忆写入结论，与候选按下标一一对应。 */
 public record MemoryWriteVerdict(
         int candidateIndex,
         MemoryWriteOutcome outcome,
         Long memoryId,
         String message,
-        long[] conflictsWith
+        long[] conflictsWith,
+        MemoryWriteRelation relation,
+        Long targetMemoryId,
+        Long revision,
+        java.util.List<String> changes,
+        java.util.List<String> conflicts,
+        String recommendation,
+        String question
 ) {
+    /** 保持既有模块测试和调用方的五参数构造兼容。 */
+    public MemoryWriteVerdict(int candidateIndex, MemoryWriteOutcome outcome, Long memoryId,
+            String message, long[] conflictsWith) {
+        this(candidateIndex, outcome, memoryId, message, conflictsWith, null,
+                null, null, java.util.List.of(), java.util.List.of(), null, null);
+    }
 }

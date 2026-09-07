@@ -27,6 +27,7 @@ public record MemoryUpdateRequest(
         @Size(max = 4000) String content,
         MemoryStatus status,
         MemoryScope scope,
-        Long projectId
+        Long projectId,
+        Long expectedRevision
 ) {
 }

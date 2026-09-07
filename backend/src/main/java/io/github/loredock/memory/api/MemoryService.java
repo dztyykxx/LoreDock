@@ -40,11 +40,13 @@ public interface MemoryService {
     MemoryFull loadFull(Long memoryId, Long projectId);
 
     /**
-     * 提炼写入：对候选逐条执行「值得写 / 语义重复 / 冲突仍写」判断后写入。
+     * 提炼写入：对候选逐条执行「新增 / 重复 / 增量 / 冲突」关系判断后写入。
      *
      * <p>范围由请求自身决定（会话挂项目→PROJECT，否则 GLOBAL），调用方不得指定；
-     * 语义重复（含 DISABLED）跳过且不复活；语义冲突仍写入、两条均保持 ACTIVE；
-     * 单 run（{@code sourceRunId}）累计新写数量达到上限（默认 10）后整体拒写。
+     * 语义重复跳过且不改变原记忆；增量内容合并到原记忆并递增版本；
+     * 冲突只有在当前用户消息提供明确替换证据时才更新，否则返回待确认；
+     * 停用记忆不得被自动流程复活。单 run（{@code sourceRunId}）累计 CREATE/UPDATE
+     * 数量达到上限（默认 10）后整体拒写。
      * 判断模型失败抛出 {@code MEMORY_JUDGE_UNAVAILABLE}，不产生无判断记录。</p>
      *
      * @param request 提炼请求（候选 1~3 条、带来源与操作者）
@@ -62,6 +64,9 @@ public interface MemoryService {
      * @return 有界分页结果（管理视图，含正文）
      */
     MemoryPage listPage(MemoryPageQuery query);
+
+    /** 管理员按需查看记忆版本历史，按版本倒序返回。 */
+    MemoryRevisionPage listRevisions(Long memoryId, int page, int size);
 
     /**
      * 人工创建记忆（MANUAL 来源）：范围与所属项目必须显式给定，
@@ -94,7 +99,12 @@ public interface MemoryService {
      * @return 更新后的记忆完整视图
      * @throws MemoryRequestException 不存在 {@code MEMORY_NOT_FOUND}
      */
-    MemoryFull setStatus(Long memoryId, MemoryStatus status, String operatorId);
+    MemoryFull setStatus(Long memoryId, MemoryStatus status, String operatorId, Long expectedRevision);
+
+    /** 兼容旧调用方的状态变更入口。 */
+    default MemoryFull setStatus(Long memoryId, MemoryStatus status, String operatorId) {
+        return setStatus(memoryId, status, operatorId, null);
+    }
 
     /**
      * 删除记忆：仅管理员入口调用；删除后的编号不可再被加载。
@@ -102,5 +112,10 @@ public interface MemoryService {
      * @param memoryId 记忆编号
      * @throws MemoryRequestException 不存在 {@code MEMORY_NOT_FOUND}
      */
-    void delete(Long memoryId);
+    void delete(Long memoryId, Long expectedRevision);
+
+    /** 兼容旧调用方的删除入口。 */
+    default void delete(Long memoryId) {
+        delete(memoryId, null);
+    }
 }

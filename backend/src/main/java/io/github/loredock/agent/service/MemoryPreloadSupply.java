@@ -86,8 +86,9 @@ public class MemoryPreloadSupply {
             return new Snapshot(List.copyOf(entries), System.nanoTime() + TTL.toNanos());
         } catch (RuntimeException exception) {
             // 检索失败不阻塞主链路：只跳过本 run 的记忆注入，记住短 TTL 结果避免反复重试。
-            log.warn("用户记忆预载失败（跳过注入，不阻塞主链路）runId={} error={}",
-                    runId, bounded(String.valueOf(exception.getMessage()), 200));
+            log.warn("用户记忆预载失败（跳过注入，不阻塞主链路）runId={} errorType={} error={}",
+                    runId, exception.getClass().getSimpleName(),
+                    bounded(String.valueOf(exception.getMessage()), 200), exception);
             return new Snapshot(List.of(), System.nanoTime() + FAILURE_TTL.toNanos());
         }
     }

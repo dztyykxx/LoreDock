@@ -19,6 +19,7 @@ final class MemoryEntityTransforms {
     static MemoryFull toFull(UserMemoryEntity entity) {
         return new MemoryFull(
                 entity.getId(),
+                entity.getRevision() == null ? 1L : entity.getRevision(),
                 MemoryScope.valueOf(entity.getScopeType()),
                 entity.getProjectId(),
                 entity.getProjectIdentifier(),

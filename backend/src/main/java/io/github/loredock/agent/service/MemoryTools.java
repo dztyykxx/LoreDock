@@ -1,6 +1,9 @@
 package io.github.loredock.agent.service;
 
 import io.github.loredock.agent.mapper.AgentRunMapper;
+import io.github.loredock.agent.mapper.KnowledgeTaskMessageMapper;
+import io.github.loredock.agent.model.entity.KnowledgeTaskMessageEntity;
+import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import io.github.loredock.agent.model.entity.AgentRunEntity;
 import io.github.loredock.memory.api.MemoryCandidate;
 import io.github.loredock.memory.api.MemoryFull;
@@ -15,6 +18,7 @@ import java.util.Objects;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
@@ -35,14 +39,28 @@ public class MemoryTools {
 
     private final MemoryService memories;
     private final AgentRunMapper runs;
+    private final KnowledgeTaskMessageMapper messages;
 
     /**
      * @param memories 记忆契约（跨模块只依赖 {@code memory.api}）
      * @param runs 运行固定范围事实
      */
     public MemoryTools(MemoryService memories, AgentRunMapper runs) {
+        this(memories, runs, null);
+    }
+
+    /**
+     * 生产装配入口：显式指定包含消息来源的构造器，避免兼容重载干扰 Spring 构造器选择。
+     *
+     * @param memories 记忆模块契约
+     * @param runs 服务端运行范围
+     * @param messages 真实用户消息来源，供长期更正证据校验
+     */
+    @Autowired
+    public MemoryTools(MemoryService memories, AgentRunMapper runs, KnowledgeTaskMessageMapper messages) {
         this.memories = memories;
         this.runs = runs;
+        this.messages = messages;
     }
 
     /** @return 固定范围内与查询相关的记忆摘要（无正文，全文用 memory_read） */
@@ -72,12 +90,12 @@ public class MemoryTools {
 
     /**
      * 提炼用户偏好候选为记忆：范围由会话自身决定（会话挂项目→PROJECT，否则 GLOBAL），
-     * 写入前由判断链（值得写/语义重复/冲突仍写/预算）裁决，逐条返回结论。
+     * 写入前由判断链（新增/重复/增量/冲突/预算）裁决，逐条返回结论。
      *
      * @param candidates 候选列表（1~3 条）
      * @return 逐条写入结论（含 summary，无正文）
      */
-    @Tool(name = "memory_write", description = "把用户在这轮对话表达的长期偏好提炼成记忆；范围由会话自身决定，服务端写入前做值得写/重复/冲突判断")
+    @Tool(name = "memory_write", description = "把用户在这轮对话表达的长期偏好提炼成记忆；范围由会话自身决定，服务端写入前处理新增、重复、增量与冲突")
     public List<MemoryWriteVerdict> memoryWrite(
             @ToolParam(description = "待提炼的偏好候选（每条：title/content/category/summary 见字段说明）") List<MemoryCandidate> candidates,
             ToolContext context
@@ -86,9 +104,26 @@ public class MemoryTools {
         if (candidates == null || candidates.isEmpty()) {
             throw new IllegalArgumentException("memory_write 至少需要一条候选");
         }
-        return memories.acceptWrite(new MemoryWriteInput(
-                scope.projectId(), scope.runId(), scope.conversationId(),
-                scope.operatorId(), List.copyOf(candidates)));
+        MessageEvidence evidence = latestUserMessage(scope);
+        MemoryWriteInput input = messages == null
+                ? new MemoryWriteInput(scope.projectId(), scope.runId(), scope.conversationId(),
+                        scope.operatorId(), List.copyOf(candidates))
+                : new MemoryWriteInput(scope.projectId(), scope.runId(), scope.conversationId(),
+                        scope.operatorId(), evidence.id(), evidence.content(), List.copyOf(candidates));
+        return memories.acceptWrite(input);
+    }
+
+    private MessageEvidence latestUserMessage(ToolScope scope) {
+        if (messages == null) return new MessageEvidence(null, null);
+        KnowledgeTaskMessageEntity message = messages.selectOne(Wrappers.<KnowledgeTaskMessageEntity>lambdaQuery()
+                .eq(KnowledgeTaskMessageEntity::getRunId, scope.runId())
+                .eq(KnowledgeTaskMessageEntity::getRole, "USER")
+                .orderByDesc(KnowledgeTaskMessageEntity::getId).last("limit 1"));
+        return message == null ? new MessageEvidence(null, null)
+                : new MessageEvidence(message.getId(), message.getContent());
+    }
+
+    private record MessageEvidence(Long id, String content) {
     }
 
     /** 由服务端校验 ToolContext 并回查 run 固定范围；projectId 为空表示 GLOBAL 侧会话。 */

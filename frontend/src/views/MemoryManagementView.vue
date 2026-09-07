@@ -94,6 +94,7 @@
               <div class="memory-detail-meta"><span>来源：{{ sourceLabel(selected.sourceType) }}</span><span>使用 {{ selected.useCount }} 次</span><span>更新于 {{ formatDate(selected.updatedAt) }}</span></div>
               <article class="memory-detail-body"><h3>摘要</h3><p>{{ selected.summary || '未填写摘要，系统将使用正文前缀。' }}</p><h3>正文</h3><pre>{{ selected.content }}</pre></article>
               <section class="memory-audit"><h3>溯源与审计</h3><p v-if="selected.projectIdentifier">项目：{{ selected.projectIdentifier }}</p><p v-if="selected.sourceRunId">整理 run：#{{ selected.sourceRunId }}<span v-if="selected.sourceConversationId"> · 会话 #{{ selected.sourceConversationId }}</span></p><p>创建于 {{ formatDate(selected.createdAt) }}</p></section>
+              <section class="memory-audit memory-history"><header><h3>修改历史</h3><AppButton variant="secondary" :busy="historyLoading" busy-label="加载中…" @click="loadRevisions">刷新历史</AppButton></header><p v-if="historyError" class="memory-form-error">{{ historyError }}</p><div v-else-if="historyLoading" class="memory-state">正在加载版本历史…</div><div v-else-if="revisions.length === 0" class="memory-state">暂无历史版本</div><details v-for="item in revisions" v-else :key="item.id ?? `${item.memoryId}-${item.revision}`" class="memory-history-item"><summary>v{{ item.revision }} · {{ item.operation }} · {{ formatDate(item.createdAt) }} · {{ item.operatorId ?? '系统' }}</summary><p>{{ item.reason || '未记录变更原因' }}</p><pre>{{ formatSnapshot(item.snapshot) }}</pre></details></section>
               <footer class="memory-detail-actions"><AppButton variant="secondary" @click="openEdit">编辑</AppButton><AppButton variant="secondary" :busy="statusSaving" busy-label="处理中…" @click="toggleStatus">{{ selected.status === 'ACTIVE' ? '停用' : '重新启用' }}</AppButton><AppButton variant="danger" :busy="deleting" busy-label="删除中…" @click="confirmDelete">删除</AppButton></footer>
             </template>
             <div v-else class="memory-state memory-state--detail"><IconGlyph name="user" /><strong>选择一条记忆</strong><p>查看摘要、来源和使用情况，或进行人工维护。</p></div>
@@ -108,7 +109,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { memoryApi, type MemoryCategory, type MemoryScope, type MemoryStatus, type MemoryView } from '../api/memories'
+import { memoryApi, type MemoryCategory, type MemoryRevisionView, type MemoryScope, type MemoryStatus, type MemoryView } from '../api/memories'
 import type { ProjectSummary } from '../api/types'
 import { useProjectApi, useSession } from '../appContext'
 import { ApiError } from '../api/http'
@@ -142,6 +143,9 @@ const deleteOpen = ref(false)
 const saveError = ref('')
 const projects = ref<ProjectSummary[]>([])
 const projectsLoaded = ref(false)
+const revisions = ref<MemoryRevisionView[]>([])
+const historyLoading = ref(false)
+const historyError = ref('')
 const form = reactive({ scope: 'GLOBAL' as MemoryScope, projectId: null as number | null, category: 'FORMAT' as MemoryCategory, title: '', summary: '', content: '' })
 
 async function loadMemories(): Promise<void> {
@@ -163,7 +167,7 @@ async function loadMemories(): Promise<void> {
 }
 
 function changePage(nextPage: number): void { page.value.page = nextPage; void loadMemories() }
-function selectMemory(memory: MemoryView): void { selected.value = memory; editorOpen.value = false }
+function selectMemory(memory: MemoryView): void { selected.value = memory; editorOpen.value = false; revisions.value = []; void loadRevisions() }
 function openCreate(): void {
   editingId.value = null; Object.assign(form, { scope: 'GLOBAL', projectId: null, category: 'FORMAT', title: '', summary: '', content: '' }); saveError.value = ''; editorOpen.value = true
 }
@@ -183,7 +187,7 @@ async function saveMemory(): Promise<void> {
   saving.value = true; saveError.value = ''
   try {
     const memory = editingId.value
-      ? await memoryApi.update(editingId.value, { category: form.category, title: form.title.trim(), summary: form.summary.trim(), content: form.content.trim() })
+      ? await memoryApi.update(editingId.value, { category: form.category, title: form.title.trim(), summary: form.summary.trim(), content: form.content.trim(), expectedRevision: selected.value?.revision ?? 1 })
       : await memoryApi.create({ scope: form.scope, projectId: form.scope === 'PROJECT' ? form.projectId : null, category: form.category, title: form.title.trim(), summary: form.summary.trim(), content: form.content.trim() })
     await loadMemories(); selected.value = memory; closeEditor()
   } catch (failure) { saveError.value = failure instanceof ApiError ? failure.message : '保存失败，请稍后重试。' } finally { saving.value = false }
@@ -191,19 +195,33 @@ async function saveMemory(): Promise<void> {
 async function toggleStatus(): Promise<void> {
   if (!selected.value || statusSaving.value) return
   statusSaving.value = true
-  try { selected.value = await memoryApi.changeStatus(selected.value.id, selected.value.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE'); await loadMemories() } catch (failure) { errorMessage.value = failure instanceof ApiError ? failure.message : '状态更新失败，请稍后重试。' } finally { statusSaving.value = false }
+  try { selected.value = selected.value.revision === undefined
+    ? await memoryApi.changeStatus(selected.value.id, selected.value.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE')
+    : await memoryApi.changeStatus(selected.value.id, selected.value.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE', selected.value.revision); await loadMemories(); await loadRevisions() } catch (failure) { errorMessage.value = failure instanceof ApiError ? failure.message : '状态更新失败，请稍后重试。' } finally { statusSaving.value = false }
 }
 function confirmDelete(): void { deleteOpen.value = true }
 async function deleteMemory(): Promise<void> {
   if (!selected.value || deleting.value) return
   deleting.value = true
-  try { await memoryApi.delete(selected.value.id); deleteOpen.value = false; selected.value = null; await loadMemories() } catch (failure) { errorMessage.value = failure instanceof ApiError ? failure.message : '删除失败，请稍后重试。' } finally { deleting.value = false }
+  try { if (selected.value.revision === undefined) await memoryApi.delete(selected.value.id); else await memoryApi.delete(selected.value.id, selected.value.revision); deleteOpen.value = false; selected.value = null; await loadMemories() } catch (failure) { errorMessage.value = failure instanceof ApiError ? failure.message : '删除失败，请稍后重试。' } finally { deleting.value = false }
+}
+async function loadRevisions(): Promise<void> {
+  if (!selected.value || historyLoading.value) return
+  historyLoading.value = true; historyError.value = ''
+  try { revisions.value = (await memoryApi.revisions(selected.value.id)).items } catch (failure) { historyError.value = failure instanceof ApiError ? failure.message : '历史加载失败，请稍后重试。' } finally { historyLoading.value = false }
+}
+function formatSnapshot(snapshot: string): string {
+  try { return JSON.stringify(JSON.parse(snapshot), null, 2) } catch { return snapshot }
 }
 function categoryLabel(category: MemoryCategory): string { return categoryOptions.find(option => option.value === category)?.label ?? category }
 function statusLabel(status: MemoryStatus): string { return status === 'ACTIVE' ? '启用' : '已停用' }
 function sourceLabel(source: string): string { return source === 'MANUAL' ? '人工创建' : '知识整理沉淀' }
 function scopeLabel(memory: MemoryView): string { return memory.scope === 'GLOBAL' ? '通用' : `项目 · ${memory.projectIdentifier ?? memory.projectId ?? '未知'}` }
-function formatDate(value: string): string { return new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'short', day: 'numeric' }).format(new Date(value)) }
+function formatDate(value: string | null | undefined): string {
+  if (!value) return '—'
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '—' : new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: 'short', day: 'numeric' }).format(date)
+}
 async function logout(): Promise<void> { await session.logout(); await router.replace('/login') }
 
 onMounted(() => { void loadMemories() })

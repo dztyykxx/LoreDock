@@ -19,5 +19,9 @@ package io.github.loredock.memory.api;
  */
 public record MemoryEditInput(Long id, MemoryCategory category, String title, String summary,
                                  String content, MemoryStatus status, MemoryScope scope,
-                                 Long projectId, String operatorId) {
+                                 Long projectId, String operatorId, Long expectedRevision) {
+    public MemoryEditInput(Long id, MemoryCategory category, String title, String summary,
+            String content, MemoryStatus status, MemoryScope scope, Long projectId, String operatorId) {
+        this(id, category, title, summary, content, status, scope, projectId, operatorId, null);
+    }
 }

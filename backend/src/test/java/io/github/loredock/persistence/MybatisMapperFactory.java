@@ -22,6 +22,9 @@ public final class MybatisMapperFactory {
     public static <T> T create(DataSource dataSource, Class<T> mapperType) {
         try {
             MybatisConfiguration configuration = new MybatisConfiguration();
+            // 与生产 application.yml 保持一致：实体字段必须依赖显式 @TableField 映射，
+            // 自定义 SQL 未声明结果映射时应在测试中尽早暴露，而不是被默认驼峰规则掩盖。
+            configuration.setMapUnderscoreToCamelCase(false);
             configuration.addMapper(mapperType);
             MybatisSqlSessionFactoryBean factoryBean = new MybatisSqlSessionFactoryBean();
             factoryBean.setDataSource(dataSource);

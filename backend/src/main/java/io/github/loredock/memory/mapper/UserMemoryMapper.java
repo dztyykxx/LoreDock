@@ -6,12 +6,32 @@ import java.time.Instant;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Result;
+import org.apache.ibatis.annotations.ResultMap;
+import org.apache.ibatis.annotations.Results;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 /** 使用 MyBatis-Plus Java API 访问用户记忆事实；范围过滤必须在 SQL 层闭合。 */
 @Mapper
 public interface UserMemoryMapper extends BaseMapper<UserMemoryEntity> {
+
+    /** 在同一记忆写入范围内串行化自动合并与人工修改。 */
+    @Select("select 1 from (select pg_advisory_xact_lock(hashtext(#{lockKey}))) locked")
+    int lockWriteScope(@Param("lockKey") String lockKey);
+
+    /** 锁内按 revision 更新，影响行数为 0 表示写入计划已过期。 */
+    @Update("""
+            update user_memory
+            set category = #{category}, title = #{title}, summary = #{summary}, content = #{content},
+                revision = #{revision}, updated_at = #{updatedAt}, updated_by = #{updatedBy}
+            where id = #{id} and revision = #{expectedRevision}
+            """)
+    int updateMerged(@Param("id") Long id, @Param("category") String category,
+            @Param("title") String title, @Param("summary") String summary,
+            @Param("content") String content, @Param("revision") long revision,
+            @Param("expectedRevision") long expectedRevision, @Param("updatedAt") Instant updatedAt,
+            @Param("updatedBy") String updatedBy);
 
     /**
      * 摘要预载的关键词预筛：只取 {@code ACTIVE} 且「GLOBAL ∪ 指定项目」范围内、
@@ -28,6 +48,27 @@ public interface UserMemoryMapper extends BaseMapper<UserMemoryEntity> {
             order by m.updated_at desc, m.id desc
             limit #{limit}
             """)
+    @Results(id = "userMemoryResult", value = {
+            @Result(column = "id", property = "id", id = true),
+            @Result(column = "revision", property = "revision"),
+            @Result(column = "scope_type", property = "scopeType"),
+            @Result(column = "project_id", property = "projectId"),
+            @Result(column = "project_identifier", property = "projectIdentifier"),
+            @Result(column = "category", property = "category"),
+            @Result(column = "title", property = "title"),
+            @Result(column = "summary", property = "summary"),
+            @Result(column = "content", property = "content"),
+            @Result(column = "source_type", property = "sourceType"),
+            @Result(column = "source_run_id", property = "sourceRunId"),
+            @Result(column = "source_conversation_id", property = "sourceConversationId"),
+            @Result(column = "status", property = "status"),
+            @Result(column = "use_count", property = "useCount"),
+            @Result(column = "last_used_at", property = "lastUsedAt"),
+            @Result(column = "created_at", property = "createdAt"),
+            @Result(column = "updated_at", property = "updatedAt"),
+            @Result(column = "created_by", property = "createdBy"),
+            @Result(column = "updated_by", property = "updatedBy")
+    })
     List<UserMemoryEntity> selectKeywordCandidates(
             @Param("projectId") Long projectId,
             @Param("word") String word,
@@ -44,6 +85,7 @@ public interface UserMemoryMapper extends BaseMapper<UserMemoryEntity> {
             order by m.use_count desc, m.last_used_at desc nulls last, m.id desc
             limit #{limit}
             """)
+    @ResultMap("userMemoryResult")
     List<UserMemoryEntity> selectFallback(@Param("projectId") Long projectId, @Param("limit") int limit);
 
     /** 单 run 已新写记忆条数：用于 memory_write 的写入预算检查（默认上限 10）。 */

@@ -54,6 +54,7 @@ public enum ErrorCode {
     MEMORY_SCOPE_EDIT_FORBIDDEN(HttpStatus.BAD_REQUEST, "记忆范围与所属项目不可编辑"),
     MEMORY_BUDGET_EXCEEDED(HttpStatus.CONFLICT, "当前记忆写入预算已用尽"),
     MEMORY_JUDGE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "记忆判断模型暂时不可用"),
+    MEMORY_WRITE_STALE(HttpStatus.CONFLICT, "记忆已被其他操作更新，请刷新后重试"),
     AGENT_RUN_IDEMPOTENCY_CONFLICT(HttpStatus.CONFLICT, "相同幂等键对应的问答输入不一致"),
     AGENT_SKILL_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "问答能力暂时不可用"),
     AGENT_RUNTIME_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "问答运行时暂时不可用"),

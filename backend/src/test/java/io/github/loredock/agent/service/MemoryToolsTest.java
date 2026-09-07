@@ -8,7 +8,9 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import io.github.loredock.agent.mapper.AgentRunMapper;
+import io.github.loredock.agent.mapper.KnowledgeTaskMessageMapper;
 import io.github.loredock.agent.model.entity.AgentRunEntity;
+import io.github.loredock.agent.model.entity.KnowledgeTaskMessageEntity;
 import io.github.loredock.memory.api.MemoryCategory;
 import io.github.loredock.memory.api.MemoryCandidate;
 import io.github.loredock.memory.api.MemoryRelevant;
@@ -20,12 +22,50 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.model.ToolContext;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 /** 验证记忆三工具只在服务端固定运行范围内执行：run 状态不符、会话/项目不一致一律拒绝。 */
 class MemoryToolsTest {
 
     private static final ToolContext GLOBAL_CONTEXT = new ToolContext(Map.of(
             "operatorId", "admin", "projectIdentifier", "atlas", "conversationId", 41L, "runId", 61L));
+
+    /**
+     * 业务目的：生产记忆工具必须由 Spring 成功装配并获取用户消息来源，
+     * 防止兼容构造器使应用启动失败，或漏注入消息 Mapper 导致更正证据丢失。
+     */
+    @Test
+    void springCreatesMemoryToolsAndPassesTrustedUserEvidence() {
+        MemoryService memories = mock(MemoryService.class);
+        AgentRunMapper runs = mock(AgentRunMapper.class);
+        KnowledgeTaskMessageMapper messages = mock(KnowledgeTaskMessageMapper.class);
+        when(runs.selectById(61L)).thenReturn(AgentRunEntity.builder()
+                .id(61L).operatorId("admin").projectIdentifier("atlas")
+                .knowledgeTaskConversationId(41L).taskType("knowledge_curation").status("RUNNING").build());
+        String instruction = "以后正文改用二级标题，替换三级标题要求";
+        when(messages.selectOne(org.mockito.ArgumentMatchers.any())).thenReturn(
+                KnowledgeTaskMessageEntity.builder().id(81L).runId(61L)
+                        .role("USER").content(instruction).build());
+        when(memories.acceptWrite(org.mockito.ArgumentMatchers.any())).thenReturn(List.of());
+        MemoryCandidate candidate = new MemoryCandidate("标题格式", "正文使用二级标题", MemoryCategory.FORMAT, null);
+
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.registerBean(MemoryService.class, () -> memories);
+            context.registerBean(AgentRunMapper.class, () -> runs);
+            context.registerBean(KnowledgeTaskMessageMapper.class, () -> messages);
+            context.register(MemoryTools.class);
+            context.refresh();
+
+            MemoryTools tools = context.getBean(MemoryTools.class);
+            List<?> result = tools.memoryWrite(List.of(candidate), GLOBAL_CONTEXT);
+
+            verify(memories).acceptWrite(new MemoryWriteInput(null, 61L, 41L, "admin",
+                    81L, instruction, List.of(candidate)));
+            assertThat(result).isEmpty();
+            System.out.printf("测试证据：场景=Spring装配记忆工具，容器激活=%s，工具类型=%s，回执数=%d，消息来源已校验%n",
+                    context.isActive(), tools.getClass().getSimpleName(), result.size());
+        }
+    }
 
     /** 业务目的：run 不在 RUNNING（取消/失败终态）时模型已无资格执行记忆工具，
      *  防止被取消的模型调用仍在驱动记忆写入或频次计数。 */

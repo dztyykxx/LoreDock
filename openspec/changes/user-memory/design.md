@@ -9,7 +9,7 @@
 Goals：
 - 一张 `user_memory` 表 + `memory` 模块（REST 管理 + `memory.api.MemoryService` 契约），共享语义、无用户隔离；
 - 主 Agent 入口摘要预载（≤30 条/条≤300/块≤1800，GLOBAL∪本项目，全文匹配+频次打分）；
-- `memory_search/memory_read/memory_write` 三工具只注册主 Agent；写入内嵌「值得写/重复/冲突仍写」LLM 判断；冲突双写、模型采纳时刻择优；
+- `memory_search/memory_read/memory_write` 三工具只注册主 Agent；写入内嵌「新增/重复/增量/冲突」LLM 判断；增量原地合并，未决冲突交给人工确认；
 - 全部行为可测试可观测（AGENTS.md §9 证据日志），测试只选有业务用例的少量代表。
 
 Non-Goals：
@@ -20,7 +20,7 @@ Non-Goals：
 
 1. **模块归属与依赖**：新增 `memory` 模块（AGENTS.md §7），`memory.api.MemoryService` 为唯一跨模块契约（含不可变类型与枚举）；依赖方向 `Agent → Memory(api)`、`Memory → Project(api)`。判断用 LLM 调用在 memory 模块内直接调现有 ChatModel（与 `ContextCompressionService` 同先例：内部受限调用、非 Agent、无 Spec/Tool/Saver）。备选（否决）：放 knowledge 模块——记忆不是知识内容且不得进入知识检索，语义冲突；放 agent 模块——管理接口与模型编排无关，且 agent 不应持有所有业务表的访问权。
 
-2. **表结构（单表，无唯一键）**：`user_memory(id, scope_type, project_id, project_identifier, category, title, summary, content, source_type, source_run_id, source_conversation_id, status, use_count, last_used_at, created_by, updated_by, created_at, updated_at)`。不建唯一键——语义去重由判断层负责，且"冲突双写"必须允许两条共存，唯一键会错误阻挡；无 operator 列（全共享，已确认）；无 vector 列（关键词检索，已确认）。`summary ≤300`、`content ≤4000`、`title ≤200` 由 CHECK 与写入校验双层保证。
+2. **表结构（当前值 + 一张历史表）**：`user_memory` 保存当前投影并增加 `revision`；`user_memory_revision` 保存完整 JSONB 快照、操作类型、关系、来源和操作者。语义去重与冲突处理由判断层负责，不为记忆正文增加唯一键；无 vector 列（关键词检索，已确认）。`summary ≤300`、`content ≤4000`、`title ≤200` 由 CHECK 与写入校验双层保证。
 
 3. **检索打分器（确定性）**：一次 SQL 预筛（`status=ACTIVE AND scope_type='GLOBAL' OR project_id=?`，查询词对 title/summary/content 做 ILIKE 初筛，候选 ≤100）→ Java 打分（CJK 二元组 + 空白分词；标题命中×3 + 摘要命中×2 + 正文命中×1 + `log2(use_count+1)`；同分按 `last_used_at DESC, id DESC`）→ 无命中时兜底热度 Top3（按 use_count），预载总量 ≤30。查询词 = 原始目标 + 最近用户消息（各截断≤100 码点）。打分器为纯函数（单测友好）。备选（否决）：pg 全文索引/tsvector——数据量级小、后续如需语义可平滑升级 pgvector。
 
@@ -28,7 +28,7 @@ Non-Goals：
 
 5. **工具注册与范围**：新增 `MemoryTools`（`@Component`，`@Tool` 三方法），仅加入会话图主 Agent 的 `ToolCallbackProvider`（`MAIN_AGENT_TOOLS` 由 `List.of()` 扩为专家 AgentTool + 内存工具），主 Agent Agent 定义 `tool_names` 白名单同步，`validate()` 启动 fail-fast 不变。工具内范围校验复用 `KnowledgeCurationTools.scope()` 模式：回查 `agent_run`（taskType=knowledge_curation、RUNNING、操作者/会话/项目一致）；`memory_read`/`memory_search` 只返回「GLOBAL ∪ 本 run 项目」记忆（摘要/全文有界），**只作偏好上下文、不改变当前 run 前缀**；`memory_write` 的 scope 由 run 决定（会话挂项目→PROJECT，否则 GLOBAL），模型不可指定，且仅提炼对话中用户明确表达的偏好（一次性任务指令由判断链拒写），预算与判断链兜底"不能随便读/写"。
 
-6. **memory_write 判断链**：入参候选 ≤3（title+content，可带 category）→ 校验（枚举/长度/数量）→ 取同 scope 相近既有记忆（同分类或候选关键词命中，ACTIVE+DISABLED，≤50 最新）→ 单次 ChatModel 调用逐条判 `CREATED / CONFLICT_CREATED / SKIP_DUPLICATE / SKIP_NOT_WORTH`（冲突仍写，输出 `conflictsWith` 仅入日志）→ 按结果写入或缺省 summary（judge 未给则取正文前 300 码点）。预算：每工具调用 ≤3 条；本 run（`source_run_id`）累计新增 ≥10 条后拒写并说明需人工管理。判断过程失败 → 抛工具错误（可重试），不静默丢弃。人工 REST 路径不做语义判断（判断归人），但字段/scope 校验不可绕过。
+6. **memory_write 判断链**：入参候选 ≤3（title+content，可带 category）→ 校验（枚举/长度/数量）→ 取同 scope 相近既有记忆（同分类或候选关键词命中，ACTIVE+DISABLED，≤50 最新）→ 单次 ChatModel 调用逐条判 `NEW/DUPLICATE/INCREMENTAL/CONFLICT` 与 `CREATE/UPDATE/SKIP/CONFIRM` → 按结果新增、完整正文合并、跳过或待确认。冲突更新必须校验真实用户消息证据，不能自动双写。预算按实际 CREATE/UPDATE 次数统计；每工具调用 ≤3 条，本 run 累计实际修改达到上限后拒写。判断过程失败 → 抛工具错误（可重试），不静默丢弃。人工 REST 路径不做语义判断（判断归人），但字段/scope 校验不可绕过。
 
 7. **审计与日志**：`created_by/updated_by` 记会话操作者或 ADMIN 用户名（无权限语义，仅审计）；预载/加载/写入关键点结构化 INFO/WARN 日志（scope、命中数、判断结论、预算余量），不记正文全文。
 

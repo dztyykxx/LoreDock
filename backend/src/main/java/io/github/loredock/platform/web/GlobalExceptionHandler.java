@@ -112,6 +112,7 @@ public class GlobalExceptionHandler {
             case MEMORY_SCOPE_EDIT_FORBIDDEN -> ErrorCode.MEMORY_SCOPE_EDIT_FORBIDDEN;
             case MEMORY_BUDGET_EXCEEDED -> ErrorCode.MEMORY_BUDGET_EXCEEDED;
             case MEMORY_JUDGE_UNAVAILABLE -> ErrorCode.MEMORY_JUDGE_UNAVAILABLE;
+            case MEMORY_WRITE_STALE -> ErrorCode.MEMORY_WRITE_STALE;
         };
         LOGGER.warn("memory_failure traceId={} code={}", traceId(), code.name());
         return response(code, List.of());

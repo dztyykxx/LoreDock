@@ -19,6 +19,7 @@ public final class MemoryHttpMapper {
     public static MemoryResponse toResponse(MemoryFull full) {
         return new MemoryResponse(
                 full.id(),
+                full.revision(),
                 full.scope(),
                 full.projectId(),
                 full.projectIdentifier(),
@@ -54,6 +55,7 @@ public final class MemoryHttpMapper {
     public static MemoryEditInput toEditInput(Long id, MemoryUpdateRequest request, String operatorId) {
         return new MemoryEditInput(
                 id, request.category(), request.title(), request.summary(),
-                request.content(), request.status(), request.scope(), request.projectId(), operatorId);
+                request.content(), request.status(), request.scope(), request.projectId(), operatorId,
+                request.expectedRevision());
     }
 }

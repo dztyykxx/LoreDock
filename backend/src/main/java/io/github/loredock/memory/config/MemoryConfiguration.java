@@ -3,6 +3,7 @@ package io.github.loredock.memory.config;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.loredock.memory.api.MemoryService;
 import io.github.loredock.memory.mapper.UserMemoryMapper;
+import io.github.loredock.memory.mapper.UserMemoryRevisionMapper;
 import io.github.loredock.memory.service.MemoryServiceImpl;
 import io.github.loredock.memory.service.MemoryWriteJudger;
 import io.github.loredock.project.api.ProjectService;
@@ -20,7 +21,7 @@ public class MemoryConfiguration {
      * @param model 平台统一 ChatModel 提供者（与 {@code KnowledgeCurationRunExecutor} 同模式：延迟解析，
      *              未显式启用模型时应用照常启动，判断调用时以明确错误失败，可整体重试）
      * @param objectMapper 结构化 JSON 解析
-     * @return 记忆提炼判断器（值得写/重复/冲突仍写）
+     * @return 记忆提炼判断器（新增/重复/增量/冲突）
      */
     @Bean
     public MemoryWriteJudger memoryWriteJudger(ObjectProvider<ChatModel> model, ObjectMapper objectMapper) {
@@ -41,8 +42,10 @@ public class MemoryConfiguration {
             ProjectService projects,
             MemoryWriteJudger judger,
             MemoryProperties properties,
-            Clock clock
+            Clock clock,
+            UserMemoryRevisionMapper revisions,
+            ObjectMapper objectMapper
     ) {
-        return new MemoryServiceImpl(mapper, projects, judger, properties, clock);
+        return new MemoryServiceImpl(mapper, projects, judger, properties, clock, revisions, objectMapper);
     }
 }

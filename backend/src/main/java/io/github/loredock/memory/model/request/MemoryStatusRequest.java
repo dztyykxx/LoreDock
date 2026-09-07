@@ -9,6 +9,7 @@ import jakarta.validation.constraints.NotNull;
  * @param status ACTIVE（启用）或 DISABLED（停用）
  */
 public record MemoryStatusRequest(
-        @NotNull MemoryStatus status
+        @NotNull MemoryStatus status,
+        Long expectedRevision
 ) {
 }

@@ -7,6 +7,7 @@ export type MemorySourceType = 'KNOWLEDGE_CURATION' | 'MANUAL'
 
 export interface MemoryView {
   id: number
+  revision?: number
   scope: MemoryScope
   projectId: number | null
   projectIdentifier: string | null
@@ -22,6 +23,28 @@ export interface MemoryView {
   lastUsedAt: string | null
   createdAt: string
   updatedAt: string
+}
+
+export interface MemoryRevisionView {
+  id: number | null
+  memoryId: number | null
+  revision: number
+  snapshot: string
+  operation: string
+  relation: string | null
+  reason: string | null
+  sourceRunId: number | null
+  sourceConversationId: number | null
+  sourceMessageId: number | null
+  operatorId: string | null
+  createdAt: string
+}
+
+export interface MemoryRevisionPageResponse {
+  total: number
+  page: number
+  size: number
+  items: MemoryRevisionView[]
 }
 
 export interface MemoryPageResponse {
@@ -55,14 +78,16 @@ export interface MemoryUpdateInput {
   summary: string
   content: string
   status?: MemoryStatus
+  expectedRevision?: number
 }
 
 export interface MemoryApi {
   list(query?: MemoryListQuery): Promise<MemoryPageResponse>
   create(input: MemoryCreateInput): Promise<MemoryView>
   update(memoryId: number, input: MemoryUpdateInput): Promise<MemoryView>
-  changeStatus(memoryId: number, status: MemoryStatus): Promise<MemoryView>
-  delete(memoryId: number): Promise<void>
+  changeStatus(memoryId: number, status: MemoryStatus, expectedRevision?: number): Promise<MemoryView>
+  delete(memoryId: number, expectedRevision?: number): Promise<void>
+  revisions(memoryId: number, page?: number, size?: number): Promise<MemoryRevisionPageResponse>
 }
 
 function queryString(query: MemoryListQuery = {}): string {
@@ -84,9 +109,13 @@ export const memoryApi: MemoryApi = {
     method: 'PUT',
     body: JSON.stringify(input),
   }),
-  changeStatus: (memoryId, status) => requestJson<MemoryView>(`/api/admin/memories/${memoryId}/status`, {
+  changeStatus: (memoryId, status, expectedRevision) => requestJson<MemoryView>(`/api/admin/memories/${memoryId}/status`, {
     method: 'PATCH',
-    body: JSON.stringify({ status }),
+    body: JSON.stringify({ status, expectedRevision }),
   }),
-  delete: memoryId => requestJson<void>(`/api/admin/memories/${memoryId}`, { method: 'DELETE' }),
+  delete: (memoryId, expectedRevision) => requestJson<void>(
+    `/api/admin/memories/${memoryId}${expectedRevision ? `?expectedRevision=${expectedRevision}` : ''}`, { method: 'DELETE' }),
+  revisions: (memoryId, page = 1, size = 20) => requestJson<MemoryRevisionPageResponse>(
+    `/api/admin/memories/${memoryId}/revisions?page=${page}&size=${size}`,
+  ),
 }

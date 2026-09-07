@@ -50,6 +50,9 @@ public class MemoryRequestException extends RuntimeException {
         MEMORY_JUDGE_UNAVAILABLE,
 
         /** 单 run 累计新写记忆达到上限（默认 10），需人工管理后继续。 */
-        MEMORY_BUDGET_EXCEEDED
+        MEMORY_BUDGET_EXCEEDED,
+
+        /** 写入计划基于旧版本，必须重新读取并判断。 */
+        MEMORY_WRITE_STALE
     }
 }

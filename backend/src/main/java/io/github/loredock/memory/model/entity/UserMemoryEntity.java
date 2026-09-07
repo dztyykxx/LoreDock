@@ -16,6 +16,7 @@ import lombok.Setter;
 @TableName("user_memory")
 public class UserMemoryEntity {
     @TableId(value = "id", type = IdType.AUTO) private Long id;
+    @TableField("revision") private Long revision;
     @TableField("scope_type") private String scopeType;
     @TableField("project_id") private Long projectId;
     @TableField("project_identifier") private String projectIdentifier;
