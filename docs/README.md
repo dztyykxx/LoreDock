@@ -33,6 +33,8 @@
 
 `quality/` 保存可重复执行的质量门禁报告；T5 检索报告由公开模拟 fixture、真实 PostgreSQL、真实离线模型和生产应用端口生成。
 
+- `quality/本地嵌入模型选型与检索评估报告.md`：small/base 本地嵌入模型的离线 QA 检索质量、单条查询嵌入耗时、资源占用和选型结论。
+
 ## UI 设计稿
 
 `UI/` 保存 LoreDock MVP 的 Pencil 设计源稿、设计说明和总览预览：
