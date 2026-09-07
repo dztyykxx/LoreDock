@@ -21,6 +21,7 @@ dist/
 .env
 .env.*
 !.env.example
+!deploy/.env.production.example
 *.local
 
 # Logs and temporary files
@@ -37,4 +38,10 @@ temp/
 # Local design scratch files
 /docs/UI/untitled.pen
 /.playwright-mcp
+
+# Deploy secrets and runtime artifacts
+deploy/.env.production
+deploy/backup/
+deploy/base/images/
+deploy/data/
 

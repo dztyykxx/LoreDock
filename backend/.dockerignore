@@ -1,0 +1,8 @@
+# 后端镜像构建上下文忽略项
+target/
+.DS_Store
+*.log
+poc/
+data/
+agent-skills/
+agent-specs/

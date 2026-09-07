@@ -1,0 +1,73 @@
+# LoreDock nginx 配置（外部 TLS 模式 / LOREDOCK_TLS_MODE=external）
+# 适用场景：80/443 已被宿主机或面板反向代理占用（如 1Panel openresty）。
+# 本 nginx 只在容器内 80 端口提供 HTTP 服务；浏览器侧 HTTPS/域名/证书由上游反向代理（如 1Panel 网站）终结。
+# 上游反代需把子域名请求整体转发到本服务映射的宿主端口即可。
+
+# 覆盖后端 multipart 请求上限（101MB）+ 边界，避免上传返回 413
+client_max_body_size 110m;
+
+# MCP 公网限频：高熵 Bearer token 已是主防线，limit_req 只挡扫描器噪音
+limit_req_zone $binary_remote_addr zone=mcp:10m rate=10r/s;
+
+server {
+  listen 80;
+  server_name _;
+
+  # 必须显式声明静态根目录：否则 try_files 找不到 index.html 会陷入内部重定向循环(500)
+  root /usr/share/nginx/html;
+
+  # 容器健康探活
+  location = /healthz {
+    access_log off;
+    default_type text/plain;
+    return 200 "ok\n";
+  }
+
+  # 静态资源 + SPA history 路由回退
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+
+  # 后端 HTTP API（含 QA SSE 事件流）：必须关缓冲、放大读超时，否则流式回答被缓冲/断流
+  location /api/ {
+    proxy_pass http://backend:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Connection "";
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 660s;
+  }
+
+  # MCP Streamable HTTP（SSE）：公网暴露，Bearer token 鉴权，限频；
+  # 精确匹配 /mcp + 前缀 /mcp/ 覆盖 Spring AI MCP 端点，避免误拦 /mcpfoo 等无关路径
+  location = /mcp {
+    limit_req zone=mcp burst=20 nodelay;
+    proxy_pass http://backend:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Connection "";
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 3600s;
+  }
+  location /mcp/ {
+    limit_req zone=mcp burst=20 nodelay;
+    proxy_pass http://backend:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Connection "";
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 3600s;
+  }
+}

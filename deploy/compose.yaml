@@ -1,0 +1,99 @@
+# LoreDock 生产部署 Compose
+# 用法（统一带 --env-file，.env.production 承担插值源与各服务环境）：
+#   docker compose --env-file .env.production -f compose.yaml up -d
+#   docker compose --env-file .env.production --profile certbot -f compose.yaml up -d
+# 项目名 loredock-prod 与本地开发 compose（name: loredock）隔离，容器/卷名互不冲突。
+name: loredock-prod
+
+services:
+  database:
+    image: pgvector/pgvector:0.8.1-pg17
+    environment:
+      # POSTGRES_* 由 .env.production 提供；数据库不映射 host 端口，仅 compose 内部可达
+      POSTGRES_DB: ${POSTGRES_DB:?需要 POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:?需要 POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?需要 POSTGRES_PASSWORD}
+    mem_limit: 1g
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
+  backend:
+    image: ${LOREDOCK_BACKEND_IMAGE:-loredock-backend:0.1.0}
+    env_file:
+      - .env.production
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      # 覆盖 DB 连接指向 compose 内部 database 服务
+      LOREDOCK_DB_URL: ${LOREDOCK_DB_URL:?需要 LOREDOCK_DB_URL（jdbc:postgresql://database:5432/loredock）}
+      LOREDOCK_DB_USER: ${LOREDOCK_DB_USER:?需要 LOREDOCK_DB_USER}
+      LOREDOCK_DB_PASSWORD: ${LOREDOCK_DB_PASSWORD:?需要 LOREDOCK_DB_PASSWORD}
+    # 单机内存有限：JVM 限堆由 .env.production 的 JAVA_TOOL_OPTIONS 控制，容器整体封顶防 OOM
+    mem_limit: 2g
+    volumes:
+      # 对象存储 / 代码快照工作与索引 / embedding 模型 —— 相对 WORKDIR=/app 的路径
+      - ./data/objects:/app/data/objects
+      - ./data/work:/app/data/work
+      - ./data/indexes:/app/data/indexes
+      - ./models:/app/models
+    depends_on:
+      database:
+        condition: service_healthy
+    healthcheck:
+      # readiness 组含 db，天然把「DB 不可达」挡在容器健康之外
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/actuator/health/readiness || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+    restart: unless-stopped
+
+  frontend:
+    image: ${LOREDOCK_FRONTEND_IMAGE:-loredock-frontend:0.1.0}
+    environment:
+      # internal=本 nginx 终结 TLS+Let's Encrypt（需 SSL_DOMAIN，配合 certbot）；
+      # external=80/443 已被面板/反代占用，本 nginx 仅 HTTP，TLS 由上游反代终结
+      LOREDOCK_TLS_MODE: ${LOREDOCK_TLS_MODE:-internal}
+      SSL_DOMAIN: ${SSL_DOMAIN:?需要 SSL_DOMAIN}
+    mem_limit: 256m
+    ports:
+      # external 模式只用 HTTP 端口（如 8082）；HTTPS 端口可填任意空闲高位（本机无 443 监听时勿用 433）
+      - "${LOREDOCK_WEB_HTTP_PORT:-80}:80"
+      - "${LOREDOCK_WEB_HTTPS_PORT:-443}:443"
+    volumes:
+      - certbot-etc:/etc/letsencrypt
+      - certbot-webroot:/var/www/certbot
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:80/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # 首次签发 + 周期性续期 Let's Encrypt 证书；本地演练默认不启动（profile 隔离）
+  certbot:
+    profiles: ["certbot"]
+    image: certbot/certbot:latest
+    entrypoint: ["/bin/sh", "/entrypoint.sh"]
+    volumes:
+      - ./certbot/entrypoint.sh:/entrypoint.sh:ro
+      - certbot-etc:/etc/letsencrypt
+      - certbot-webroot:/var/www/certbot
+    environment:
+      SSL_DOMAIN: ${SSL_DOMAIN:?需要 SSL_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    depends_on:
+      frontend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  certbot-etc:
+  certbot-webroot:
